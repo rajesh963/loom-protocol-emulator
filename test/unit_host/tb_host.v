@@ -235,7 +235,6 @@ module tb_host;
   //   * write 0x14 CSR_IRQ        : clears the IRQ code (as the core will)
   // --------------------------------------------------------------------------
   reg [15:0] csr_mem [0:255];
-  reg [15:0] csr_rd_data_r;
   reg [15:0] th_st0, th_st1, th_st2, th_st3;   // {halted, en}
   integer    csr_wr_events;                    // total number of CSR writes
   reg [7:0]  csr_wr_addr_last;
@@ -260,7 +259,6 @@ module tb_host;
 
   always @(posedge clk) begin
     if (!rst_n) begin
-      csr_rd_data_r    <= 16'h0000;
       csr_wr_events    <= 0;
       csr_wr_addr_last <= 8'h00;
       csr_wr_data_last <= 16'h0000;
@@ -269,8 +267,6 @@ module tb_host;
       th_st2           <= 2'b10;
       th_st3           <= 2'b10;
     end else begin
-      if (csr_rd_en)
-        csr_rd_data_r <= csr_rd_val(csr_rd_addr);
       if (csr_wr_en) begin
         csr_mem[csr_wr_addr] <= csr_wr_data;
         csr_wr_events        <= csr_wr_events + 1;
@@ -293,7 +289,7 @@ module tb_host;
       end
     end
   end
-  assign csr_rd_data = csr_rd_data_r;
+  assign csr_rd_data = csr_rd_val(csr_rd_addr);   // combinational read port
 
   always @(posedge clk) begin
     if (!rst_n) irq_code_r <= 16'h0000;
