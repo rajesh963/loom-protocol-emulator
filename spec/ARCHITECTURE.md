@@ -436,8 +436,9 @@ active thread issue one instruction **every cycle** while four active threads sh
    `pout = (pout & ~TMASK[t]) | (value & TMASK[t])`
 4. wave player: while `wave_active`, the effective pin vector is `wave_pins` (pout is still updated
    underneath, and becomes visible again when the wave player stops).
-`pout[9:8]` are writable by software but not connected to any pin (they belong to the host
-link); software should leave them 0. They are not masked, to save area.
+`pout[9:8]` belong to the host link (MISO/IRQ) and are never bonded out; writes to them are
+**masked to 0** (`PINS_OUT_DRIVABLE = 16'hFCFF`), so a `CSRR` of `CSR_POUT` after `out 0xFFFF`
+reads `0xFCFF`. Events are masked by `TMASK` and then by the same mask.
 
 **S7. Counts and timers.** `TMR <= TMR + 1`; `stall[t] <= stall[t]-1` for every thread with
 `stall>0` that was not just re-stalled by its own issue this cycle; pop/enqueue head/count update:

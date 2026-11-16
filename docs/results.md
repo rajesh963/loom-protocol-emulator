@@ -26,8 +26,21 @@ block the tapeout; the SRAM build is the flagship that makes the full 1024-word 
 | flow status | `TBD` (CI) | `TBD` (CI) |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** of nominal area, with a rule of thumb of
-about 1K logic cells per tile (~32K cells for 8×4). The SRAM macro's 140 183 µm² is 14.0 % of that
-area, which is why the macro is the main area decision in the design.
+about 1K logic cells per tile (~32K cells for 8×4). The SRAM macro's 140 183 µm² is 11–14 % of that
+area depending on utilisation, which is why the macro is the main area decision in the design.
+
+**Current submission plan:** submit the **SRAM flagship** build if its CI is green (it is the
+configuration that runs the full 1024-word protocol suite), and fall back to the **FF build** if the
+SRAM flow has any problem — the FF build exists precisely so that a macro issue can never block the
+tapeout. Both configurations are built from the same RTL with no source differences other than
+`PMEM_IMPL`/`PMEM_WORDS` (and the SRAM flow's `pdn_cfg.tcl` / `Project.ExtendPowerStripes`).
+
+**Capture / record-replay (stretch) status:** the capture engine's RTL is **complete and
+unit-verified** (`CAPTURE_TB`, 209 checks), but silicon integration is **deferred to revision B**
+because enabling it aliases the 64-word DMEM used by the wave player. It is therefore not in
+`info.yaml source_files` and not in either submitted build; it is the cheapest future feature to
+enable (one parameter, one DMEM budget decision) and the reason the record-and-replay story in
+[`writeup.md` §8](writeup.md) is credible rather than hypothetical.
 
 ## 2. Area (synthesis)
 
@@ -86,4 +99,4 @@ Full methodology and the tables to be filled: [`verification.md`](verification.m
 |---|---|---|---|
 | 1 | SPI target mode needs the spare `uio[5..7]` re-mux (the default SPI pins are output-only) | documented in [`examples.md`](examples.md) §2.2; no hardware change | docs / firmware |
 | 2 | Full-duplex SPI above ~2 MHz controller-side needs a queue-synchronised read | documented limitation, see [`writeup.md`](writeup.md) §9 | design |
-| 3 | capture / record-replay is a stretch feature and is not in the default build | `loom_capture.v` ships only if the Lead enables it before submission | Lead |
+| 3 | capture / record-replay: RTL complete and unit-verified (209 checks), **silicon integration deferred to revision B** because enabling it aliases the 64-word DMEM used by the wave player | not in `source_files`; not in either submitted build | Lead |

@@ -232,7 +232,10 @@ chip exists and can be loaded at will:
 * **Record and replay** (stretch): a capture engine timestamps pin transitions into DMEM; the host
   drains them, and a replay mode feeds the same timestamps back through the queues. The same
   hardware becomes a logic analyser and a signal generator, which is the natural tool for the
-  reverse-engineering work this competition is named after.
+  reverse-engineering work this competition is named after. Status, honestly: the capture engine's
+  **RTL is complete and unit-verified** (209 checks, `test/unit_wave`), but **silicon integration is
+  deferred to revision B** because enabling it aliases the 64-word DMEM that the wave player uses —
+  a DMEM-budget decision, not a missing design. It is therefore not in the submitted build.
 * **Bit-level protocol *fuzzing***: because a program is data, the host can mutate timing constants
   (baud, setup times, pulse widths) and sweep a device's tolerance envelope automatically. A
   peripheral block cannot do that.
@@ -257,6 +260,11 @@ What LOOM does *worse* than the alternatives:
   practice this only bites full-duplex high-rate protocols (SPI controller above ~2 MHz reading
   data back), where a cycle-counted loop reappears — a small island of the old problem, and the one
   place where PIO's uniform model is genuinely simpler.
+* **`waitp` watches only the 8 bidirectional pins.** Its mask/value immediate is applied to
+  `pins_in[7:0]`, so a protocol whose input lands on an input-only `ui` pin uses a 3-cycle poll loop,
+  `inat`, or an edge-triggered `emite` instead. The 3-cycle poll is cheap at protocol timescales
+  (0.6 % of a 115200 bit), but it is a real asymmetry: the bidirectional half of the pin vector is
+  where the reactive primitives are strongest.
 * **4 threads, 19 pins.** Enough for six concurrent protocols, not enough for a 32-bit bus.
 * **No analog.** The pads are digital; USB and Ethernet need external transceivers regardless.
 

@@ -229,9 +229,15 @@ timed events already queued.
 |---|---|---|
 | `waitu t16` | `TMR == t16` | absolute; wrap-safe under the modular rules |
 | `waitd d16` | `d16` cycles have elapsed | 12.4 fixed point, carry accumulated: drift-free |
-| `waitp mask\|value` | `(pins_in[7:0] & mask) == value`, `mask = imm16[15:8]`, `value = imm16[7:0]` | polls only the **low byte** (P[7:0] = uio), ≤ 2 cycles latency |
+| `waitp mask\|value` | `(pins_in[7:0] & mask) == value`, `mask = imm16[15:8]`, `value = imm16[7:0]` | watches **only the 8 bidirectional pins** `P[7:0]`; ≤ 2 cycles latency |
 | `inat rd, t16` | `TMR == t16`, then `rd = pins_in` **sampled in that cycle** | zero sampling jitter |
 | `evwait imm8` | event flag `imm8` is set, then clears it | thread-to-thread/host synchronisation |
+
+**The `waitp` limitation, stated plainly:** its mask/value immediate is applied to `pins_in[7:0]`,
+so it watches the 8 bidirectional (`uio`) pins and cannot see the input-only `ui` pins. Protocols
+whose input lands on a `ui` pin therefore use a 3-cycle poll loop (`in`/`andi`/`jnz`), `inat`, or an
+edge-triggered `emite` instead. That costs 0.6 % of a 115200-baud bit and nothing measurable at
+I2C/PS-2/1-Wire rates — but choose the pin map with it in mind (`docs/architecture.md` §5).
 
 `inat` is the decoder's instrument: the sample time is a compile-time constant, so a receiver that
 knows the shared `TMR` grid samples exactly on the eye centre. `waitd` is the relative-delay tool

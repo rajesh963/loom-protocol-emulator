@@ -77,6 +77,8 @@ module loom_core #(
 );
 
   localparam FIFO_FULL = FIFO_DEPTH;   // bytes
+  // pins 9:8 are the host link (MISO/IRQ): writable internally but never bonded
+  localparam [15:0] PINS_OUT_DRIVABLE = 16'hFCFF;
   localparam EQ_TOT    = 16;           // NUM_THREADS * EQ_DEPTH
 
   // ==========================================================================
@@ -538,6 +540,8 @@ module loom_core #(
     if (fire[2]) npout = (npout & ~tmask[2]) | (fire_v[2] & tmask[2]);
     if (fire[1]) npout = (npout & ~tmask[1]) | (fire_v[1] & tmask[1]);
     if (fire[0]) npout = (npout & ~tmask[0]) | (fire_v[0] & tmask[0]);
+    // host-link bits are stored as 0 so CSR POUT reads are architecturally clean
+    npout = npout & PINS_OUT_DRIVABLE;
   end
 
   assign pins_out = wave_active ? wave_pins : npout;
