@@ -7,7 +7,7 @@
 ;
 ; THREAD: any single thread (standalone example; not used by demo_all).
 ;
-; DEVICE BEHAVIOUR (standard-speed 1-Wire timing, 60 MHz)
+; DEVICE BEHAVIOUR (standard-speed 1-Wire timing, 33.33 MHz)
 ;   * waits for the master's RESET pulse (DQ low >= 480 us; 25 x 20 us steps),
 ;   * answers with a PRESENCE pulse 30 us after the release, 120 us long,
 ;   * receives ROM command (expects 0xCC SKIP ROM) and a function command,
@@ -19,12 +19,12 @@
 ;     instructions of bit twiddling and is left as an exercise).
 ;
 ; TIMING (values are 12.4 fixed point; 1 us = 60 cycles)
-;   RESET_STEP      20 us = 1200 cyc = 0x4B00   (25 steps = 500 us low)
-;   PRESENCE_DELAY  30 us = 1800 = 0x7080
-;   PRESENCE_HALF   60 us = 3600 = 0xE100       (two halves = 120 us low)
-;   SAMPLE_DELAY    15 us =  900 = 0x3840       (when a write slot is sampled)
-;   SLOT_HOLD       40 us = 2400 = 0x9600       (device drives a read slot)
-;   RECOVERY         5 us =  300 = 0x12C0
+;   RESET_STEP      20 us =  666.7 cyc = 0x29AB (25 steps = 500 us low)
+;   PRESENCE_DELAY  30 us = 1000 = 0x3E80
+;   PRESENCE_HALF   60 us = 2000 = 0x7D00       (two halves = 120 us low)
+;   SAMPLE_DELAY    15 us =  500 = 0x1F40       (when a write slot is sampled)
+;   SLOT_HOLD       40 us = 1333 = 0x5355       (device drives a read slot)
+;   RECOVERY         5 us =  167 = 0x0A6B
 ;
 ;   All waits use the 12.4 fractional accumulator, so slot widths are exact
 ;   regardless of instruction issue; edge detection is WAITP (<= 4 cycles).
@@ -35,12 +35,12 @@
 .equ DQ_PIN,        0x0080        ; P[7] = uio[7]
 .equ WAIT_DQ_LOW,   (DQ_PIN << 8) | 0          ; 0x8000
 .equ WAIT_DQ_HIGH,  (DQ_PIN << 8) | DQ_PIN     ; 0x8080
-.equ RESET_STEP,    0x4B00
-.equ PRESENCE_DELAY, 0x7080
-.equ PRESENCE_HALF, 0xE100
-.equ SAMPLE_DELAY,  0x3840
-.equ SLOT_HOLD,     0x9600
-.equ RECOVERY,      0x12C0
+.equ RESET_STEP,    0x29AB
+.equ PRESENCE_DELAY, 0x3E80
+.equ PRESENCE_HALF, 0x7D00
+.equ SAMPLE_DELAY,  0x1F40
+.equ SLOT_HOLD,     0x5355
+.equ RECOVERY,      0x0A6B
 
 ; ----------------------------------------------------------------------------
 start:

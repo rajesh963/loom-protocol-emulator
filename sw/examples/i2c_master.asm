@@ -13,8 +13,8 @@
 ;
 ; TIMING
 ;   HALF_DIV = round(CLOCK_HZ*16/(2*I2C_HZ)) is the SCL low and high phase,
-;   generated with the 12.4 fractional WAITD accumulator.  100 kHz @ 60 MHz:
-;   300 cycles per phase (0x12C0); 400 kHz: 75 cycles (0x04B0).
+;   generated with the 12.4 fractional WAITD accumulator.  100 kHz @ 33.33 MHz:
+;   166.6 cycles per phase (0x0A6A); 400 kHz: 41.6 cycles (0x029A).
 ;   Every time SCL is released the firmware WAITPs for the line to actually go
 ;   high, so a target that stretches the clock simply extends the low phase --
 ;   no timeout, no corruption.  SDA/SCL are never driven high (open-drain).
@@ -40,13 +40,13 @@
 ;   dev = (7-bit address)<<1 | R/W.
 ;   A read job PUSHes the received byte to the thread TX FIFO (host RX_POP(t3)).
 ;
-; CYCLE BUDGET (100 kHz, HALF = 300 cycles)
+; CYCLE BUDGET (100 kHz, HALF = 166.6 cycles)
 ;   START ~ 4.5 phases = 1350 cyc, each byte = 9 phases = 2700 cyc,
-;   STOP ~ 4 phases = 1200 cyc.  A 3-byte write is ~11.1 kcycles (185 us on the
+;   STOP ~ 4 phases = 667 cyc.  A 3-byte write is ~10.4 kcycles (313 us on the
 ;   wire); the CPU is idle inside WAITD >95 % of the time, so this thread can
 ;   share the chip with the other three example programs.
 ;   At 400 kHz the same program runs 4x faster (HALF_DIV scales); measured on
-;   the model, the CPU still keeps up: ~40 instructions per 75-cycle phase at
+;   the model, the CPU still keeps up: ~40 instructions per 42-cycle phase at
 ;   worst, and the WAITPs absorb scheduler jitter.
 ;
 ; SIZE: ~120 instructions (< 128, fits the FF fallback build; the call macro
@@ -58,10 +58,10 @@
 ; ASSEMBLE: same command as the others; image is position independent.
 ; ============================================================================
 
-.equ CLOCK_HZ,   60000000
+.equ CLOCK_HZ,   33333333
 .equ I2C_HZ,     100000           ; set 400000 for fast mode
 
-.equ HALF_DIV,   (CLOCK_HZ * 16) / (2 * I2C_HZ)     ; 100k: 0x12C0, 400k: 0x04B0
+.equ HALF_DIV,   (CLOCK_HZ * 16) / (2 * I2C_HZ)     ; 100k: 0x0A6A, 400k: 0x029A
 .equ QUARTER_DIV, HALF_DIV / 2
 .equ SCL_PIN,    0x0010           ; P[4] = uio[4]
 .equ SDA_PIN,    0x0020           ; P[5] = uio[5]

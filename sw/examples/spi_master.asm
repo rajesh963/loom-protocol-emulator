@@ -29,14 +29,17 @@
 ;   fixed body of instructions.  With one runnable thread every instruction
 ;   issues in 1 cycle, so
 ;       SCK period = 4*QUARTER_CYCLES + N_instr  (N_instr ~= 30 for mode 0)
-;   Set QUARTER_CYCLES = (target_period - N_instr)/4.  At 60 MHz:
-;       target 1 MHz (period 60 cyc): QUARTER_CYCLES = 8   -> ~62 cyc measured
-;       target 2 MHz (period 30 cyc): QUARTER_CYCLES = 0   -> ~30 cyc measured
-;       target 500 kHz               : QUARTER_CYCLES = 23
+;   Set QUARTER_CYCLES = (target_period - N_instr)/4.  Measured on the model
+;   at 33.33 MHz (mode 0, single thread; SCK period includes ~16 instr cycles):
+;       QUARTER_CYCLES = 0/1 -> 20.4 cyc/bit = 1.63 MHz (ceiling, tight MISO)
+;       QUARTER_CYCLES = 2   -> 24.4 cyc/bit = 1.37 MHz
+;       QUARTER_CYCLES = 4   -> 32.4 cyc/bit = 1.03 MHz (shipped default)
+;       QUARTER_CYCLES = 8   -> 48.4 cyc/bit = 0.69 MHz (max margin)
 ;   With all four threads runnable the scheduler gives this thread ~1 issue in
 ;   2-4 cycles, so the body alone costs 60-120 cycles: SCK drops to ~0.4-0.7 MHz
 ;   and the duty cycle jitters with the scheduler (not with the data).
-;   => bit-banged full-duplex SPI is a 0.4-2 MHz protocol on LOOM.  The 10 MHz
+;   => bit-banged full-duplex SPI is a ~0.3-1.1 MHz protocol on LOOM at 33.33 MHz.
+;   The 10 MHz
 ;   figure quoted for the pin unit (half period = 3 cycles) is reachable only
 ;   by the event scheduler / wave player with precomputed patterns, i.e. for
 ;   MOSI-only streams, and is documented as a stretch goal, not claimed here.
@@ -56,7 +59,7 @@
 ; loads it at any PMEM base and sets the thread PC there.
 ; ============================================================================
 
-.equ CLOCK_HZ,        60000000
+.equ CLOCK_HZ,        33333333
 
 ; ---- select the SPI mode here (0,1,2,3) ------------------------------------
 .equ MODE,            0
@@ -64,7 +67,7 @@
 .equ CPHA,            MODE % 2
 
 ; ---- select the clock: SCK period = 4*QUARTER_CYCLES + ~30 instruction cycles
-.equ QUARTER_CYCLES,  8                ; 8 -> ~62 cycles/bit = 0.97 MHz @ 60 MHz
+.equ QUARTER_CYCLES,  4                ; 4 -> ~32 cycles/bit = ~1.03 MHz @ 33.33 MHz
 .equ QUARTER_DIV,     QUARTER_CYCLES * 16
 .equ HALF_DIV,        2 * QUARTER_CYCLES * 16
 

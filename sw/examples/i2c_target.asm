@@ -124,7 +124,8 @@ read_done:
 nak_resync:
         dclr    SDA_PIN             ; NAK (leave SDA released)
         ; a data "1" also looks like (SCL=1,SDA=1) for one high phase, so
-        ; re-check after 320 cycles (> the 300-cycle high phase at 100 kHz)
+        ; re-check after 320 cycles (> the 167-cycle SCL high phase at 100 kHz/33.33 MHz;
+        ; ratio 1.92, so this resync constant does not need rescaling)
         waitp   WAIT_STOP
         waitd   0x1400
         in      r2
@@ -159,14 +160,16 @@ sub_next_byte:
         in      r4
         andi    r4, SDA_PIN         ; first-bit sample, in mask form
 nb_poll:
-        ; SCL first: the moment SCL is low this is a normal data bit and the
-        ; master is allowed to change SDA (setup/hold time can be ~0 cycles on
-        ; a fast master).  Only an SDA move while SCL is STILL high is a
-        ; START/repeated START/STOP.
+        ; SCL first, and BOTH lines from ONE atomic IN sample: the moment SCL is
+        ; low this is a normal data bit and the master is allowed to change SDA
+        ; (setup/hold time can be ~0 cycles on a fast master).  Only an SDA move
+        ; while SCL is STILL high is a START/repeated START/STOP.  Sampling SCL
+        ; and SDA in the same cycle removes the 1-instruction skew that made a
+        ; normal falling-edge SDA change look like a START/STOP.
         in      r2
-        andi    r2, SCL_PIN
+        mov     r3, r2
+        andi    r3, SCL_PIN
         jz      nb_data             ; SCL fell -> this was a normal data bit
-        in      r2
         andi    r2, SDA_PIN
         cmp     r2, r4
         jnz     nb_event            ; SDA moved while SCL high -> START/STOP

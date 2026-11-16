@@ -70,7 +70,7 @@ __all__ = [
     "Ws2812", "Ps2Host", "OneWireMaster", "format_wave", "render_levels",
 ]
 
-DEFAULT_CLOCK_HZ = 60_000_000
+DEFAULT_CLOCK_HZ = 33_333_333   # shipped LOOM design point (CLOCK_PERIOD 30 ns)
 ALL_PINS = 0xFFFF
 HOST_BITS = 0x0300          # P[9:8] are the host link, never protocol pins
 
@@ -86,7 +86,7 @@ def fixed124(cycles: float | int) -> int:
     """Cycles -> 12.4 fixed point (integer part <<4 | fractional sixteenths).
 
     Unlike the hardware register this is *not* masked to 16 bits, so a far-end
-    model can represent slow bit periods (e.g. 6250 cycles at 9600 baud) that
+    model can represent slow bit periods (e.g. 3472 cycles at 9600 baud) that
     the chip builds from multiple CELLS event cells instead.
     """
     return int(round(float(cycles) * 16.0))
@@ -268,7 +268,7 @@ class UartBus(FarEnd):
     of the wire (needs a `WireWorld`).
 
     The bit clock is 12.4 fixed point, exactly like the firmware's `setp`
-    register, so a 520.8333-cycle bit at 115200 baud is reproduced bit-exactly
+    register, so a 289.375-cycle bit at 115200 baud (33.33 MHz) is reproduced
     (the far end and the chip agree to <1/16 cycle per bit, no drift).
     """
 
@@ -1256,11 +1256,17 @@ class Ws2812(FarEnd):
     """
 
     def __init__(self, world: WireWorld, *, data_pin: int = 12,
-                 one_threshold: int = 36, reset_cycles: int = 1500):
+                 one_threshold: int | None = None,
+                 reset_cycles: int | None = None):
         self.world = world
         self.data_pin = int(data_pin)
-        self.one_threshold = int(one_threshold)
-        self.reset_cycles = int(reset_cycles)
+        hz = world.clock_hz
+        # 0.6 us sits between T0H (0.4 us) and T1H (0.8 us); a latch is any low
+        # longer than ~30 us (the real reset is >50 us).
+        self.one_threshold = int(one_threshold if one_threshold is not None
+                                 else round(0.6e-6 * hz))
+        self.reset_cycles = int(reset_cycles if reset_cycles is not None
+                                else round(30e-6 * hz))
         self.name = "ws2812"
         self._prev = 1
         self._ready = False
@@ -1388,7 +1394,8 @@ class OneWireMaster(FarEnd):
 
     Drives DQ (open drain: ext bit 0 = pull low, 1 = release to the pull-up) and
     implements standard-speed reset/presence, write-0/1 slots and read slots at
-    60 MHz (1 us = 60 cycles).  After a reset the device answers with a presence
+    33.33 MHz (1 us = 33.33 cycles), derived from the world clock.  After a
+    reset the device answers with a presence
     pulse; ROM/function bytes are then transferred with slot timing.
     """
 
@@ -1396,6 +1403,7 @@ class OneWireMaster(FarEnd):
         self.world = world
         self.dq_pin = int(dq_pin)
         self.name = "1wire-master"
+        self._cycles_per_us = world.clock_hz / 1e6
         self._ext = 0xFFFF
         self._level = 1
         self.frames: list[bytes] = []
@@ -1418,21 +1426,28 @@ class OneWireMaster(FarEnd):
             self._ext |= 1 << self.dq_pin
 
     def _run(self, cycles: int) -> None:
-        self.world.run(int(cycles))
+        self.world.run(max(1, int(cycles)))
+
+    def _us(self, micros: float) -> int:
+        """Microseconds -> cycles for the world's current clock."""
+        return max(1, int(round(micros * self._cycles_per_us)))
 
     def _sample(self) -> int:
         return self._level
 
     # -- protocol ---------------------------------------------------------
-    def reset(self, *, low_cycles: int = 30_000) -> bool:
+    def reset(self, *, low_cycles: int | None = None) -> bool:
         """RESET pulse (500 us low), then return True if a PRESENCE pulse was seen."""
         self._pull(True)
-        self._run(low_cycles)
+        # 600 us low (spec minimum is 480 us): the device counts 25 x 20 us
+        # steps + instruction overhead, so the master must hold the line low
+        # longer than the device's detection window.
+        self._run(self._us(600) if low_cycles is None else low_cycles)
         self._pull(False)
-        self._run(1_800)                    # 30 us: device presence starts
-        self._run(2_400)                    # sample at ~70 us after release
+        self._run(self._us(30))             # device presence starts
+        self._run(self._us(40))             # sample at ~70 us after release
         presence = self._sample() == 0
-        self._run(18_000)                   # finish the presence window (~370 us)
+        self._run(self._us(300))            # finish the presence window (~370 us)
         return presence
 
     def write_byte(self, value: int) -> None:
@@ -1440,9 +1455,9 @@ class OneWireMaster(FarEnd):
         for i in range(8):
             bit = (value >> i) & 1
             self._pull(True)
-            self._run(360 if bit else 3_600)      # 6 us / 60 us low
+            self._run(self._us(6) if bit else self._us(60))   # 6 us / 60 us low
             self._pull(False)
-            self._run(1_800)                      # 30 us recovery
+            self._run(self._us(30))                           # 30 us recovery
         self.frames.append(bytes([value]))
 
     def read_byte(self) -> int:
@@ -1450,13 +1465,13 @@ class OneWireMaster(FarEnd):
         value = 0
         for i in range(8):
             self._pull(True)
-            self._run(180)                        # 3 us start pulse
+            self._run(self._us(3))                # 3 us start pulse
             self._pull(False)
-            self._run(720)                        # sample at ~15 us
+            self._run(self._us(12))               # sample at ~15 us
             bit = 1 if self._sample() else 0      # device pulls low for a 0 bit
             value |= bit << i
-            self._run(2_700)                      # finish the 60 us slot
-            self._run(600)                        # 10 us recovery
+            self._run(self._us(45))               # finish the 60 us slot
+            self._run(self._us(10))               # 10 us recovery
         return value
 
     def read_scratchpad(self, count: int = 9) -> bytes:

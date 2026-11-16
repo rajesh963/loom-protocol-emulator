@@ -26,19 +26,19 @@
 0015   56008000  waitp 0x8000             waitp   WAIT_DQ_LOW
 0016   05000019  movi r4, 0x0019          movi    r4, 25
 ; --- reset_loop = 0x017
-0017   54004B00  waitd 0x4B00             waitd   RESET_STEP
+0017   540029AB  waitd 0x29AB             waitd   RESET_STEP
 0018   38000000  in r0                    in      r0
 0019   12000080  andi r0, 0x0080          andi    r0, DQ_PIN
 001A   84000022  jnz not_reset            jnz     not_reset       ; line released early = a normal slot, resync
 001B   0F000001  subi r4, 0x0001          subi    r4, 1
 001C   8400FFFB  jnz reset_loop           jnz     reset_loop
 001D   56008080  waitp 0x8080             waitp   WAIT_DQ_HIGH
-001E   54007080  waitd 0x7080             waitd   PRESENCE_DELAY
+001E   54003E80  waitd 0x3E80             waitd   PRESENCE_DELAY
 001F   3C000080  dset 0x80                dset    DQ_PIN
-0020   5400E100  waitd 0xE100             waitd   PRESENCE_HALF
-0021   5400E100  waitd 0xE100             waitd   PRESENCE_HALF
+0020   54007D00  waitd 0x7D00             waitd   PRESENCE_HALF
+0021   54007D00  waitd 0x7D00             waitd   PRESENCE_HALF
 0022   3E000080  dclr 0x80                dclr    DQ_PIN
-0023   540012C0  waitd 0x12C0             waitd   RECOVERY
+0023   54000A6B  waitd 0x0A6B             waitd   RECOVERY
 0024   2DC00008  csrr r7, tpc             csrr    r7, TPC
 0025   0400001A  movi r0, 0x001A          movi    r0, sub_rx_byte - . + 1
 0026   08380000  add r0, r7               add     r0, r7
@@ -72,15 +72,15 @@
 003F   04C00008  movi r3, 0x0008          movi    r3, 8
 ; --- rxb_loop = 0x040
 0040   56008000  waitp 0x8000             waitp   WAIT_DQ_LOW
-0041   54003840  waitd 0x3840             waitd   SAMPLE_DELAY
+0041   54001F40  waitd 0x1F40             waitd   SAMPLE_DELAY
 0042   38800000  in r2                    in      r2
 0043   12800080  andi r2, 0x0080          andi    r2, DQ_PIN      ; 0x0000 / 0x0080 (bit 7 of the byte)
 0044   20400001  shr r1, 1                shr     r1, 1           ; LSB-first: new bit shifts down from bit 7
 0045   14500000  or r1, r2                or      r1, r2
 0046   56008080  waitp 0x8080             waitp   WAIT_DQ_HIGH
-0047   540012C0  waitd 0x12C0             waitd   RECOVERY
+0047   54000A6B  waitd 0x0A6B             waitd   RECOVERY
 0048   0EC00001  subi r3, 0x0001          subi    r3, 1
-0049   8400FFF7  jnz SAMPLE_DELAY         jnz     rxb_loop
+0049   8400FFF7  jnz rxb_loop             jnz     rxb_loop
 004A   2A380008  csrw tpc, r7             csrw    TPC, r7
 ; --- sub_tx_byte = 0x04B
 004B   04C00008  movi r3, 0x0008          movi    r3, 8
@@ -89,16 +89,16 @@
 004D   20400001  shr r1, 1                shr     r1, 1
 004E   12800001  andi r2, 0x0001          andi    r2, 1           ; Z = !bit0
 004F   56008000  waitp 0x8000             waitp   WAIT_DQ_LOW     ; master starts a read slot
-0050   540012C0  waitd 0x12C0             waitd   RECOVERY        ; ~5 us: present the bit quickly
+0050   54000A6B  waitd 0x0A6B             waitd   RECOVERY        ; ~5 us: present the bit quickly
 0051   84000003  jnz txb_one              jnz     txb_one
 0052   3C000080  dset 0x80                dset    DQ_PIN          ; 0 -> pull DQ low
 0053   80000002  jmp txb_hold             jmp     txb_hold
 ; --- txb_one = 0x054
 0054   3E000080  dclr 0x80                dclr    DQ_PIN          ; 1 -> release (pull-up high)
 ; --- txb_hold = 0x055
-0055   54009600  waitd 0x9600             waitd   SLOT_HOLD
+0055   54005355  waitd 0x5355             waitd   SLOT_HOLD
 0056   3E000080  dclr 0x80                dclr    DQ_PIN          ; release after the slot
-0057   540012C0  waitd 0x12C0             waitd   RECOVERY
+0057   54000A6B  waitd 0x0A6B             waitd   RECOVERY
 0058   0EC00001  subi r3, 0x0001          subi    r3, 1
 0059   8400FFF3  jnz txb_loop             jnz     txb_loop
 005A   2A380008  csrw tpc, r7             csrw    TPC, r7

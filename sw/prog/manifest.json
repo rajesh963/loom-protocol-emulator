@@ -1,6 +1,6 @@
 {
   "generated_by": "sw/prog/build_examples.py",
-  "clock_hz": 60000000,
+  "clock_hz": 33333333,
   "pmem_words": 1024,
   "ff_fallback_words": 128,
   "target": "tt_um_rajesh963_loom",
@@ -92,7 +92,7 @@
         "CS_N": 3
       },
       "fifo": "host->RXFIFO byte, MISO byte -> TXFIFO",
-      "notes": "mode 0, QUARTER_CYCLES=8 -> ~62 cyc/bit (~0.97 MHz)",
+      "notes": "mode 0, QUARTER_CYCLES=4 -> ~32 cyc/bit (~1.03 MHz @ 33.33 MHz)",
       "source": "sw/examples/spi_master.asm",
       "image": "sw/prog/spi_master.hex",
       "words": 49,
@@ -168,7 +168,7 @@
         "TX": 10
       },
       "fifo": "host->RXFIFO, one doorbell per burst",
-      "notes": "8N1 TX, BAUD_DIV 0x208D (520.8125 cyc/bit)",
+      "notes": "8N1 TX, BAUD_DIV 0x1216 (289.375 cyc/bit @ 33.33 MHz)",
       "source": "sw/examples/uart_tx.asm",
       "image": "sw/prog/uart_tx.hex",
       "words": 34,
@@ -186,7 +186,7 @@
         "DATA": 12
       },
       "fifo": "3 bytes (G,R,B) per LED -> RXFIFO",
-      "notes": "800 kHz, T0H 24 / T1H 48 cycles, 50 us latch",
+      "notes": "800 kHz, T0H 13.3 / T1H 26.7 cycles, 50 us latch @ 33.33 MHz",
       "source": "sw/examples/ws2812.asm",
       "image": "sw/prog/ws2812.hex",
       "words": 47,

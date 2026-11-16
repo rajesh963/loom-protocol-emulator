@@ -6,6 +6,11 @@ single relocatable `.asm` (< 128 instructions) that can run on any of the four
 threads, plus the Python "other end of the wire" helpers in `sw/protocols.py`
 and a runnable demo in `host/demos/`.
 
+**Shipped design point: 33.33 MHz** (`CLOCK_PERIOD` 30 ns, the frequency the
+post-CTS resizer closes at; the competition sets no frequency target). Every
+rate below is the real-time rate at 33.33 MHz; the cycle counts are what the
+firmware and the tests actually use.
+
 ```
 sw/examples/*.asm        firmware sources (this README describes each one)
 sw/prog/build_examples.py builds sw/prog/*.hex|.lst|.sym + manifest.json
@@ -19,14 +24,15 @@ host/demos/demo_all.py  four protocols running at once, decoded transcript + wav
 ```bash
 cd chipchallenge/loom
 ../.venv/bin/python sw/prog/build_examples.py        # assemble all examples
-../.venv/bin/python sw/examples/model_selftest.py -v # 36 checks, golden model
+../.venv/bin/python sw/examples/model_selftest.py -v # 45 checks, golden model
 ../.venv/bin/python host/demos/demo_all.py           # end-to-end demo
 ```
 
 The golden-model self-test is the acceptance gate: every protocol is exercised
 byte/frame-exact through real pin waveforms, including 9600/57600/115200 baud
 variants, all four SPI modes, 100 kHz + 400 kHz I2C, a 450-cycle clock stretch,
-a 2 MHz SPI slave clock, and all four threads running together.
+SPI slave at 1 MHz (and 2 MHz as a model-only stress), and all four threads
+running together.
 
 ## How firmware gets its timing
 
@@ -48,15 +54,15 @@ protocols share one 1-instruction/cycle datapath.
 
 | program | thread in demo | pins (P[n]) | size | status | measured rate |
 |---|---|---|---|---|---|
-| `uart_tx.asm` | t0 | TX=P[10]=uo[2] | 34 | model-verified | 115200 8N1, 520.8125 cyc/bit (−40 ppm) |
+| `uart_tx.asm` | t0 | TX=P[10]=uo[2] | 34 | model-verified | 115200 8N1, 289.375 cyc/bit (+80 ppm) |
 | `uart_rx.asm` | t1 | RX=P[11]=ui[3] | 32 | model-verified | 115200 8N1, full duplex with tx |
 | `uart_loopback.asm` | — | RX=P[11], TX=P[10] | 41 | model-verified | half-duplex echo, needs inter-byte gap |
-| `spi_master.asm` | t2 | SCK=P[0], MOSI=P[1], MISO=P[2], CS_N=P[3] | 49 | model-verified, modes 0–3 | ~0.97 MHz SCK (≈62 cyc/bit); 2 MHz with `QUARTER_CYCLES=0` |
-| `spi_slave.asm` | — | MISO=P[0], SCK=P[4], MOSI=P[5], CS_N=P[6] | 31 | model-verified | 2 MHz external SCK tested clean |
-| `i2c_master.asm` | t3 | SCL=P[4]=uio[4], SDA=P[5]=uio[5] | 125 | model + RTL verified | 100 kHz (300-cyc phases), 400 kHz variant |
+| `spi_master.asm` | t2 | SCK=P[0], MOSI=P[1], MISO=P[2], CS_N=P[3] | 49 | model-verified, modes 0–3 | ~1.03 MHz SCK (32 cyc/bit, `QUARTER_CYCLES=4`); 1.63 MHz ceiling |
+| `spi_slave.asm` | — | MISO=P[0], SCK=P[4], MOSI=P[5], CS_N=P[6] | 31 | model-verified | 1 MHz external SCK clean (16-cyc half is the RTL edge) |
+| `i2c_master.asm` | t3 | SCL=P[4]=uio[4], SDA=P[5]=uio[5] | 125 | model + RTL verified | 100 kHz (166.6-cyc phases → 97.6 kHz), 400 kHz variant (→ 364 kHz) |
 | `i2c_target.asm` | — | SCL=P[6]=uio[6], SDA=P[7]=uio[7] | 121 | model + RTL verified | 100 kHz, register file = DMEM[0..7] |
-| `ws2812.asm` | — | DATA=P[12]=uo[4] | 47 | model-verified | 800 kHz (T0H 24 / T1H 48 cyc), 50 us latch |
-| `ps2_target.asm` | — | CLK=P[13]=uo[5], DATA=P[14]=uo[6] | 58 | model-verified | ~14.3 kHz clock, 11-bit frames + odd parity |
+| `ws2812.asm` | — | DATA=P[12]=uo[4] | 47 | model-verified | 800 kHz (T0H 13.3 / T1H 26.7 cyc), 50 us latch |
+| `ps2_target.asm` | — | CLK=P[13]=uo[5], DATA=P[14]=uo[6] | 58 | model-verified | 14.28 kHz clock, 11-bit frames + odd parity |
 | `onewire.asm` | — | DQ=P[7]=uio[7] (open-drain) | 91 | model-verified | standard-speed, +25.0 C DS18B20 scratchpad |
 
 Pin convention: `P[15:10]` = `uo_out[7:2]`, `P[15:11]` = `ui_in[7:3]` readable,
@@ -71,10 +77,12 @@ four-program demo needs the 1024-word SRAM build.
 
 ## UART — 115200 8N1, full duplex (`uart_tx.asm`, `uart_rx.asm`, `uart_loopback.asm`)
 
-* **Bit clock**: `BAUD_DIV = round(60e6·16/115200) = 8333 = 0x208D` →
-  520.8125 cycles/bit, −40 ppm. The 12.4 period register is at most 4095.9
-  cycles, so slow rates use `CELLS = ceil(BAUD_DIV/65535)` event cells per bit
-  (`9600 baud = 2 × 50000 = 6250 cycles/bit`, exact). Both TX and RX implement
+* **Bit clock**: `BAUD_DIV = round(33.33e6·16/115200) = 4630 = 0x1216` →
+  289.375 cycles/bit (+80 ppm divider error; the measured cell average is
+  289.14 → 115.28 kBd, +0.07 %, well inside UART tolerance). The 12.4 period
+  register is at most 4095.9 cycles, so slow rates use
+  `CELLS = ceil(BAUD_DIV/65535)` event cells per bit
+  (`9600 baud = 55556 = 3472.25 cycles/bit`, CELLS=1). Both TX and RX implement
   this, so `BAUD` is configurable via `.equ` for any rate.
 * **TX event schedule**: 10 cells — start(0), 8 data LSB-first, stop(1). Each
   cell is one `emit`; the fractional carry makes the frame drift-free and the
@@ -96,14 +104,22 @@ four-program demo needs the 1024-word SRAM build.
   (middle of the low phase before the leading edge for CPHA=0, middle of the
   high phase after it for CPHA=1), selected by a runtime CPHA flag.
 * **Honest cycle budget**: this is bit-banged. Per bit the loop does 4 `WAITD`
-  quarter-cells + ~30 instructions, so
-  `SCK period = 4·QUARTER_CYCLES + N_instr`. `QUARTER_CYCLES=8` gives ≈62
-  cycles/bit (~0.97 MHz) when the thread runs alone; with all four threads
-  runnable the body costs 60–120 cycles and SCK falls to ~0.4–0.7 MHz with
-  scheduler-dependent duty cycle. **10 MHz (3-cycle half period) is the pin
-  unit's ceiling, not this firmware's**: it needs precomputed patterns via the
-  wave player (stretch, MOSI-only). The CPU keeps up with the wire (30–60
-  instructions per 60-cycle bit) — issue rate, not the event queue, is the limit.
+  quarter-cells + ~16 instructions, so
+  `SCK period = 4·QUARTER_CYCLES + N_instr`. Measured at 33.33 MHz, single
+  thread (mode 0):
+
+  | `QUARTER_CYCLES` | SCK period | SCK rate |
+  |---|---|---|
+  | 0 or 1 | 20.4 cyc | 1.63 MHz (ceiling; tight MISO margin) |
+  | 2 | 24.4 cyc | 1.37 MHz |
+  | **4 (shipped)** | **32.4 cyc** | **1.03 MHz** |
+  | 8 | 48.4 cyc | 0.69 MHz (max margin) |
+
+  With all four threads runnable the body costs 60–120 cycles and SCK falls to
+  roughly a third of these rates with scheduler-dependent duty cycle. **10 MHz
+  (3-cycle half period) is the pin unit's ceiling, not this firmware's**: it
+  needs precomputed patterns via the wave player (stretch, MOSI-only). The CPU
+  keeps up with the wire — issue rate, not the event queue, is the limit.
 * One byte per CS frame, MSB-first, MISO shifted in, received byte to the host
   TX FIFO; the drain loop empties the host FIFO without a doorbell.
 
@@ -113,19 +129,24 @@ four-program demo needs the 1024-word SRAM build.
   rising edge, presents MISO while SCK is low. One CS frame = one byte;
   response = previous MOSI + 1 (a deterministic register-read fixture).
 * **Max slave clock**: each edge costs ≤4 cycles of poll latency + ~8
-  instructions. A 16-cycle half period (2 MHz) is the practical edge; tested
-  clean at 1 MHz and 2 MHz on the golden model. Since `WAITP`'s mask is only
-  8 bits, the SCK/MOSI/CS pins must be on `P[7:0]` (they are).
+  instructions, so a 16-cycle half period is the practical edge — that is
+  ~1.04 MHz at 33.33 MHz, and 1 MHz is tested clean (the 60 MHz design point
+  could do 2 MHz with the same cycle budget; the model also passes an 8-cycle
+  2 MHz stress, but that is beyond the RTL-safe margin). Since `WAITP`'s mask is
+  only 8 bits, the SCK/MOSI/CS pins must be on `P[7:0]` (they are).
 
 ## I2C master — 100/400 kHz, ACK/NAK, repeated START, clock stretch (`i2c_master.asm`)
 
 * Open-drain on `uio[4]`/`uio[5]`: pin value always 0, `DIR` bit = 1 pulls low,
   0 releases to the external pull-up. SDA/SCL are read back through `pins_in`.
-* `HALF_DIV = round(60e6·16/(2·I2C_HZ))`: 100 kHz → 300-cycle phases
-  (0x12C0), 400 kHz → 75 cycles (0x04B0). Every time SCL is released the
-  firmware `WAITP`s for it to actually go high, so **a target may stretch the
-  clock** — no timeout, no corruption (the model test stretches 450 cycles on
-  every ACK; the cocotb RTL test at 400 kHz passes with legal stretching).
+* `HALF_DIV = round(33.33e6·16/(2·I2C_HZ))`: 100 kHz → 166.6-cycle phases
+  (0x0A6A), 400 kHz → 41.6 cycles (0x029A). The `WAITP`/`WAITD` overhead at
+  33.33 MHz gives ~97.6 kHz measured SCL at the 100 kHz setting and ~364 kHz at
+  400 kHz — both within their I2C maxima (the protocol specifies maximum rates;
+  slower is legal). Every time SCL is released the firmware `WAITP`s for it to
+  actually go high, so **a target may stretch the clock** — no timeout, no
+  corruption (the model test stretches 450 cycles on every ACK; the cocotb RTL
+  test at 400 kHz passes with legal stretching).
 * Clock stretching is only ever *extending the low phase*: a target holds SCL
   low after it has been driven low and releases it later. A testbench that
   pulls SCL low while the line is **high** is not a stretch — it injects an
@@ -138,41 +159,49 @@ four-program demo needs the 1024-word SRAM build.
   START/dev+W/reg/data/STOP; read performs START/dev+W/reg/Sr/dev+R/byte/NAK/
   STOP and returns the byte to the host TX FIFO. The 4 bus byte-loops are one
   `CSRW TPC` subroutine (position-independent call macro), which keeps the
-  program at 125 words. This relies on a thread `CSRW TPC` redirecting the
+  program at 125 words. A 3-byte write is ~10.4 kcycles ≈ 313 us on the wire at
+  the 100 kHz setting. This relies on a thread `CSRW TPC` redirecting the
   fetch; the RTL now invalidates the prefetched instruction (the earlier
   stale-word hazard is fixed) and the example passes in cocotb.
 
 ## I2C target — 100 kHz register file (`i2c_target.asm`)
 
 * 7-bit address `0x50`; ACK on match, NAK + idle-bus resync otherwise (double-
-  checks the idle condition after 320 cycles so a data "1" is not mistaken for
-  STOP). Register file = `DMEM[0..7]`, first write byte sets the pointer, data
+  checks the idle condition after a 320-cycle `waitd` so a data "1" is not
+  mistaken for STOP). At 33.33 MHz/100 kHz the SCL high phase is 166.7 cycles,
+  so the 320-cycle resync has 1.92x margin and does not need rescaling.
+  Register file = `DMEM[0..7]`, first write byte sets the pointer, data
   auto-increments; reads return `DMEM[reg]` and auto-increment.
 * A byte boundary is resolved by sampling SDA at the rising edge and polling
   while SCL is high: data is stable, a repeated START/STOP moves SDA. That is
-  how a repeated START is told apart from a data byte. The poll checks **SCL
-  first**: as soon as SCL is low the byte continues (a fast master may change
-  SDA on the falling edge itself, i.e. with zero hold time — the RTL VIP does
-  exactly that); only an SDA move while SCL is *still high* is a START/STOP.
-  (This was a real bug found on the RTL: the old SDA-first order abandoned the
-  data byte and NAKed it.)
+  how a repeated START is told apart from a data byte. The poll samples SCL
+  and SDA in **one atomic `in`** and checks **SCL first**: as soon as SCL is low
+  the byte continues (a fast master may change SDA on the falling edge itself,
+  i.e. with zero hold time — the RTL VIP does exactly that); only an SDA move
+  while SCL is *still high* is a START/STOP. (Two real bugs were found here on
+  the RTL: the old SDA-first order abandoned the data byte and NAKed it, and a
+  1-instruction sampling skew made a normal falling-edge SDA change look like a
+  START at short bit periods.)
 
 ## WS2812 / WS2812B — 800 kHz LED strip (`ws2812.asm`)
 
-* Bit period 1.25 us = 75 cycles: T0H 0.40 us (24 cyc), T1H 0.80 us (48),
-  T0L 0.85 us (51), T1L 0.45 us (27); latch = 50 us low.
+* Bit period 1.25 us ≈ 41.7 cycles at 33.33 MHz: T0H 0.40 us (0x00D5 =
+  13.3 cyc), T1H 0.80 us (0x01AB = 26.7), T0L 0.85 us (0x01C5 = 28.3), T1L
+  0.45 us (0x00F0 = 15.0); latch = 50 us low (0x682B). Measured high pulses
+  13/14 and 26/27 cycles (fractional carry), i.e. 0.39/0.81 us — inside the
+  WS2812 T0H<=0.5 us / T1H>=0.65 us windows.
 * **Event schedule**: each edge is one `emit`, and the duration of a cell is
   the `setp` value in force when the *next* event is enqueued. The loop does
   `setp T0L; emit HIGH; setp T0H; emit LOW` (and the T1 variant), so the
   hardware scheduler produces exact pulse widths while the CPU only has to keep
-  ahead (2 emits + ~8 instructions per 75-cycle bit — it does).
+  ahead (2 emits + ~8 instructions per 41.7-cycle bit — it does).
 * Host pushes 3 bytes per LED in GRB order; `Ws2812` in `sw/protocols.py`
   decodes the strip waveform back into bytes and measured pulse widths.
 
 ## PS/2 device (`ps2_target.asm`)
 
 * Device-to-host frames: start(0), 8 data LSB-first, odd parity, stop(1),
-  11 clock pulses at ~14.3 kHz (35 us half period = 2100 cycles = 0x8340).
+  11 clock pulses at 14.28 kHz (35 us half period = 0x48EB = 1166.7 cycles).
   Data is set, `waitd` 5 us, CLK pulled low 35 us and released 35 us; the host
   samples on the falling edge. Host pushes one scancode per byte; `Ps2Host`
   in `sw/protocols.py` decodes and checks parity.
@@ -202,7 +231,8 @@ from sw import loom_asm, loom_model
 from sw.protocols import UartBus, SpiBus, I2cBus, WireWorld
 from host.loom_host import ModelLink
 
-loom = loom_model.Loom(); link = ModelLink(loom); world = WireWorld(link)
+loom = loom_model.Loom(); link = ModelLink(loom)
+world = WireWorld(link, clock_hz=33_333_333)   # shipped design point
 uart = UartBus(world, tx_tid=0, rx_tid=1)        # far end + host helpers
 uart.app_send(b"Hello")                          # host -> chip TX firmware
 print(uart.wire_recv())                          # decoded from the TX pin
@@ -210,34 +240,36 @@ uart.wire_send(b"LOOM"); world.run(20000)        # far end -> chip RX
 print(uart.app_recv())                           # chip RX firmware -> host
 ```
 
-## Changing the target clock (if the synthesis constraint changes)
+## Target clock (shipped: 33.33 MHz)
 
-The examples assume **60 MHz** in two different ways, and only one of them is
-automatic:
+The whole firmware set is swept to **33.33 MHz** (`CLOCK_PERIOD` 30 ns, the
+hardening design point). If the target clock ever changes again, the examples
+fall into two classes:
 
 | kind | examples | action when `CLOCK_HZ` changes |
 |---|---|---|
-| derived from `.equ CLOCK_HZ` | `uart_tx/rx/loopback` (`BAUD_DIV`), `i2c_master` (`HALF_DIV`), `spi_master` (`QUARTER_CYCLES` is a chosen literal; `CLOCK_HZ` documents the rate) | edit the one `.equ CLOCK_HZ, 60000000` line per file; the timing re-derives |
-| absolute time encoded in cycles | `ws2812` (T0H/T1H in cycles), `ps2_target` (35 us/5 us/50 us), `onewire` (20 us/15 us/40 us slot cells) | rescale every `.equ` by `new_hz/60e6` (these are 12.4 fixed-point cycle counts, not register values) |
-| fixed cycles as robustness margin | `i2c_target` (`waitd 0x1400` = 320 cycles idle-bus resync) | re-check it still exceeds the 100 kHz SCL high phase: `CLOCK_HZ/(2*I2C_HZ)` cycles |
-| clock-independent | `spi_slave`, `i2c_target` bit loops (edge-polled; external master owns the clock) | none (max external clock margins in the tables were measured at 60 MHz and scale roughly linearly) |
+| derived from `.equ CLOCK_HZ` | `uart_tx/rx/loopback` (`BAUD_DIV`), `i2c_master` (`HALF_DIV`), `spi_master` (`QUARTER_CYCLES` is a chosen literal; `CLOCK_HZ` documents the rate) | edit the one `.equ CLOCK_HZ, 33333333` line per file; the timing re-derives |
+| absolute time encoded in cycles | `ws2812` (T0H/T1H in cycles), `ps2_target` (35 us/5 us/50 us), `onewire` (20 us/15 us/40 us slot cells) | rescale every `.equ` by `new_hz/33.33e6` (these are 12.4 fixed-point cycle counts, not register values) |
+| fixed cycles as robustness margin | `i2c_target` (`waitd 0x1400` = 320 cycles idle-bus resync) | re-check it still exceeds the 100 kHz SCL high phase: `CLOCK_HZ/(2*I2C_HZ)` cycles (at 33.33 MHz: 320 vs 166.7, 1.92x) |
+| clock-independent | `spi_slave`, `i2c_target` bit loops (edge-polled; external master owns the clock) | none (max external clock margins in the tables scale with the clock) |
 
 All UART baud rates keep their nominal value automatically (`BAUD_DIV` is
 computed from `CLOCK_HZ`), and the 12.4 fixed-point period register limit
 (`<=4095.94` cycles per cell, `CELLS` splits slower rates) is unchanged.
 
-`sw/examples/model_selftest.py` takes its clock from the model defaults; a
-different target clock needs the matching `clock_hz=` kwarg on the
-`UartBus`/`SpiBus` far ends, so a clock-change validation run is a one-line
-argument plus re-running the 45 checks.
+`sw/examples/model_selftest.py` and `host/demos/*` take their clock from
+`CLOCK_HZ` (and the manifest); the far-end helpers derive every microsecond
+constant from `world.clock_hz`, so a future change is a one-line edit plus
+re-running the 45 checks and the RTL protocol suite.
 
 ## Known limits / next steps
 
 * UART at 115200 is the fast case; the 12.4 period limit means slow rates are
   split into `CELLS` cells (implemented), and the 4-thread RX margin was
   measured on the model, not silicon.
-* SPI master full-duplex tops out around 1–2 MHz firmware bit-banged; 10 MHz
-  needs the wave player with precomputed patterns.
+* SPI master full-duplex is ~1.03 MHz shipped (32 cyc/bit at 33.33 MHz),
+  1.63 MHz at the bit-banged ceiling; 10 MHz needs the wave player with
+  precomputed patterns.
 * `i2c_master.asm`/`i2c_target.asm` use the `CSRW TPC` computed jump; the RTL
   now invalidates the prefetched instruction, and both pass in cocotb (100 kHz
   controller + clock stretching + target register write/read; 400 kHz passes

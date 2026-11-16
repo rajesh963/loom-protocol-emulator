@@ -68,19 +68,19 @@
 003C   3E000020  dclr 0x20                dclr    SDA_PIN             ; SDA high
 003D   3E000010  dclr 0x10                dclr    SCL_PIN             ; SCL high
 003E   56001010  waitp 0x1010             waitp   WAIT_SCL_HI
-003F   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; tSU;STA
+003F   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; tSU;STA
 0040   3C000020  dset 0x20                dset    SDA_PIN             ; SDA falls while SCL high = START
-0041   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; tHD;STA
+0041   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; tHD;STA
 0042   3C000010  dset 0x10                dset    SCL_PIN             ; SCL low (first data bit's WAITD is the low phase)
 0043   2A380008  csrw tpc, r7             csrw    TPC, r7
 ; --- sub_stop = 0x044
 0044   3C000020  dset 0x20                dset    SDA_PIN             ; SDA low
-0045   540012C0  waitd 0x12C0             waitd   HALF_DIV
+0045   54000A6A  waitd 0x0A6A             waitd   HALF_DIV
 0046   3E000010  dclr 0x10                dclr    SCL_PIN             ; SCL high
 0047   56001010  waitp 0x1010             waitp   WAIT_SCL_HI
-0048   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; tSU;STO
+0048   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; tSU;STO
 0049   3E000020  dclr 0x20                dclr    SDA_PIN             ; SDA rises while SCL high = STOP
-004A   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; bus free time
+004A   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; bus free time
 004B   2A380008  csrw tpc, r7             csrw    TPC, r7
 ; --- sub_send_byte = 0x04C
 004C   1E400008  shl r1, 8                shl     r1, 8               ; data bits in 15..8; ADD shifts them out
@@ -93,47 +93,47 @@
 ; --- sb_zero = 0x052
 0052   3C000020  dset 0x20                dset    SDA_PIN             ; 0 -> pull low
 ; --- sb_sda = 0x053
-0053   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; data setup while SCL low
+0053   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; data setup while SCL low
 0054   3E000010  dclr 0x10                dclr    SCL_PIN             ; release SCL (target may stretch)
 0055   56001010  waitp 0x1010             waitp   WAIT_SCL_HI
-0056   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; SCL high phase
+0056   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; SCL high phase
 0057   3C000010  dset 0x10                dset    SCL_PIN             ; SCL low (the next bit's WAITD is the low phase)
 0058   0EC00001  subi r3, 0x0001          subi    r3, 1
 0059   8400FFF5  jnz sb_loop              jnz     sb_loop
 005A   3E000020  dclr 0x20                dclr    SDA_PIN
-005B   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; SCL low phase
+005B   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; SCL low phase
 005C   3E000010  dclr 0x10                dclr    SCL_PIN
 005D   56001010  waitp 0x1010             waitp   WAIT_SCL_HI
-005E   54000960  waitd 0x0960             waitd   QUARTER_DIV         ; sample in the middle of the high phase
+005E   54000535  waitd 0x0535             waitd   QUARTER_DIV         ; sample in the middle of the high phase
 005F   38800000  in r2                    in      r2
 0060   12800020  andi r2, 0x0020          andi    r2, SDA_PIN         ; 0x0020 = NAK, 0 = ACK
-0061   54000960  waitd 0x0960             waitd   QUARTER_DIV
+0061   54000535  waitd 0x0535             waitd   QUARTER_DIV
 0062   3C000010  dset 0x10                dset    SCL_PIN             ; SCL low again
-0063   540012C0  waitd 0x12C0             waitd   HALF_DIV
+0063   54000A6A  waitd 0x0A6A             waitd   HALF_DIV
 0064   2A380008  csrw tpc, r7             csrw    TPC, r7
 ; --- sub_read_byte = 0x065
 0065   04400000  movi r1, 0x0000          movi    r1, 0
 0066   04C00008  movi r3, 0x0008          movi    r3, 8
 ; --- rb_loop = 0x067
 0067   3E000020  dclr 0x20                dclr    SDA_PIN             ; release SDA so the target can drive it
-0068   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; SCL low: target puts the next bit on SDA
+0068   54000A6A  waitd 0x0A6A             waitd   HALF_DIV            ; SCL low: target puts the next bit on SDA
 0069   3E000010  dclr 0x10                dclr    SCL_PIN
 006A   56001010  waitp 0x1010             waitp   WAIT_SCL_HI
-006B   54000960  waitd 0x0960             waitd   QUARTER_DIV         ; sample mid-high
+006B   54000535  waitd 0x0535             waitd   QUARTER_DIV         ; sample mid-high
 006C   38800000  in r2                    in      r2
 006D   12800020  andi r2, 0x0020          andi    r2, SDA_PIN
 006E   20800005  shr r2, 5                shr     r2, 5               ; 0x0020 -> bit 0
 006F   1E400001  shl r1, 1                shl     r1, 1
 0070   14500000  or r1, r2                or      r1, r2
-0071   54000960  waitd 0x0960             waitd   QUARTER_DIV
+0071   54000535  waitd 0x0535             waitd   QUARTER_DIV
 0072   3C000010  dset 0x10                dset    SCL_PIN             ; SCL low (next bit's WAITD is the low phase)
 0073   0EC00001  subi r3, 0x0001          subi    r3, 1
 0074   8400FFF3  jnz rb_loop              jnz     rb_loop
 0075   3E000020  dclr 0x20                dclr    SDA_PIN
-0076   540012C0  waitd 0x12C0             waitd   HALF_DIV
+0076   54000A6A  waitd 0x0A6A             waitd   HALF_DIV
 0077   3E000010  dclr 0x10                dclr    SCL_PIN
 0078   56001010  waitp 0x1010             waitp   WAIT_SCL_HI
-0079   540012C0  waitd 0x12C0             waitd   HALF_DIV
+0079   54000A6A  waitd 0x0A6A             waitd   HALF_DIV
 007A   3C000010  dset 0x10                dset    SCL_PIN
-007B   540012C0  waitd 0x12C0             waitd   HALF_DIV
+007B   54000A6A  waitd 0x0A6A             waitd   HALF_DIV
 007C   2A380008  csrw tpc, r7             csrw    TPC, r7

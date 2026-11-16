@@ -50,7 +50,7 @@
 002A   2A000008  csrw tpc, r0             csrw    TPC, r0
 002B   32004000  set 0x4000               set     DATA_PIN        ; idle lines high
 002C   32002000  set 0x2000               set     CLK_PIN
-002D   5400BB80  waitd 0xBB80             waitd   GAP_DIV         ; inter-frame gap
+002D   5400682B  waitd 0x682B             waitd   GAP_DIV         ; inter-frame gap
 002E   8000FFD5  jmp main                 jmp     main
 ; --- sub_bit = 0x02F
 002F   28800000  cmpi r2, 0x0000          cmpi    r2, 0
@@ -60,9 +60,9 @@
 ; --- bit_zero = 0x033
 0033   34004000  clr 0x4000               clr     DATA_PIN
 ; --- bit_clk = 0x034
-0034   540012C0  waitd 0x12C0             waitd   SETUP_DIV
+0034   54000A6B  waitd 0x0A6B             waitd   SETUP_DIV
 0035   34002000  clr 0x2000               clr     CLK_PIN
-0036   54008340  waitd 0x8340             waitd   HALF_DIV
+0036   540048EB  waitd 0x48EB             waitd   HALF_DIV
 0037   32002000  set 0x2000               set     CLK_PIN
-0038   54008340  waitd 0x8340             waitd   HALF_DIV
+0038   540048EB  waitd 0x48EB             waitd   HALF_DIV
 0039   2A380008  csrw tpc, r7             csrw    TPC, r7

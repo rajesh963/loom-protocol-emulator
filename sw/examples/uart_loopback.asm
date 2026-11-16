@@ -1,5 +1,5 @@
 ; ============================================================================
-; uart_loopback.asm — LOOM UART echo / wire bridge, 8N1, 115200 baud @ 60 MHz
+; uart_loopback.asm — LOOM UART echo / wire bridge, 8N1, 115200 baud @ 33.33 MHz
 ; ============================================================================
 ;
 ; PIN MAPPING
@@ -23,7 +23,7 @@
 ;   RX: gentle 16-cycle poll for the start edge, WAITD mid-bit sampling
 ;       (same arithmetic as uart_rx.asm, drift < 1/16 cycle per cell from the
 ;       12.4 fractional accumulator).
-;   TX: 10 event-scheduler cells at BAUD_DIV = 0x208D (520.8125 cycles), so
+;   TX: 10 event-scheduler cells at BAUD_DIV = 0x1216 (289.375 cycles), so
 ;       the echo's bit period is exact and independent of instruction timing.
 ;   Echo turnaround: start bit of the echo is placed one bit period after the
 ;       stop cell was enqueued, i.e. ~1 bit after the received char completes.
@@ -37,10 +37,10 @@
 ; SIZE: 58 instructions (< 128, fits the FF fallback build).
 ; ============================================================================
 
-.equ CLOCK_HZ,  60000000
+.equ CLOCK_HZ,  33333333
 .equ BAUD,      115200
-.equ BAUD_DIV,  (CLOCK_HZ * 16 + BAUD / 2) / BAUD      ; 0x208D
-.equ HALF_DIV,  (BAUD_DIV + 1) / 2                    ; 0x1047
+.equ BAUD_DIV,  (CLOCK_HZ * 16 + BAUD / 2) / BAUD      ; 0x1216
+.equ HALF_DIV,  (BAUD_DIV + 1) / 2                    ; 0x090B
 .equ POLL_DIV,  0x0100                                ; 16.0 cycles
 
 .equ RX_PIN,    0x0800          ; P[11] = ui_in[3]

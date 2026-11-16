@@ -99,9 +99,9 @@
 0057   13000080  andi r4, 0x0080          andi    r4, SDA_PIN         ; first-bit sample, in mask form
 ; --- nb_poll = 0x058
 0058   38800000  in r2                    in      r2
-0059   12800040  andi r2, 0x0040          andi    r2, SCL_PIN
-005A   8200000D  jz nb_data               jz      nb_data             ; SCL fell -> this was a normal data bit
-005B   38800000  in r2                    in      r2
+0059   06D00000  mov r3, r2               mov     r3, r2
+005A   12C00040  andi r3, 0x0040          andi    r3, SCL_PIN
+005B   8200000C  jz nb_data               jz      nb_data             ; SCL fell -> this was a normal data bit
 005C   12800080  andi r2, 0x0080          andi    r2, SDA_PIN
 005D   26A00000  cmp r2, r4               cmp     r2, r4
 005E   84000003  jnz nb_event             jnz     nb_event            ; SDA moved while SCL high -> START/STOP

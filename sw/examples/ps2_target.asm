@@ -15,10 +15,10 @@
 ;   pulls CLK low for ~35 us, releases it high for ~35 us.  The host samples
 ;   DATA on the falling edge.  Frames are separated by a >50 us idle gap.
 ;
-; TIMING (60 MHz, ~14.3 kHz clock -> 70 us/bit)
-;   HALF  = 35 us = 2100 cycles = 0x8340 (12.4 fixed point)
-;   SETUP =  5 us =  300 cycles = 0x12C0
-;   GAP   = 50 us = 3000 cycles = 0xBB80
+; TIMING (33.33 MHz, ~14.3 kHz clock -> 70 us/bit)
+;   HALF  = 35 us = 1166.7 cycles = 0x48EB (12.4 fixed point)
+;   SETUP =  5 us =  166.7 cycles = 0x0A6B
+;   GAP   = 50 us = 1666.7 cycles = 0x682B
 ;   The per-bit WAITDs use the 12.4 accumulator, so a frame is 11*4200 cycles
 ;   +/- <1/16 cycle and independent of the instruction schedule.
 ;
@@ -30,9 +30,9 @@
 ; SIZE: 70 instructions (< 128, fits the FF fallback build).  Relocatable.
 ; ============================================================================
 
-.equ HALF_DIV,  0x8340          ; 2100 cycles = 35 us
-.equ SETUP_DIV, 0x12C0          ; 300 cycles = 5 us
-.equ GAP_DIV,   0xBB80          ; 3000 cycles = 50 us
+.equ HALF_DIV,  0x48EB          ; 1166.7 cycles = 35 us
+.equ SETUP_DIV, 0x0A6B          ; 166.7 cycles = 5 us
+.equ GAP_DIV,   0x682B          ; 1666.7 cycles = 50 us
 .equ IDLE_DIV,  0x1000          ; 256-cycle RX-FIFO poll
 .equ CLK_PIN,   0x2000          ; P[13] = uo_out[5]
 .equ DATA_PIN,  0x4000          ; P[14] = uo_out[6]

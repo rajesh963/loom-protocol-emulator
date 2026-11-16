@@ -57,7 +57,7 @@ THREADS = [
 ]
 MANIFEST = ROOT / "sw" / "prog" / "manifest.json"
 EXAMPLES = ROOT / "sw" / "examples"
-CLOCK_HZ = 60_000_000
+CLOCK_HZ = 33_333_333          # shipped design point (fallback if no manifest)
 
 BANNER = r"""
   +--------------------------------------------------------------------+
@@ -148,7 +148,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"    0x{f.byte:02X}  {f.cell_text()}")
     uart_rx0 = world.cycle
     uart.wire_send(b"LOOM")
-    world.run((4 * 12 + 8) * 521 + 2000)
+    world.run((4 * 12 + 8) * round(CLOCK_HZ / 115200) + 2000)
     uart_rx1 = world.cycle
     rx_bytes = uart.app_recv()
     print(f"  UART RX pin -> t1 -> host TX-FIFO: decoded {rx_bytes!r}")
@@ -162,7 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     # ------------------------------------------------------------------- SPI
-    print("[SPI  ] mode 0, full duplex, SCK ~0.97 MHz (QUARTER_CYCLES=8)")
+    print("[SPI  ] mode 0, full duplex, SCK ~1.03 MHz (QUARTER_CYCLES=4)")
     mosi = bytes([0x12, 0x34])
     spi0 = world.cycle
     miso = spi.app_xfer(mosi)

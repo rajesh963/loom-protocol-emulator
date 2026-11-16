@@ -1,5 +1,5 @@
 ; ============================================================================
-; uart_rx.asm — LOOM UART receiver, 8N1, configurable baud, 60 MHz
+; uart_rx.asm — LOOM UART receiver, 8N1, configurable baud, 33.33 MHz
 ; ============================================================================
 ;
 ; PIN MAPPING
@@ -35,19 +35,19 @@
 ;   RX_POP(t1).  No doorbell is needed (the wire is the input).
 ;
 ; CYCLE BUDGET
-;   per byte on the wire      : 10 cells                        = 5208 cyc
+;   per byte on the wire      : 10 cells                        = 2894 cyc
 ;   CPU per byte              : ~10 (detect) + 8*(2+CELLS+6) word-issues
 ;   idle CPU cost             : 1 poll / 32 cycles = ~3 % of issue slots
-;   max sustained rate        : 115200 baud full duplex (11880 bytes/s);
+;   max sustained rate        : 115200 baud full duplex (~11520 B/s);
 ;                               host TX FIFO depth 8 = 0.67 ms of elasticity
 ;
 ; SIZE: 34 instructions (< 128, fits the FF fallback build).
 ; Image is position independent (PC-relative jumps only).
 ; ============================================================================
 
-.equ CLOCK_HZ,  60000000
+.equ CLOCK_HZ,  33333333
 .equ BAUD,      115200
-.equ BAUD_DIV,  (CLOCK_HZ * 16 + BAUD / 2) / BAUD      ; 115200 -> 0x208D
+.equ BAUD_DIV,  (CLOCK_HZ * 16 + BAUD / 2) / BAUD      ; 115200 -> 0x1216
 .equ CELLS,     (BAUD_DIV + 0xFFFF - 1) / 0xFFFF        ; cells per bit
 .equ BAUD_CELL, (BAUD_DIV + CELLS / 2) / CELLS
 .equ HALF_CELLS, (CELLS + 1) / 2                        ; cells in a half bit

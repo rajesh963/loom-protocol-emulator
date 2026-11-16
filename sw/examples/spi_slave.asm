@@ -31,8 +31,9 @@
 ; MAX SLAVE CLOCK (measured on the golden model; see model_selftest.py)
 ;   CS->first MISO setup : <= ~10 cycles  (WAITP detect + 2 instr)
 ;   per SCK half-period   : detection <= 4 + sample/shift ~8 = ~12 cycles
-;   -> a half period of 16 cycles (2 MHz @ 60 MHz) is the practical edge;
-;      tested clean at 1 MHz (30-cycle half period), where the CPU uses ~1/3
+;   -> a half period of 16 cycles is the practical edge; at 33.33 MHz that is
+;      ~1.04 MHz (2 MHz was tested clean at 60 MHz with the same cycle budget).
+;      Tested clean at 1 MHz (30-cycle half period), where the CPU uses ~1/3
 ;      of the issue slots.  Beyond that the poll latency eats the setup margin.
 ;   A pure event-driven version (edge-triggered EMITE) could sample without
 ;   polling but cannot feed the CPU a data byte, so polling is the right tool.

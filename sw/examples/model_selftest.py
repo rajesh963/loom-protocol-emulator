@@ -47,7 +47,7 @@ from sw.protocols import (                                 # noqa: E402
 from host.loom_host import ModelLink                        # noqa: E402
 
 EXAMPLES = HERE
-CLOCK_HZ = 60_000_000
+CLOCK_HZ = 33_333_333                    # shipped design point (30 ns)
 FF_FALLBACK_WORDS = 128
 VERBOSE = False
 
@@ -76,7 +76,7 @@ def make_link(prog, base: int, tid: int, threads: int = 1) -> tuple:
     loom.load(prog.words, base)
     loom.set_pc(tid, base)
     link = ModelLink(loom)
-    world = WireWorld(link)
+    world = WireWorld(link, clock_hz=CLOCK_HZ)
     loom.run_threads(threads << tid)
     return loom, link, world
 
@@ -113,7 +113,8 @@ def test_uart_tx() -> None:
     deltas = periods(wave, skip=1, count=7)
     if deltas:
         avg = statistics.mean(deltas)
-        check("uart_tx: bit period 520.81 +/-1 cycle", abs(avg - 520.8125) <= 1.0,
+        want = round(CLOCK_HZ * 16 / 115200) / 16      # 289.375 cycles
+        check(f"uart_tx: bit period {want:.3f} +/-1 cycle", abs(avg - want) <= 1.0,
               f"avg={avg:.2f} cycles, deltas={deltas}")
 
 
@@ -126,17 +127,18 @@ def test_uart_rx() -> None:
     world.run(200)
     payload = b"LOOM\x00\xff\x55"
     uart.wire_send(payload)
-    world.run((len(payload) * 12 + 8) * 521 + 4000)
+    bit = round(CLOCK_HZ / 115200)                     # 289 cycles
+    world.run((len(payload) * 12 + 8) * bit + 4000)
     got = uart.app_recv()
     check("uart_rx: decodes wire bytes to host FIFO", got == payload,
           f"sent {payload!r} got {got!r}")
-    # different baud: 9600 = 6250 cycles/bit
+    # different baud: 9600 = 3472 cycles/bit at 33.33 MHz
     prog9 = assemble("uart_rx", **{"BAUD,      115200": "BAUD,      9600"})
     loom, link, world = make_link(prog9, 0, 1)
     uart = UartBus(world, baud=9600, tx_tid=1, rx_tid=1)
     world.run(200)
     uart.wire_send(b"ok")
-    world.run((2 * 12 + 8) * 6251 + 5000)
+    world.run((2 * 12 + 8) * round(CLOCK_HZ / 9600) + 5000)
     check("uart_rx: 9600 baud variant", uart.app_recv() == b"ok")
 
 
@@ -160,7 +162,7 @@ def test_uart_loopback() -> None:
     echoed = bytearray()
     for b in b"echo":
         uart.wire_send(bytes([b]))
-        world.run(2 * 10 * 521 + 4000)
+        world.run(2 * 10 * round(CLOCK_HZ / 115200) + 4000)
         echoed += uart.wire_recv()
     check("uart_loopback: RX->TX echo", bytes(echoed) == b"echo",
           f"echoed {bytes(echoed)!r}")
@@ -190,12 +192,12 @@ def test_spi_master_modes() -> None:
             d = periods(spi.wave[0], skip=2, count=16)   # SCK transitions
             if d:
                 avg = statistics.mean(d)
-                check("spi_master: SCK half period ~31 cycles (~0.97 MHz)",
-                      25 <= avg <= 40, f"avg={avg:.1f} cycles")
+                check("spi_master: SCK half period ~16 cycles (~1.03 MHz)",
+                      12 <= avg <= 22, f"avg={avg:.1f} cycles")
 
 
 def test_spi_master_fast() -> None:
-    prog = assemble("spi_master", **{".equ QUARTER_CYCLES,  8": ".equ QUARTER_CYCLES,  0"})
+    prog = assemble("spi_master", **{".equ QUARTER_CYCLES,  4": ".equ QUARTER_CYCLES,  0"})
     loom, link, world = make_link(prog, 0, 2)
     spi = SpiBus(world, tid=2, evt_bit=2)
     world.run(200)
@@ -238,8 +240,8 @@ def test_i2c_master() -> None:
     d = periods(bus.wave[4], skip=3, count=12)         # SCL transitions
     if d:
         avg = statistics.mean(d)
-        check("i2c_master: SCL half period ~300 cycles (100 kHz)",
-              250 <= avg <= 400, f"avg={avg:.1f} cycles")
+        check("i2c_master: SCL half period ~167 cycles (100 kHz)",
+              150 <= avg <= 220, f"avg={avg:.1f} cycles")
     # fast mode variant
     prog4 = assemble("i2c_master",
                      **{".equ I2C_HZ,     100000": ".equ I2C_HZ,     400000"})
@@ -284,12 +286,16 @@ def test_ws2812() -> None:
     world.run(300)
     for b in (0x10, 0x20, 0x30):
         link.tx_push(0, b)
-    world.run(24 * 75 + 3000 + 6000)
+    world.run(24 * 42 + round(50e-6 * CLOCK_HZ) + 6000)
     ws.flush()
     check("ws2812: 800 kHz GRB pulse widths decode",
           ws.bytes == [0x10, 0x20, 0x30], f"decoded {[hex(b) for b in ws.bytes]}")
     highs = [h for _r, h, _l in ws.pulses[:8]]
-    check("ws2812: T0H=24 T1H=48 cycles", highs == [24, 24, 24, 48, 24, 24, 24, 24],
+    # 0x10 = 00010000 MSB-first: 0,0,0,1,0,0,0,0 -> T0H ~13, T1H ~27 cycles
+    check("ws2812: T0H~13 T1H~27 cycles",
+          all(12 <= h <= 15 for h in highs[:3])
+          and 25 <= highs[3] <= 28
+          and all(12 <= h <= 15 for h in highs[4:]),
           f"high pulses {highs}")
 
 
@@ -301,7 +307,8 @@ def test_ps2() -> None:
     ps2 = Ps2Host(world)
     world.run(300)
     link.tx_push(0, 0x1C)                      # PS/2 'A' make code
-    world.run(11 * 4200 + 8 * 2100 + 6000)
+    half = round(35e-6 * CLOCK_HZ)             # 1167 cycles
+    world.run(11 * 2 * half + 8 * half + 6000)
     frame = ps2.frames[0] if ps2.frames else {}
     check("ps2_target: 11-bit frame, odd parity, 0x1C",
           ps2.bytes == [0x1C] and frame.get("parity_ok", False),
@@ -315,14 +322,14 @@ def test_onewire() -> None:
     loom, link, world = make_link(prog, 0, 0)
     ow = OneWireMaster(world)
     world.run(300)
-    check("onewire: reset -> presence pulse", ow.reset(low_cycles=36000))
+    check("onewire: reset -> presence pulse", ow.reset())
     ow.write_byte(0xCC)                        # SKIP ROM
     ow.write_byte(0xBE)                        # READ SCRATCHPAD
     data = list(ow.read_scratchpad(9))
     check("onewire: DS18B20 +25.0 C scratchpad",
           data[:5] == [0x90, 0x01, 0x4B, 0x46, 0x7F],
           f"scratchpad {[hex(b) for b in data]}")
-    ow.reset(low_cycles=36000)
+    ow.reset()
     ow.write_byte(0xCC)
     ow.write_byte(0x44)                        # CONVERT T
     check("onewire: CONVERT T accepted", True)
@@ -343,7 +350,7 @@ def make_demo() -> tuple:
         loom.set_pc({"uart_tx": 0, "uart_rx": 1, "spi_master": 2,
                      "i2c_master": 3}[name], base)
     link = ModelLink(loom)
-    world = WireWorld(link)
+    world = WireWorld(link, clock_hz=CLOCK_HZ)
     uart = UartBus(world, tx_tid=0, rx_tid=1)
     spi = SpiBus(world, tid=2, evt_bit=2)
     i2c = I2cBus(world, address=0x50, tid=3, evt_bit=3,
@@ -358,7 +365,7 @@ def test_all_four_threads() -> None:
     uart.app_send(b"Hello")
     check("demo: UART host->wire 'Hello'", uart.wire_recv() == b"Hello")
     uart.wire_send(b"LOOM")
-    world.run((4 * 12 + 8) * 521 + 2000)
+    world.run((4 * 12 + 8) * round(CLOCK_HZ / 115200) + 2000)
     check("demo: UART wire->host 'LOOM'", uart.app_recv() == b"LOOM")
     got = spi.app_xfer(b"\x12\x34")
     check("demo: SPI transaction", got == [0xFF, 0x13],

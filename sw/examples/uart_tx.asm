@@ -11,7 +11,7 @@
 ; TIMING AND THE 16-BIT PERIOD LIMIT
 ;   One bit = CLOCK_HZ / BAUD cycles.  The hardware period register is 12.4
 ;   fixed point, so one cell is at most 0xFFFF/16 = 4095.94 cycles.  Fast baud
-;   rates fit in one cell (115200 -> BAUD_DIV 0x208D = 520.81 cycles); for slow
+;   rates fit in one cell (115200 -> BAUD_DIV 0x1216 = 289.375 cycles); for slow
 ;   rates the bit is built from CELLS identical event cells:
 ;
 ;       CELLS     = ceil(BAUD_DIV / 65535)
@@ -22,9 +22,9 @@
 ;   `setp` makes the cell stream drift-free regardless of instruction timing,
 ;   scheduler pressure, FIFO stalls or other threads.
 ;
-;   115200 @ 60 MHz: BAUD_DIV = 8333 = 0x208D -> 520.8125 cycles/bit
-;                    (boundary error: -40 ppm, crystal-class)
-;   9600   @ 60 MHz: BAUD_DIV = 100000 -> CELLS=2 x 50000 (6250 cycles/bit)
+;   115200 @ 33.33 MHz: BAUD_DIV = 4630 = 0x1216 -> 289.375 cycles/bit
+;                    (boundary error: +80 ppm, crystal-class)
+;   9600   @ 33.33 MHz: BAUD_DIV = 55556 = 0xD904 -> 3472.25 cycles/bit (CELLS=1)
 ;
 ; HOST INTERFACE (byte stream, see host/demos/demo_all.py)
 ;   Host pushes data bytes with TX_PUSH(t0, byte); no doorbell is needed.
@@ -39,9 +39,9 @@
 ; CYCLE BUDGET (one byte, 4-thread worst case)
 ;   cell emit rate           : 1 event / BAUD_CELL cycles (queue depth 4 ->
 ;                              the thread stalls on EMIT, which is correct)
-;   per byte on the wire     : 10 bits                        = 5208 cyc
+;   per byte on the wire     : 10 bits                        = 2894 cyc
 ;   CPU instructions / byte  : ~50 word-issues (CELLS=1); a small fraction of
-;                              the 5208-cycle byte time, so this thread can
+;                              the 2894-cycle byte time, so this thread can
 ;                              share the chip with the other examples.
 ;   host->wire latency       : doorbell->start edge <= 3 cycles after `pull`
 ;
@@ -49,7 +49,7 @@
 ; Image is relocatable (PC-relative jumps only): load at any PMEM base, set_pc.
 ; ============================================================================
 
-.equ CLOCK_HZ,  60000000
+.equ CLOCK_HZ,  33333333
 .equ BAUD,      115200          ; any rate; CELLS grows for slow rates
 
 ; 12.4 fixed-point bit period, rounded to the nearest 1/16 cycle.

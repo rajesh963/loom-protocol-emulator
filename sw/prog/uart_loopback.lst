@@ -3,21 +3,21 @@
 ; --- start = 0x000
 0000   32000400  set 0x0400               set     TX_PIN          ; idle line = mark
 0001   4A000400  setm 0x0400              setm    TX_PIN          ; the event scheduler owns P[10] only
-0002   4800208D  setp 0x208D              setp    BAUD_DIV
+0002   48001216  setp 0x1216              setp    BAUD_DIV
 0003   05800800  movi r6, 0x0800          movi    r6, RX_PIN
 ; --- poll = 0x004
 0004   54000100  waitd 0x0100             waitd   POLL_DIV
 0005   38000000  in r0                    in      r0
 0006   10300000  and r0, r6               and     r0, r6
 0007   8400FFFD  jnz poll                 jnz     poll
-0008   54001047  waitd 0x1047             waitd   HALF_DIV        ; mid-start
+0008   5400090B  waitd 0x090B             waitd   HALF_DIV        ; mid-start
 0009   38000000  in r0                    in      r0
 000A   10300000  and r0, r6               and     r0, r6
 000B   8400FFF9  jnz poll                 jnz     poll            ; false start
 000C   05400000  movi r5, 0x0000          movi    r5, 0
 000D   05000008  movi r4, 0x0008          movi    r4, 8
 ; --- rx_bit = 0x00E
-000E   5400208D  waitd 0x208D             waitd   BAUD_DIV
+000E   54001216  waitd 0x1216             waitd   BAUD_DIV
 000F   38C00000  in r3                    in      r3
 0010   10F00000  and r3, r6               and     r3, r6
 0011   20C00004  shr r3, 4                shr     r3, 4           ; RX bit -> 0x0080 (the new MSB)
@@ -25,7 +25,7 @@
 0013   15580000  or r5, r3                or      r5, r3
 0014   0F000001  subi r4, 0x0001          subi    r4, 1
 0015   8400FFF9  jnz rx_bit               jnz     rx_bit
-0016   5400208D  waitd 0x208D             waitd   BAUD_DIV        ; stop cell
+0016   54001216  waitd 0x1216             waitd   BAUD_DIV        ; stop cell
 0017   38000000  in r0                    in      r0
 0018   10300000  and r0, r6               and     r0, r6
 0019   8200FFEB  jz poll                  jz      poll            ; framing error -> drop

@@ -8,7 +8,7 @@
 0003   38000000  in r0                    in      r0
 0004   10300000  and r0, r6               and     r0, r6          ; RX high -> keep waiting
 0005   8400FFFD  jnz poll                 jnz     poll
-0006   54001047  waitd 0x1047             waitd   HALF_CELL_DIV
+0006   5400090B  waitd 0x090B             waitd   HALF_CELL_DIV
 0007   38000000  in r0                    in      r0
 0008   10300000  and r0, r6               and     r0, r6
 0009   8400FFF9  jnz poll                 jnz     poll            ; false start (line already back high) -> resync
@@ -17,7 +17,7 @@
 ; --- rx_bit = 0x00C
 000C   04C00001  movi r3, 0x0001          movi    r3, CELLS       ; advance one whole bit
 ; --- cell_wait = 0x00D
-000D   5400208D  waitd 0x208D             waitd   BAUD_CELL
+000D   54001216  waitd 0x1216             waitd   BAUD_CELL
 000E   0EC00001  subi r3, 0x0001          subi    r3, 1
 000F   8400FFFE  jnz cell_wait            jnz     cell_wait
 0010   38C00000  in r3                    in      r3
@@ -29,7 +29,7 @@
 0016   8400FFF6  jnz rx_bit               jnz     rx_bit
 0017   04C00001  movi r3, 0x0001          movi    r3, CELLS       ; stop cell
 ; --- stop_wait = 0x018
-0018   5400208D  waitd 0x208D             waitd   BAUD_CELL
+0018   54001216  waitd 0x1216             waitd   BAUD_CELL
 0019   0EC00001  subi r3, 0x0001          subi    r3, 1
 001A   8400FFFE  jnz stop_wait            jnz     stop_wait
 001B   38000000  in r0                    in      r0

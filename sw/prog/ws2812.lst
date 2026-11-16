@@ -31,7 +31,7 @@
 001A   08380000  add r0, r7               add     r0, r7
 001B   0BC00005  addi r7, 0x0005          addi    r7, 5
 001C   2A000008  csrw tpc, r0             csrw    TPC, r0
-001D   5400BB80  waitd 0xBB80             waitd   RESET_DIV       ; latch: DATA stays low
+001D   5400682B  waitd 0x682B             waitd   RESET_DIV       ; latch: DATA stays low
 001E   8000FFE6  jmp main                 jmp     main
 ; --- sub_send8 = 0x01F
 001F   1E400008  shl r1, 8                shl     r1, 8           ; MSB -> bit 15 for the ADD/C trick
@@ -39,15 +39,15 @@
 ; --- ws_loop = 0x021
 0021   08480000  add r1, r1               add     r1, r1          ; C = next data bit
 0022   86000006  jc ws_one                jc      ws_one
-0023   48000330  setp 0x0330              setp    T0L             ; LOW-cell duration before the HIGH event
+0023   480001C5  setp 0x01C5              setp    T0L             ; LOW-cell duration before the HIGH event
 0024   40800000  emit r2                  emit    r2              ; high pulse (T0H, set by the next emit)
-0025   48000180  setp 0x0180              setp    T0H
+0025   480000D5  setp 0x00D5              setp    T0H
 0026   40C00000  emit r3                  emit    r3              ; low pulse (T0L)
 0027   80000005  jmp ws_next              jmp     ws_next
 ; --- ws_one = 0x028
-0028   480001B0  setp 0x01B0              setp    T1L
+0028   480000F0  setp 0x00F0              setp    T1L
 0029   40800000  emit r2                  emit    r2
-002A   48000300  setp 0x0300              setp    T1H
+002A   480001AB  setp 0x01AB              setp    T1H
 002B   40C00000  emit r3                  emit    r3
 ; --- ws_next = 0x02C
 002C   0F000001  subi r4, 0x0001          subi    r4, 1
