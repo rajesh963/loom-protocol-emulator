@@ -8,7 +8,7 @@
 0003   54001000  waitd 0x1000             waitd   IDLE_DIV            ; idle: ~4 % of issue slots
 0004   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
 0005   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00          ; any job bytes queued?
-0006   8200FFFD  jz 0x004                 jz      main
+0006   8200FFFD  jz main                  jz      main
 0007   73800000  pull r6                  pull    r6                  ; r6 = cmd
 0008   73400000  pull r5                  pull    r5                  ; r5 = dev address byte
 0009   73000000  pull r4                  pull    r4                  ; r4 = register pointer
@@ -30,14 +30,14 @@
 0019   0BC00005  addi r7, 0x0005          addi    r7, 5
 001A   2A000008  csrw tpc, r0             csrw    TPC, r0
 001B   13800001  andi r6, 0x0001          andi    r6, 1
-001C   84000008  jnz 0x025                jnz     do_read
+001C   84000008  jnz do_read              jnz     do_read
 001D   72400000  pull r1                  pull    r1                  ; write: data byte
 001E   2DC00008  csrr r7, tpc             csrr    r7, TPC
 001F   0400002E  movi r0, 0x002E          movi    r0, sub_send_byte - . + 1
 0020   08380000  add r0, r7               add     r0, r7
 0021   0BC00005  addi r7, 0x0005          addi    r7, 5
 0022   2A000008  csrw tpc, r0             csrw    TPC, r0
-0023   80000013  jmp 0x037                jmp     do_stop
+0023   80000013  jmp do_stop              jmp     do_stop
 ; --- do_read = 0x024
 0024   2DC00008  csrr r7, tpc             csrr    r7, TPC
 0025   04000018  movi r0, 0x0018          movi    r0, sub_start - . + 1
@@ -63,7 +63,7 @@
 0038   08380000  add r0, r7               add     r0, r7
 0039   0BC00005  addi r7, 0x0005          addi    r7, 5
 003A   2A000008  csrw tpc, r0             csrw    TPC, r0
-003B   8000FFC8  jmp 0x004                jmp     main
+003B   8000FFC8  jmp main                 jmp     main
 ; --- sub_start = 0x03C
 003C   3E000020  dclr 0x20                dclr    SDA_PIN             ; SDA high
 003D   3E000010  dclr 0x10                dclr    SCL_PIN             ; SCL high
@@ -87,9 +87,9 @@
 004D   04C00008  movi r3, 0x0008          movi    r3, 8
 ; --- sb_loop = 0x04E
 004E   08480000  add r1, r1               add     r1, r1              ; C = next bit
-004F   88000003  jnc sb_sda               jnc     sb_zero
+004F   88000003  jnc sb_zero              jnc     sb_zero
 0050   3E000020  dclr 0x20                dclr    SDA_PIN             ; 1 -> release (pull-up high)
-0051   80000002  jmp 0x054                jmp     sb_sda
+0051   80000002  jmp sb_sda               jmp     sb_sda
 ; --- sb_zero = 0x052
 0052   3C000020  dset 0x20                dset    SDA_PIN             ; 0 -> pull low
 ; --- sb_sda = 0x053
@@ -99,7 +99,7 @@
 0056   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; SCL high phase
 0057   3C000010  dset 0x10                dset    SCL_PIN             ; SCL low (the next bit's WAITD is the low phase)
 0058   0EC00001  subi r3, 0x0001          subi    r3, 1
-0059   8400FFF5  jnz 0x04F                jnz     sb_loop
+0059   8400FFF5  jnz sb_loop              jnz     sb_loop
 005A   3E000020  dclr 0x20                dclr    SDA_PIN
 005B   540012C0  waitd 0x12C0             waitd   HALF_DIV            ; SCL low phase
 005C   3E000010  dclr 0x10                dclr    SCL_PIN
@@ -128,7 +128,7 @@
 0071   54000960  waitd 0x0960             waitd   QUARTER_DIV
 0072   3C000010  dset 0x10                dset    SCL_PIN             ; SCL low (next bit's WAITD is the low phase)
 0073   0EC00001  subi r3, 0x0001          subi    r3, 1
-0074   8400FFF3  jnz 0x068                jnz     rb_loop
+0074   8400FFF3  jnz rb_loop              jnz     rb_loop
 0075   3E000020  dclr 0x20                dclr    SDA_PIN
 0076   540012C0  waitd 0x12C0             waitd   HALF_DIV
 0077   3E000010  dclr 0x10                dclr    SCL_PIN

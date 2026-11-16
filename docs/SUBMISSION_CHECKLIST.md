@@ -24,6 +24,8 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | TBD |
 | 8 | Both build variants buildable (FF fallback and SRAM flagship) | CI matrix | lead | TBD |
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
+| 9b | `test` workflow reproduces the full cocotb matrix on GitHub (57 PASS / 2 SKIP) | Actions run | verify | **done** (green on `5ff6c6c29cc7`) |
+| 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
 
 ## 2. Documentation (the write-up is weighted heavily)
 

@@ -159,13 +159,17 @@ sub_next_byte:
         in      r4
         andi    r4, SDA_PIN         ; first-bit sample, in mask form
 nb_poll:
+        ; SCL first: the moment SCL is low this is a normal data bit and the
+        ; master is allowed to change SDA (setup/hold time can be ~0 cycles on
+        ; a fast master).  Only an SDA move while SCL is STILL high is a
+        ; START/repeated START/STOP.
+        in      r2
+        andi    r2, SCL_PIN
+        jz      nb_data             ; SCL fell -> this was a normal data bit
         in      r2
         andi    r2, SDA_PIN
         cmp     r2, r4
         jnz     nb_event            ; SDA moved while SCL high -> START/STOP
-        in      r2
-        andi    r2, SCL_PIN
-        jz      nb_data             ; SCL fell -> this was a normal data bit
         waitd   0x00A0              ; 10 cycles between polls
         jmp     nb_poll
 nb_event:

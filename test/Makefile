@@ -21,7 +21,7 @@ TOPLEVEL_LANG ?= verilog
 TOPLEVEL       = tb
 
 # Locate cocotb-config: use PATH if the venv is active, else the repo venv.
-VENV_BIN      ?= $(abspath $(PWD)/../../.venv/bin)
+VENV_BIN      ?= $(abspath $(CURDIR)/../../.venv/bin)
 COCOTB_CONFIG ?= $(shell command -v cocotb-config 2>/dev/null || \
                   echo $(VENV_BIN)/cocotb-config)
 # cocotb's own makefiles need the interpreter that has cocotb installed.
@@ -29,8 +29,8 @@ PYTHON_BIN    ?= $(shell $(COCOTB_CONFIG) --python-bin 2>/dev/null || echo $(VEN
 # ...and they find it through PATH inside `$(shell ...)` calls.
 export PATH := $(VENV_BIN):$(PATH)
 
-RTL_DIR    ?= $(abspath $(PWD)/../rtl)
-TEST_DIR   = $(abspath $(PWD))
+RTL_DIR    ?= $(abspath $(CURDIR)/../rtl)
+TEST_DIR   = $(abspath $(CURDIR))
 RTL_SRCS   = $(RTL_DIR)/loom_core.v \
              $(RTL_DIR)/loom_mem.v \
              $(RTL_DIR)/loom_host.v \

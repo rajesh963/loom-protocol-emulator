@@ -53,8 +53,8 @@ protocols share one 1-instruction/cycle datapath.
 | `uart_loopback.asm` | — | RX=P[11], TX=P[10] | 41 | model-verified | half-duplex echo, needs inter-byte gap |
 | `spi_master.asm` | t2 | SCK=P[0], MOSI=P[1], MISO=P[2], CS_N=P[3] | 49 | model-verified, modes 0–3 | ~0.97 MHz SCK (≈62 cyc/bit); 2 MHz with `QUARTER_CYCLES=0` |
 | `spi_slave.asm` | — | MISO=P[0], SCK=P[4], MOSI=P[5], CS_N=P[6] | 31 | model-verified | 2 MHz external SCK tested clean |
-| `i2c_master.asm` | t3 | SCL=P[4]=uio[4], SDA=P[5]=uio[5] | 125 | model-verified | 100 kHz (300-cyc phases), 400 kHz variant |
-| `i2c_target.asm` | — | SCL=P[6]=uio[6], SDA=P[7]=uio[7] | 121 | model-verified | 100 kHz, register file = DMEM[0..7] |
+| `i2c_master.asm` | t3 | SCL=P[4]=uio[4], SDA=P[5]=uio[5] | 125 | model + RTL verified | 100 kHz (300-cyc phases), 400 kHz variant |
+| `i2c_target.asm` | — | SCL=P[6]=uio[6], SDA=P[7]=uio[7] | 121 | model + RTL verified | 100 kHz, register file = DMEM[0..7] |
 | `ws2812.asm` | — | DATA=P[12]=uo[4] | 47 | model-verified | 800 kHz (T0H 24 / T1H 48 cyc), 50 us latch |
 | `ps2_target.asm` | — | CLK=P[13]=uo[5], DATA=P[14]=uo[6] | 58 | model-verified | ~14.3 kHz clock, 11-bit frames + odd parity |
 | `onewire.asm` | — | DQ=P[7]=uio[7] (open-drain) | 91 | model-verified | standard-speed, +25.0 C DS18B20 scratchpad |
@@ -124,15 +124,23 @@ four-program demo needs the 1024-word SRAM build.
 * `HALF_DIV = round(60e6·16/(2·I2C_HZ))`: 100 kHz → 300-cycle phases
   (0x12C0), 400 kHz → 75 cycles (0x04B0). Every time SCL is released the
   firmware `WAITP`s for it to actually go high, so **a target may stretch the
-  clock indefinitely** — no timeout, no corruption (the model test stretches
-  450 cycles on every ACK).
+  clock** — no timeout, no corruption (the model test stretches 450 cycles on
+  every ACK; the cocotb RTL test at 400 kHz passes with legal stretching).
+* Clock stretching is only ever *extending the low phase*: a target holds SCL
+  low after it has been driven low and releases it later. A testbench that
+  pulls SCL low while the line is **high** is not a stretch — it injects an
+  extra falling edge (an extra clock), and any I2C controller will decode the
+  resulting frame wrong. The RTL suite's 400 kHz capture showed 31 SCL rising
+  edges for a 27-clock transaction exactly because of that; with low-phase-only
+  stretching it decodes `0xA0 ACK, 0x00 ACK, 0x5A ACK, STOP` (28 rising edges,
+  all data correct). See `known_issues.py` VER-006 for the VIP-side fix.
 * Host job = 4 bytes (`cmd, dev, reg, data`, cmd bit0 = read). Write performs
   START/dev+W/reg/data/STOP; read performs START/dev+W/reg/Sr/dev+R/byte/NAK/
   STOP and returns the byte to the host TX FIFO. The 4 bus byte-loops are one
   `CSRW TPC` subroutine (position-independent call macro), which keeps the
-  program at 125 words. **This example needs the RTL fix that makes a thread
-  `CSRW TPC` redirect the fetch cleanly** (the golden model does; the current
-  RTL leaves a stale instruction buffer — reported by the toolchain owner).
+  program at 125 words. This relies on a thread `CSRW TPC` redirecting the
+  fetch; the RTL now invalidates the prefetched instruction (the earlier
+  stale-word hazard is fixed) and the example passes in cocotb.
 
 ## I2C target — 100 kHz register file (`i2c_target.asm`)
 
@@ -142,7 +150,12 @@ four-program demo needs the 1024-word SRAM build.
   auto-increments; reads return `DMEM[reg]` and auto-increment.
 * A byte boundary is resolved by sampling SDA at the rising edge and polling
   while SCL is high: data is stable, a repeated START/STOP moves SDA. That is
-  how a repeated START is told apart from a data byte.
+  how a repeated START is told apart from a data byte. The poll checks **SCL
+  first**: as soon as SCL is low the byte continues (a fast master may change
+  SDA on the falling edge itself, i.e. with zero hold time — the RTL VIP does
+  exactly that); only an SDA move while SCL is *still high* is a START/STOP.
+  (This was a real bug found on the RTL: the old SDA-first order abandoned the
+  data byte and NAKed it.)
 
 ## WS2812 / WS2812B — 800 kHz LED strip (`ws2812.asm`)
 
@@ -204,8 +217,10 @@ print(uart.app_recv())                           # chip RX firmware -> host
   measured on the model, not silicon.
 * SPI master full-duplex tops out around 1–2 MHz firmware bit-banged; 10 MHz
   needs the wave player with precomputed patterns.
-* `i2c_master.asm`/`i2c_target.asm` depend on the clean `CSRW TPC` computed
-  jump; until the RTL fix lands they are model-proven only.
+* `i2c_master.asm`/`i2c_target.asm` use the `CSRW TPC` computed jump; the RTL
+  now invalidates the prefetched instruction, and both pass in cocotb (100 kHz
+  controller + clock stretching + target register write/read; 400 kHz passes
+  once the VIP emits legal low-phase-only stretching — see VER-006).
 * On-chip capture/record-replay is a stretch feature; `host/demos/
   demo_record_replay.py` shows the model-level record/replay flow that the
   capture engine will make on-chip once `loom_capture.v` lands.

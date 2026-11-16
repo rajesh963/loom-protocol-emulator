@@ -8,18 +8,18 @@
 0003   54001000  waitd 0x1000             waitd   IDLE_DIV        ; sleep 256 cycles between polls: an idle thread
 0004   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
 0005   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00      ; rx_cnt[3:0] != 0 ?
-0006   8200FFFD  jz 0x004                 jz      main
+0006   8200FFFD  jz main                  jz      main
 ; --- drain = 0x007
 0007   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
 0008   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00      ; rx_cnt[3:0] != 0 ?
-0009   8200FFFA  jz 0x004                 jz      main
+0009   8200FFFA  jz main                  jz      main
 000A   72400000  pull r1                  pull    r1              ; r1 = data byte (host TX_PUSH)
 000B   04800000  movi r2, 0x0000          movi    r2, 0
 000C   04C00001  movi r3, 0x0001          movi    r3, CELLS
 ; --- start_cells = 0x00D
 000D   40800000  emit r2                  emit    r2
 000E   0EC00001  subi r3, 0x0001          subi    r3, 1
-000F   8400FFFE  jnz 0x00E                jnz     start_cells
+000F   8400FFFE  jnz start_cells          jnz     start_cells
 0010   05000008  movi r4, 0x0008          movi    r4, 8
 0011   05400400  movi r5, 0x0400          movi    r5, TX_PIN
 ; --- bit_loop = 0x012
@@ -30,14 +30,14 @@
 ; --- bit_cells = 0x016
 0016   40800000  emit r2                  emit    r2              ; one data cell (value masked by TMASK)
 0017   0EC00001  subi r3, 0x0001          subi    r3, 1
-0018   8400FFFE  jnz 0x017                jnz     bit_cells
+0018   8400FFFE  jnz bit_cells            jnz     bit_cells
 0019   20400001  shr r1, 1                shr     r1, 1
 001A   0F000001  subi r4, 0x0001          subi    r4, 1
-001B   8400FFF7  jnz 0x013                jnz     bit_loop
+001B   8400FFF7  jnz bit_loop             jnz     bit_loop
 001C   04800400  movi r2, 0x0400          movi    r2, TX_PIN
 001D   04C00001  movi r3, 0x0001          movi    r3, CELLS
 ; --- stop_cells = 0x01E
 001E   40800000  emit r2                  emit    r2
 001F   0EC00001  subi r3, 0x0001          subi    r3, 1
-0020   8400FFFE  jnz 0x01F                jnz     stop_cells
-0021   8000FFE6  jmp 0x008                jmp     drain
+0020   8400FFFE  jnz stop_cells           jnz     stop_cells
+0021   8000FFE6  jmp drain                jmp     drain

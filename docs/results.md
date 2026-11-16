@@ -5,10 +5,13 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-Git revision: `f6ffe72` (local; GitHub SHA when the repo is pushed) · flow: LibreLane via
-`tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz (`CLOCK_PERIOD` 16.67 ns).
-**Status: pre-place-and-route.** §2 is a yosys/IHP-liberty *estimate*; §3–§4 stay TBD until the
-LibreLane run and precheck exist — they are not estimated here.
+CI commit: `5ff6c6c29cc7` (the final pushed SHA is recorded here when the repo goes public) · flow:
+LibreLane via `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz
+(`CLOCK_PERIOD` 16.67 ns). `docs` and `test` workflows are green on CI; the `test` workflow
+reproduces the full cocotb matrix (57 PASS / 2 SKIP) on every push.
+**Status: pre-place-and-route for §2; the first LibreLane run (FF build) is in progress.** §2 is a
+yosys/IHP-liberty *estimate*; §3–§4 stay TBD until that run and precheck exist — they are not
+estimated here.
 
 ---
 
@@ -24,18 +27,22 @@ block the tapeout; the SRAM build is the flagship that makes the full 1024-word 
 | macro ports | — | `A_CLK, A_MEN, A_WEN, A_REN, A_ADDR[9:0], A_DIN[31:0], A_DLY, A_DOUT[31:0], A_BM[31:0]` |
 | read latency | 1 cycle | 1 cycle (`A_DLY=1` pipeline) |
 | flow extras | none | `pdn_cfg.tcl` power grid + `Project.ExtendPowerStripes` LibreLane plugin, per the Tiny Tapeout reference `ttihp-cmos5l-sram-example` |
-| purpose | zero-flow-risk tapeout, simulation, unit benches | full protocol suite in one 1024-word image |
-| flow status | `TBD` (CI) | `TBD` (CI) |
+| purpose | zero-flow-risk tapeout, simulation, unit benches — **the first hardening run** | full protocol suite in one 1024-word image — **a config switch after the flow is green** |
+| flow status | `TBD` (LibreLane in progress on CI `5ff6c6c29cc7`) | `TBD` (flips after FF flow is green) |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** of nominal area, with a rule of thumb of
 about 1K logic cells per tile (~32K cells for 8×4). The SRAM macro's 140 183 µm² is 11–14 % of that
 area depending on utilisation, which is why the macro is the main area decision in the design.
 
-**Current submission plan:** submit the **SRAM flagship** build if its CI is green (it is the
-configuration that runs the full 1024-word protocol suite), and fall back to the **FF build** if the
-SRAM flow has any problem — the FF build exists precisely so that a macro issue can never block the
-tapeout. Both configurations are built from the same RTL with no source differences other than
-`PMEM_IMPL`/`PMEM_WORDS` (and the SRAM flow's `pdn_cfg.tcl` / `Project.ExtendPowerStripes`).
+**How the CI is actually run — and why.** The **first hardening run is the FF 128-word build**
+(`VERILOG_DEFINES=["LOOM_PMEM_SMALL"]`, no SRAM macro) — deliberately, to de-risk the flow: it
+exercises the whole LibreLane path (synthesis → floorplan → placement → CTS → routing → GDS →
+precheck → gate-level sim) with no macro, no power-grid plugin and no `pdn_cfg.tcl`. The **SRAM
+1024-word flagship is a config switch** (`PMEM_IMPL="sram"`, one `RM_IHPSG13_1P_1024x32`) flipped
+only after that flow is green, so a macro/power-grid problem cannot block the tapeout or invalidate
+a good run. Both configurations come from the same RTL: only `PMEM_IMPL`/`PMEM_WORDS` and the SRAM
+flow's `pdn_cfg.tcl` / `Project.ExtendPowerStripes` differ. The submitted build is whichever is green
+at submission time, with the FF build as the guaranteed fallback.
 
 **Capture / record-replay (stretch) status:** the capture engine's RTL is **complete and
 unit-verified** (`CAPTURE_TB`, 209 checks), but silicon integration is **deferred to revision B**
@@ -105,8 +112,9 @@ for the submitted build. Both are flow configuration, owned by the Lead; the RTL
 
 ## 5. Verification results (landed RTL, simulation)
 
-`make` from `test/` (Icarus Verilog 12 + cocotb, ~145 s): **59 tests, 57 PASS, 0 FAIL, 2 SKIP**.
-Full layer table, skips and the fifteen-deviation history: [`verification.md` §9](verification.md).
+`make` from `test/` (Icarus Verilog 12 + cocotb): **59 tests, 57 PASS, 0 FAIL, 2 SKIP, 147 s wall**;
+also reproduced by the `test` GitHub Actions workflow on every push. Full layer table, skips and the
+sixteen-deviation history: [`verification.md` §9](verification.md).
 
 | Suite | Result | Notes |
 |---|---|---|

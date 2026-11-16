@@ -14,7 +14,7 @@
 ; --- drain = 0x009
 0009   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
 000A   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00      ; rx_cnt[3:0] != 0 ?
-000B   8200FFFD  jz drain                 jz      main
+000B   8200FFFD  jz QUARTER_CYCLES        jz      main
 000C   72400000  pull r1                  pull    r1              ; byte to send
 000D   1E400008  shl r1, 8                shl     r1, 8           ; MSB in bit 15; ADD r1,r1 shifts it out via C
 000E   04C00000  movi r3, 0x0000          movi    r3, 0           ; MISO result accumulator
@@ -23,14 +23,14 @@
 0011   54000100  waitd 0x0100             waitd   HALF_DIV        ; CS setup + let the target drive MISO bit 7
 ; --- bit_loop = 0x012
 0012   08480000  add r1, r1               add     r1, r1          ; r1 <<= 1, C = old bit 15 = the next data bit
-0013   88000003  jnc mosi_done            jnc     mosi_low
+0013   88000003  jnc mosi_low             jnc     mosi_low
 0014   32000002  set 0x0002               set     MOSI_PIN
-0015   80000002  jmp 0x018                jmp     mosi_done
+0015   80000002  jmp mosi_done            jmp     mosi_done
 ; --- mosi_low = 0x016
 0016   34000002  clr 0x0002               clr     MOSI_PIN
 ; --- mosi_done = 0x017
 0017   29C00000  cmpi r7, 0x0000          cmpi    r7, 0
-0018   84000006  jnz 0x01F                jnz     phase1
+0018   84000006  jnz phase1               jnz     phase1
 0019   39800000  in r6                    in      r6
 001A   11A80000  and r6, r5               and     r6, r5
 001B   21800002  shr r6, 2                shr     r6, 2           ; P[2] -> bit 0
@@ -41,7 +41,7 @@
 001F   36000001  tog 0x0001               tog     SCK_PIN         ; leading edge
 0020   54000080  waitd 0x0080             waitd   QUARTER_DIV
 0021   29C00000  cmpi r7, 0x0000          cmpi    r7, 0
-0022   82000006  jz 0x029                 jz      phase2
+0022   82000006  jz phase2                jz      phase2
 0023   39800000  in r6                    in      r6
 0024   11A80000  and r6, r5               and     r6, r5
 0025   21800002  shr r6, 2                shr     r6, 2
@@ -52,8 +52,8 @@
 0029   36000001  tog 0x0001               tog     SCK_PIN         ; trailing edge -> SCK back to idle level
 002A   54000080  waitd 0x0080             waitd   QUARTER_DIV
 002B   0F000001  subi r4, 0x0001          subi    r4, 1
-002C   8400FFE6  jnz 0x013                jnz     bit_loop
+002C   8400FFE6  jnz bit_loop             jnz     bit_loop
 002D   20C00001  shr r3, 1                shr     r3, 1           ; undo the last result shift
 002E   32000008  set 0x0008               set     CS_PIN          ; deassert CS_N
 002F   70C00000  push r3                  push    r3              ; received byte -> host
-0030   8000FFD9  jmp 0x00A                jmp     drain
+0030   8000FFD9  jmp drain                jmp     drain

@@ -13,6 +13,7 @@ Run with:  make proto
 
 from __future__ import annotations
 
+import os
 import re
 
 import cocotb
@@ -30,6 +31,10 @@ REPO = __import__("pathlib").Path(__file__).resolve().parent.parent
 EX = REPO / "sw" / "examples"
 
 CLK_NS = 16.67            # real 60 MHz target clock
+
+# 400 kHz triage knobs (defaults = shipped settings; env overrides for bring-up)
+I2C_400K_POLL = int(os.environ.get("I2C_400K_POLL", "2"))
+I2C_400K_STRETCH = int(os.environ.get("I2C_400K_STRETCH", "2"))
 
 
 # ---------------------------------------------------------------------------
@@ -353,7 +358,8 @@ async def test_i2c_controller_400k(dut):
     host, mon = await start_loom(dut, clk_ns=CLK_NS, spi_half=3)
     payload = [0x00, 0xA0, 0x00, 0x5A]
     target, scl_tr, sda_tr = await run_i2c_controller(
-        host, mon, i2c_hz=400000, payload=payload, poll=2, stretch=2)
+        host, mon, i2c_hz=400000, payload=payload, poll=I2C_400K_POLL,
+        stretch=I2C_400K_STRETCH)
     assert scl_tr, "I2C controller produced no SCL transitions (firmware did not start?)"
     events = v_i2c.decode(scl_tr, sda_tr)
     log_wave(host, render_wave(scl_tr, t0=scl_tr[0][0] - 30,

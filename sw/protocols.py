@@ -1111,9 +1111,11 @@ class I2cMasterModel(FarEnd):
         self._ops.append((scl, sda, tag))
 
     def _tx_bit(self, value: int) -> None:
+        # SDA changes on the SCL falling edge (0-cycle hold): the same stress
+        # the RTL VIP applies, so this model catches setup-time-sensitive
+        # target firmware bugs.
         self._op(0, value, "sda")
         self._op(1, value, "clk")
-        self._op(0, value)
 
     def _rx_bit(self) -> None:
         self._op(0, 1, "rel")

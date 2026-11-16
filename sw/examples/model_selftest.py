@@ -257,6 +257,9 @@ def test_i2c_target() -> None:
     check("i2c_target: size < 128 words", len(prog.words) < FF_FALLBACK_WORDS,
           f"{len(prog.words)} words")
     loom, link, world = make_link(prog, 0, 0)
+    # I2cMasterModel changes SDA on the SCL falling edge (0-cycle hold), i.e.
+    # the worst-case setup a real/fast master can present; this guards the
+    # target's byte-boundary classifier.
     master = I2cMasterModel(world, i2c_hz=100_000)
     world.run(500)
     master.write(0x50, [0x02, 0xA5])

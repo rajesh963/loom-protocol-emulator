@@ -95,6 +95,8 @@ class I2cTargetModel:
         self.regs = list(register_file if register_file is not None else
                          [0] * 8)
         self.stretch_per_poll = stretch_cycles
+        self._stretch_pending = 0
+        self._stretch_left = 0
         self.prev_scl = 1
         self.prev_sda = 1
         self.bits: list[int] = []
@@ -151,7 +153,10 @@ class I2cTargetModel:
                     self.events.append(I2cEvent("byte", cycle, value))
                     self.state = "ack"
                     if self.stretch_per_poll:
-                        stretch = self.stretch_per_poll
+                        # hold SCL low only starting from the ACK's low phase;
+                        # pulling it low while the master's high phase is still
+                        # running would look like a corrupted bit to both ends
+                        self._stretch_pending = self.stretch_per_poll
         elif self.state == "ack":
             # ACK must only start during an SCL *low* phase: pulling SDA low
             # while SCL is high would be a START/STOP condition on the bus.
@@ -181,6 +186,12 @@ class I2cTargetModel:
                 else:
                     want_low = False
                     self.state = "sample"
+        if self._stretch_pending and scl == 0:
+            self._stretch_left = self._stretch_pending
+            self._stretch_pending = 0
+        if self._stretch_left > 0:
+            stretch = 1
+            self._stretch_left -= 1
         self.prev_scl, self.prev_sda = scl, sda
         return want_low, stretch
 

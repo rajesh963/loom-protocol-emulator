@@ -112,7 +112,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "test while open (other ISA tests still run to surface further bugs).",
     },
     "i2c_400k": {
-        "open": True,
+        "open": False,
         "id": "VER-006",
         "title": "I2C 400 kHz write: VIP target decodes bit errors on the second/third byte",
         "spec": "spec §1/§9: I2C controller 100 and 400 kHz",

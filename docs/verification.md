@@ -215,21 +215,24 @@ meta-test.
 
 ## 9. Results
 
-> **Landed RTL, simulation only.** `make` from `test/` (Icarus Verilog 12 + cocotb), ~145 s:
-> **59 tests, 57 PASS, 0 FAIL, 2 SKIP.** No LibreLane/gate-level/silicon rows yet — those are marked
-> TBD and are not estimated. Git revision: pending the public push (see [`results.md`](results.md)).
+> **Landed RTL, simulation only.** `make` from `test/` (Icarus Verilog 12 + cocotb):
+> **59 tests, 57 PASS, 0 FAIL, 2 SKIP, 147 s wall** (`TESTS=59 PASS=57 FAIL=0 SKIP=2`). Every number
+> in this section is **reproduced by the `test` GitHub Actions workflow on each push** — these are
+> CI-verifiable claims, not local ones. No LibreLane/gate-level/silicon rows yet — those are marked
+> TBD and are not estimated. Git revision: CI currently on `5ff6c6c29cc7`; the final pushed SHA is
+> recorded in [`results.md`](results.md).
 
 ### 9.1 Final verification matrix
 
 | Suite | Result | What it proves |
 |---|---|---|
-| host link | **PASS** | all 13 commands; global-CSR read matrix; FIFO occupancy; IRQ/ACK; CS-abort; STATUS bytes |
+| host link | **PASS** | all 13 commands; global-CSR read matrix; FIFO occupancy; IRQ/ACK; CS-abort; STATUS bytes (guard test `test_host.test_status_command` passes with `decoded OK: ['0x24','0x90','0x94','0x94']`; the single-line alarm it raises is documented in `test/README.md`) |
 | ISA | **22/22 PASS** | every mnemonic executes with the documented architectural state; all 59 tests are covered by the coverage meta-test |
 | timing | **7/7 PASS** | fractional drift-free event stream; UART 115200 @ 60 MHz; `waitu` jitter-free; `inat` exact-cycle sample; `emite` latency; four concurrent periods; queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | **100/100 random programs** cycle-exact on the full `(pins_out, DIR)` transition trace *and* full architectural state; **12/12** pull/reactive seeds; **6/6** hand-written programs; 0 artefacts (no unexplained divergence) |
 | protocol VIPs | **6/8 PASS** | UART TX/RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz + clock stretching; **I2C 400 kHz and I2C target SKIP** (§9.2) |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
-| **total** | **57 PASS / 0 FAIL / 2 SKIP** | 59 tests, ~145 s |
+| **total** | **57 PASS / 0 FAIL / 2 SKIP** | 59 tests, **147 s wall** |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
 Python golden model written from the spec) agree on the exact cycle of every pin transition and on
@@ -244,19 +247,19 @@ architecture — which is why I2C **100 kHz and clock stretching pass**. Triage 
 exercise, not an RTL change, and is tracked in [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md)
 rather than hidden. Everything else in the protocol suite is green.
 
-### 9.3 Fifteen deviations, all closed — the differential methodology working
+### 9.3 Sixteen deviations, all closed — the differential methodology working
 
-Two independent implementations found **fifteen deviations** between intent and behaviour across the
+Two independent implementations found **sixteen deviations** between intent and behaviour across the
 whole bring-up; all are fixed and each has a regression. They are the strongest evidence in this
 document that the layering does real work, so the most instructive ones are itemised:
 
 | ID | Deviation | Found by | Fix / regression |
 |---|---|---|---|
+| **VER-000** | *(model-found, pre-triage)* a `csrw TPC` computed jump fetched from `pc+1`, so the fall-through instruction was buffered and executed after the jump | spec-derived golden model, first directed test | same-cycle fetch redirect to the new PC; `JUMP_TB` regression |
 | VER-001 | `pins_out[9:8]` (the host link's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | directed pin-vector test against the spec mask | every write masked with `PINS_OUT_DRIVABLE = 0xFCFF`; `test/integration` checks `csrr POUT` = `0xFCFF` after `out 0xFFFF` |
 | VER-002 | `TFIFO`'s bit layout differed between spec, RTL and golden model | CSR table generated from `sw/isa.py` cross-checked against the RTL read path | frozen to `[11:8]` rx_count, `[7:4]` tx_count, bit1 tx_full, bit0 rx_empty in all three; ISA table regenerated |
 | VER-003 | host reads of **global** CSRs returned stale thread-bank data — the host path decoded from the thread `CSRR` address register | cocotb host suite read `POUT`/`TMR` after `RUN` | split thread and host CSR read paths (`bank_read()`/`global_read()`); global-CSR read matrix regression; rule in [`host-protocol.md` §3.2](host-protocol.md) |
 | VER-004 | an **undriven DMEM address** — a data-memory read path was not selected, so a load could return a stale/undefined word | differential co-simulation | read port driven explicitly; co-sim seed that exposed it kept as a regression |
-| *model-found* | a computed jump (`csrw TPC` + `jmp`) fetched from `pc+1` — **the golden model was right and the RTL was wrong** | differential co-simulation seed program | same-cycle redirect of the fetch, no bubble, no stale buffer; `JUMP_TB` |
 | VER-009/010/012 | CSR read staleness, three separate manifestations, all root-caused to an `always @*` block whose sensitivity list did not include the registers touched inside a function call — so a read could return the previous value when only a function input changed | global-CSR read matrix, expanding as each manifestation was fixed | function reads hoisted out of the process; explicit sensitivity; the matrix test is the regression |
 | VER-013 | **INAT register-bank truncation** — the `inat` write-back register index was truncated, so a latch could target the wrong thread register bank | co-simulation / timing suite | write-back index fixed; `inat` exact-cycle sample test is the regression |
 | VER-014 | **peripheral event chain pollution** — a peripheral (wave-player) event could pollute the thread event chain | four-concurrent-periods timing test | merge path fixed so peripheral events no longer enter the thread chain; timing suite regression |

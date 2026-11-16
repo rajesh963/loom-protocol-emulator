@@ -189,16 +189,16 @@ cross-product (opcodes × CSRs × 4 concurrent threads × 19 pins × both event 
 × the TMR wrap); and the Tiny Tapeout **`gds`/`precheck`/`gl_test`** gates.
 
 The methodology has already earned its keep: two independent implementations — hand-written RTL and
-a golden model written from the spec — found **fifteen deviations**, all fixed, each with a
+a golden model written from the spec — found **sixteen deviations**, all fixed, each with a
 regression. The most instructive ones:
 
 | ID | What was wrong | How it surfaced | Fix |
 |---|---|---|---|
+| **VER-000** | *(model-found, pre-triage)* a `csrw TPC` computed jump fetched from `pc+1`, so the fall-through instruction was buffered and executed after the jump | spec-derived golden model, first directed test | same-cycle fetch redirect to the new PC; `JUMP_TB` regression |
 | VER-001 | `pins_out[9:8]` (the host's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | pin-vector test against the spec mask | writes masked with `PINS_OUT_DRIVABLE = 0xFCFF`; `csrr POUT` now reads `0xFCFF` |
 | VER-002 | `TFIFO`'s bit layout differed between spec, RTL and golden model | CSR table generated from `sw/isa.py` cross-checked against the RTL read path | frozen to `[11:8]` rx / `[7:4]` tx / bit1 tx_full / bit0 rx_empty in all three |
 | VER-003 | host reads of *global* CSRs returned stale thread-bank data (the host path decoded from the thread `CSRR` address register) | host suite read `POUT`/`TMR` after `RUN` | split thread and host CSR read paths; global-CSR read matrix regression |
 | VER-004 | an **undriven DMEM address** — a data-memory read path was not selected, so a load could return a stale word | differential co-simulation | read port driven explicitly; the seed became a regression |
-| *model-found* | a computed jump (`csrw TPC` + `jmp`) fetched from `pc+1` — **the model was right, the RTL was wrong** | differential co-simulation seed | same-cycle redirect, no bubble; `JUMP_TB` regression |
 | VER-009/010/012 | CSR read staleness in three separate places, all root-caused to an `always @*` sensitivity list that omitted registers read inside a function call | global-CSR read matrix, expanding as each was fixed | function reads hoisted out of the process; matrix test is the gate |
 | VER-013 | **INAT register-bank truncation** — the `inat` write-back index was truncated, so a latch could hit the wrong thread register bank | co-simulation / timing suite | index fixed; `inat` exact-cycle regression |
 | VER-014 | **peripheral event-chain pollution** — a wave-player event could contaminate a thread's event chain | four-concurrent-periods timing test | merge path separated; timing regression |
@@ -236,7 +236,10 @@ Calibration from three real Tiny Tapeout CMOS5L designs (LibreLane post-place): 
 util 0.62; `tinyQV` 2×2 = 114.5k µm² util 0.89 — an average of ≈ 15 µm² per placed cell, which is the
 budget model this estimate uses.
 
-**Submission plan:** SRAM flagship if CI is green; FF fallback if not. Cheap shrink levers held in
+**How CI is run:** the first hardening run is the **FF 128-word build** (`LOOM_PMEM_SMALL`, no macro)
+so the whole LibreLane path is exercised with zero macro/power-grid risk; the **SRAM 1024-word
+flagship is a config switch** flipped after that flow is green, and whichever build is green is what
+ships. Cheap shrink levers held in
 reserve if placement overflows: DMEM 64→32 words, FIFO depth 8→4, and dropping the wave player's
 private DMEM read port (sharing the CPU read port).
 
@@ -258,7 +261,8 @@ private DMEM read port (sharing the CPU read port).
 
 ### 7.4 What is already proven by simulation
 
-The landed RTL passes **57 of 59 tests (0 fail, 2 skip, ~145 s)** via `make` from `test/`:
+The landed RTL passes **57 of 59 tests (0 fail, 2 skip, 147 s wall)** via `make` from `test/`, and the
+`test` GitHub Actions workflow reproduces the matrix on every push:
 
 | Suite | Result |
 |---|---|

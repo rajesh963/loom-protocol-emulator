@@ -41,3 +41,4 @@ test/unit_*/tb_*
 !test/unit_*/tb_*.v
 test/_scratch_rtl*/
 formal/build/
+.ci_logs/

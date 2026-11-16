@@ -170,8 +170,9 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 ## Verification
 
-Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb, ~145 s):
-**59 tests, 57 PASS, 0 FAIL, 2 SKIP**. Two independent implementations — hand-written RTL and a
+Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **59 tests, 57 PASS, 0 FAIL, 2 SKIP,
+147 s wall** — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
+claims are CI-verifiable. Two independent implementations — hand-written RTL and a
 Python golden model written from the spec — agree on the exact cycle of every pin transition and on
 the full architectural state for 100/100 random programs. The two SKIPs are I2C 400 kHz and I2C
 target, gated on firmware-timing triage (VER-006/007); I2C 100 kHz and clock stretching pass, so the
@@ -188,9 +189,10 @@ gap is in example-firmware timing, not the core architecture.
 | gate-level | pending | awaits the LibreLane netlist |
 | sign-off (`gds`/`precheck`) | pending | CI running |
 
-The bring-up caught **fifteen real deviations** worth reading as evidence the methodology works,
+The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
-`TFIFO` layout disagreement (VER-002), an undriven DMEM address (VER-004), an `INAT` register-bank
+a computed-jump/`pc+1` bug where the golden model was right and the RTL wrong (VER-000), a `TFIFO`
+layout disagreement (VER-002), an undriven DMEM address (VER-004), an `INAT` register-bank
 truncation (VER-013) and peripheral event-chain pollution (VER-014) — all closed with regressions.
 Detail, plus the two skips stated plainly, in
 [`docs/verification.md` §9](docs/verification.md#9-results). Measured area/timing/GDS numbers live in

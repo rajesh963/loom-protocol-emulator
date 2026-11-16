@@ -9,11 +9,11 @@
 0004   54000100  waitd 0x0100             waitd   POLL_DIV
 0005   38000000  in r0                    in      r0
 0006   10300000  and r0, r6               and     r0, r6
-0007   8400FFFD  jnz 0x005                jnz     poll
+0007   8400FFFD  jnz poll                 jnz     poll
 0008   54001047  waitd 0x1047             waitd   HALF_DIV        ; mid-start
 0009   38000000  in r0                    in      r0
 000A   10300000  and r0, r6               and     r0, r6
-000B   8400FFF9  jnz 0x005                jnz     poll            ; false start
+000B   8400FFF9  jnz poll                 jnz     poll            ; false start
 000C   05400000  movi r5, 0x0000          movi    r5, 0
 000D   05000008  movi r4, 0x0008          movi    r4, 8
 ; --- rx_bit = 0x00E
@@ -24,11 +24,11 @@
 0012   21400001  shr r5, 1                shr     r5, 1
 0013   15580000  or r5, r3                or      r5, r3
 0014   0F000001  subi r4, 0x0001          subi    r4, 1
-0015   8400FFF9  jnz 0x00F                jnz     rx_bit
+0015   8400FFF9  jnz rx_bit               jnz     rx_bit
 0016   5400208D  waitd 0x208D             waitd   BAUD_DIV        ; stop cell
 0017   38000000  in r0                    in      r0
 0018   10300000  and r0, r6               and     r0, r6
-0019   8200FFEB  jz 0x005                 jz      poll            ; framing error -> drop
+0019   8200FFEB  jz poll                  jz      poll            ; framing error -> drop
 001A   71400000  push r5                  push    r5              ; host can observe the echo via RX_POP
 001B   04000000  movi r0, 0x0000          movi    r0, 0
 001C   40000000  emit r0                  emit    r0              ; start bit
@@ -41,7 +41,7 @@
 0022   40800000  emit r2                  emit    r2
 0023   20400001  shr r1, 1                shr     r1, 1
 0024   0F000001  subi r4, 0x0001          subi    r4, 1
-0025   8400FFFA  jnz 0x020                jnz     tx_bit
+0025   8400FFFA  jnz tx_bit               jnz     tx_bit
 0026   04800400  movi r2, 0x0400          movi    r2, TX_PIN
 0027   40800000  emit r2                  emit    r2              ; stop bit = 1
-0028   8000FFDC  jmp 0x005                jmp     poll
+0028   8000FFDC  jmp poll                 jmp     poll

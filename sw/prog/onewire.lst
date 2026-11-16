@@ -29,9 +29,9 @@
 0017   54004B00  waitd 0x4B00             waitd   RESET_STEP
 0018   38000000  in r0                    in      r0
 0019   12000080  andi r0, 0x0080          andi    r0, DQ_PIN
-001A   84000022  jnz 0x03D                jnz     not_reset       ; line released early = a normal slot, resync
+001A   84000022  jnz not_reset            jnz     not_reset       ; line released early = a normal slot, resync
 001B   0F000001  subi r4, 0x0001          subi    r4, 1
-001C   8400FFFB  jnz 0x018                jnz     reset_loop
+001C   8400FFFB  jnz reset_loop           jnz     reset_loop
 001D   56008080  waitp 0x8080             waitp   WAIT_DQ_HIGH
 001E   54007080  waitd 0x7080             waitd   PRESENCE_DELAY
 001F   3C000080  dset 0x80                dset    DQ_PIN
@@ -50,7 +50,7 @@
 002C   0BC00005  addi r7, 0x0005          addi    r7, 5
 002D   2A000008  csrw tpc, r0             csrw    TPC, r0
 002E   284000BE  cmpi r1, 0x00BE          cmpi    r1, 0xBE        ; READ SCRATCHPAD?
-002F   8400FFE6  jnz 0x016                jnz     main            ; 0x44 CONVERT T (or anything else): done
+002F   8400FFE6  jnz main                 jnz     main            ; 0x44 CONVERT T (or anything else): done
 0030   05400000  movi r5, 0x0000          movi    r5, 0           ; table index
 0031   05000009  movi r4, 0x0009          movi    r4, 9
 ; --- read_loop = 0x032
@@ -62,11 +62,11 @@
 0037   2A000008  csrw tpc, r0             csrw    TPC, r0
 0038   0B400001  addi r5, 0x0001          addi    r5, 1
 0039   0F000001  subi r4, 0x0001          subi    r4, 1
-003A   8400FFF8  jnz 0x033                jnz     read_loop
-003B   8000FFDA  jmp 0x016                jmp     main
+003A   8400FFF8  jnz read_loop            jnz     read_loop
+003B   8000FFDA  jmp main                 jmp     main
 ; --- not_reset = 0x03C
 003C   56008080  waitp 0x8080             waitp   WAIT_DQ_HIGH    ; let the short pulse end, then look again
-003D   8000FFD8  jmp 0x016                jmp     main
+003D   8000FFD8  jmp main                 jmp     main
 ; --- sub_rx_byte = 0x03E
 003E   04400000  movi r1, 0x0000          movi    r1, 0
 003F   04C00008  movi r3, 0x0008          movi    r3, 8
@@ -80,7 +80,7 @@
 0046   56008080  waitp 0x8080             waitp   WAIT_DQ_HIGH
 0047   540012C0  waitd 0x12C0             waitd   RECOVERY
 0048   0EC00001  subi r3, 0x0001          subi    r3, 1
-0049   8400FFF7  jnz 0x041                jnz     rxb_loop
+0049   8400FFF7  jnz SAMPLE_DELAY         jnz     rxb_loop
 004A   2A380008  csrw tpc, r7             csrw    TPC, r7
 ; --- sub_tx_byte = 0x04B
 004B   04C00008  movi r3, 0x0008          movi    r3, 8
@@ -90,9 +90,9 @@
 004E   12800001  andi r2, 0x0001          andi    r2, 1           ; Z = !bit0
 004F   56008000  waitp 0x8000             waitp   WAIT_DQ_LOW     ; master starts a read slot
 0050   540012C0  waitd 0x12C0             waitd   RECOVERY        ; ~5 us: present the bit quickly
-0051   84000003  jnz txb_hold             jnz     txb_one
+0051   84000003  jnz txb_one              jnz     txb_one
 0052   3C000080  dset 0x80                dset    DQ_PIN          ; 0 -> pull DQ low
-0053   80000002  jmp 0x056                jmp     txb_hold
+0053   80000002  jmp txb_hold             jmp     txb_hold
 ; --- txb_one = 0x054
 0054   3E000080  dclr 0x80                dclr    DQ_PIN          ; 1 -> release (pull-up high)
 ; --- txb_hold = 0x055
@@ -100,5 +100,5 @@
 0056   3E000080  dclr 0x80                dclr    DQ_PIN          ; release after the slot
 0057   540012C0  waitd 0x12C0             waitd   RECOVERY
 0058   0EC00001  subi r3, 0x0001          subi    r3, 1
-0059   8400FFF3  jnz 0x04D                jnz     txb_loop
+0059   8400FFF3  jnz txb_loop             jnz     txb_loop
 005A   2A380008  csrw tpc, r7             csrw    TPC, r7
