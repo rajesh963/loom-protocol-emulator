@@ -13,6 +13,7 @@ test/
   test_timing.py         headline timing claims + ASCII waveform dumps
   test_random_cosim.py   differential RTL vs sw/loom_model.py, seeded random programs
   test_protocols.py      independent UART / SPI / I2C VIPs (test/vip/)
+  test_usb_ls.py         USB 1.1 low-speed device TX: NRZI, bit stuffing, CRC16
   known_issues.py        reported deviations; gated tests flip with one flag
   vip/                   pure-Python UART, SPI (modes 0-3), I2C far-end models + waves
 formal/
@@ -173,9 +174,9 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-16)
 
-`make` from `test/`: **60 tests, 60 PASS, 0 FAIL, 0 SKIP, ~150 s wall** (CI budget
+`make` from `test/`: **62 tests, 62 PASS, 0 FAIL, 0 SKIP, ~155 s wall** (CI budget
 < 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
-SRAM build: `make SRAM_SIM=1024` → same 60/60 (RTL behavioural macro model,
+SRAM build: `make SRAM_SIM=1024` → same 62/62 (RTL behavioural macro model,
 no PDK needed); `make SRAM_SIM=512` also runs (host layer verified incl. the
 PMEM depth guard).  A clean clone (`env -i make` with only an installed cocotb
 on `PATH`) reproduces the full matrix, so there is no local-venv or
@@ -183,7 +184,26 @@ untracked-file dependency.  All protocol tests run at the **shipped clock:
 CLOCK_PERIOD 30 ns / 33.33 MHz** (`CLK_NS=30.0`), against the `CLOCK_HZ =
 33_333_333` firmware sweep.
 
-Measured rates at 33.33 MHz, **full protocol period** (UART: start-edge to
+### USB 1.1 low-speed device TX (stretch) — `test_usb_ls.py`
+
+The chip drives single-ended D+ on `uio[0]` from `sw/examples/usb_ls_tx.asm`
+(payload supplied by the host through TX_FIFO).  The RTL pin trace is decoded by
+the independent receiver in `host/usb_ls.py`: NRZI, bit-unstuffing,
+SYNC/PID+complement/CRC16/EOP.  Two packets are decoded **on RTL**:
+
+| payload | PID | CRC16 | stuffed | bit period | bit rate | max grid residual |
+|---|---|---|---|---|---|---|
+| `FF FF FF FF` | 0xC3 DATA0 | 0x4FFE | 6 | 22.249 cyc | 1.4982 Mbit/s (−0.122 %) | 0.50 cyc |
+| `LOOM` | 0xC3 DATA0 | 0x992C | 0 | 22.250 cyc | 1.4981 Mbit/s (−0.124 %) | 0.50 cyc |
+
+Wire-edge interval histograms: `{22:8, 23:3, 44:1, 89:1, 111:1, 133:1,
+155:1, 156:5}` (FF) and `{22:16, 23:3, 44:3, 45:5, 67:5, 89:1, 111:2}` (LOOM) —
+every gap is 22/23-cycle quantisation of the event grid or an integer multiple.
+The tests assert SYNC/PID/payload/CRC/EOP, stuffed-bit count, rate within the
+USB LS ±0.25 % budget, `max residual < 1.0 cycle` (no CPU/issue jitter), and the
+gap histogram.  Pin-level only, so they also run in the `gl_test` netlist.
+
+Measured protocol rates at 33.33 MHz, **full protocol period** (UART: start-edge to
 start-edge across frames; I²C: rising-to-rising SCL, i.e. high + low phase,
 *not* 2× the high phase) — `test_protocols` logs designed + measured columns
 every run:

@@ -7,6 +7,7 @@
 #    test_timing.py        headline timing claims + ASCII waveform dumps
 #    test_random_cosim.py  differential RTL vs sw/loom_model.py (seeded)
 #    test_protocols.py     independent UART / SPI / I2C VIPs
+#    test_usb_ls.py        USB 1.1 low-speed device TX (NRZI/stuffing/CRC, RTL)
 #
 #  Usage:
 #    make                     # run everything (CI entry point)
@@ -57,7 +58,7 @@ COCOTB_HDL_TIMEUNIT      ?= 1ns
 COCOTB_HDL_TIMEPRECISION ?= 1ps
 
 # Default = full regression.  Individual layers can be selected on the cmdline.
-COCOTB_TEST_MODULES ?= test_host,test_isa,test_timing,test_random_cosim,test_protocols
+COCOTB_TEST_MODULES ?= test_host,test_isa,test_timing,test_random_cosim,test_protocols,test_usb_ls
 
 # RTL simulation sources (the FF-array or SRAM behavioural build).  In the
 # gate-level branch below the hardened netlist replaces ALL of these (the netlist
