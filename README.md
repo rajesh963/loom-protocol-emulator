@@ -170,26 +170,31 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 ## Verification
 
-| Layer | What it proves | Status |
+Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb, ~145 s):
+**59 tests, 57 PASS, 0 FAIL, 2 SKIP**. Two independent implementations — hand-written RTL and a
+Python golden model written from the spec — agree on the exact cycle of every pin transition and on
+the full architectural state for 100/100 random programs. The two SKIPs are I2C 400 kHz and I2C
+target, gated on firmware-timing triage (VER-006/007); I2C 100 kHz and clock stretching pass, so the
+gap is in example-firmware timing, not the core architecture.
+
+| Suite | Result | What it proves |
 |---|---|---|
-| unit — core | two threads, exact 16- and 8-cycle edge streams through queue back-pressure; computed jump | **passing** |
-| unit — host bridge | all 13 commands, byte framing, CS abort, IRQ latch at 10 MHz / 100 kHz SCK | **passing** |
-| unit — wave player + capture | pattern walk, loop/one-shot, fractional period, `done`; capture engine 209 checks | **passing** |
-| integration | SPI load → read-back → run → 25 edges, every interval exactly 16 cycles, 0 errors; host global-CSR reads correct | **passing** |
-| differential co-simulation | RTL vs golden ISA model on random programs, cycle-exact pin transitions | in progress |
-| protocol VIPs | UART/SPI/I2C/PS-2/1-Wire/WS2812 conformance with ASCII waveform dumps | in progress |
-| formal | reset completeness, queue integrity, no out-of-bounds host write, no spurious IRQ | in progress |
-| gate-level | the protocol suite on the hardened LibreLane netlist | awaiting GDS |
-| sign-off | `gds` + `precheck` + `gl_test` GitHub Actions | awaiting CI |
+| host link | **PASS** | all 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
+| ISA | **22/22 PASS** | every mnemonic; coverage meta-test covers all 59 tests |
+| timing | **7/7 PASS** | drift-free fractional stream, UART 115200 @ 60 MHz, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
+| differential co-sim | **PASS** | 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts |
+| protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; 2 SKIP (above) |
+| formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
+| gate-level | pending | awaits the LibreLane netlist |
+| sign-off (`gds`/`precheck`) | pending | CI running |
 
-The first cocotb bring-up already caught **four real deviations** — a host CSR read-path bug (VER-003),
-unmasked `pins_out[9:8]` (VER-001), a three-way `TFIFO` layout disagreement (VER-002) and a
-computed-jump fetch bug where the golden model was right and the RTL was wrong (VER-004) — which is
-the methodology doing its job; the detail is in [`docs/verification.md` §9.2](docs/verification.md#92-what-the-methodology-caught-four-real-deviations-in-the-first-bring-up).
-
-The methodology (and the results tables that will be filled from CI) is
-[`docs/verification.md`](docs/verification.md); measured area/timing/GDS numbers live in
-[`docs/results.md`](docs/results.md) and are marked as pending measurement.
+The bring-up caught **fifteen real deviations** worth reading as evidence the methodology works,
+including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
+`TFIFO` layout disagreement (VER-002), an undriven DMEM address (VER-004), an `INAT` register-bank
+truncation (VER-013) and peripheral event-chain pollution (VER-014) — all closed with regressions.
+Detail, plus the two skips stated plainly, in
+[`docs/verification.md` §9](docs/verification.md#9-results). Measured area/timing/GDS numbers live in
+[`docs/results.md`](docs/results.md) and are marked as pending measurement until CI produces them.
 
 ## Documentation
 

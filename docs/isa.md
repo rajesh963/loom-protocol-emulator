@@ -90,15 +90,15 @@ and `.` (the current word address). No character or string literals; **`%` is mo
 | `0x1E` | `dset` | `imm8` | DIR \|= imm16[7:0] | — |
 | `0x1F` | `dclr` | `imm8` | DIR &= ~imm16[7:0] | — |
 | `0x20` | `emit` | `rd` | enqueue timed event at NEXTT+PERIOD (frac accum), val=R[rd]; retry if queue full | — |
-| `0x21` | `emita` | `rd, t16` | enqueue event at absolute TMR==imm16, val=R[rd] | — |
-| `0x22` | `emitd` | `rd, imm16` | enqueue event at TMR+imm16, val=R[rd] | — |
+| `0x21` | `emita` | `rd, t16` | enqueue event at absolute TMR==imm16 (behind-schedule clamped to TMR+1), val=R[rd] | — |
+| `0x22` | `emitd` | `rd, imm16` | enqueue event at TMR+imm16 (relative delay 1..65535, no behind-schedule clamp), val=R[rd] | — |
 | `0x23` | `emite` | `rd` | enqueue edge event, val=R[rd]; fires when (pins_in&EMASK)==(ECOND&EMASK) | — |
 | `0x24` | `setp` | `imm16` | PERIOD = imm16 (12.4 fixed point) | — |
 | `0x25` | `setm` | `imm16` | TMASK = imm16 | — |
 | `0x26` | `setem` | `imm16` | EMASK = imm16 (edge kind only) | — |
 | `0x27` | `setec` | `imm16` | ECOND = imm16 | — |
-| `0x28` | `inat` | `rd, t16` | stall until TMR==imm16, latch pins_in that cycle, R[rd]=latch | — |
-| `0x29` | `waitu` | `t16` | stall until TMR==imm16 | — |
+| `0x28` | `inat` | `rd, t16` | stall until TMR==imm16, latch pins_in that cycle, R[rd]=latch (target now/overdue => sample in issue cycle) | — |
+| `0x29` | `waitu` | `t16` | stall until TMR==imm16 (target now/overdue => no stall) | — |
 | `0x2A` | `waitd` | `imm16` | stall imm16 (12.4) cycles, drift-free fractional accumulation | — |
 | `0x2B` | `waitp` | `mask\|value` | retry until (pins_in[7:0] & imm16[15:8]) == imm16[7:0] (uio pins only) | — |
 | `0x30` | `ld` | `rd, a6` | R[rd] = DMEM[imm16[5:0]] (single-cycle, combinational read) | — |
@@ -199,13 +199,19 @@ writes `uo` bits instead, which have no enable at all.
 | Instruction | Scheduled time | Pin value | Kind |
 |---|---|---|---|
 | `emit rd` | `NEXTT + PERIOD` (12.4 carry accumulator), then `NEXTT = t` | `rd` | timed |
-| `emitd rd, d16` | `TMR + d16` | `rd` | timed |
-| `emita rd, t16` | absolute `t16` | `rd` | timed |
+| `emitd rd, d16` | `TMR + d16`, `d16` = 1…65535 (`0` ⇒ `TMR + 1`); **never clamped** | `rd` | timed |
+| `emita rd, t16` | absolute `t16`; behind-schedule targets clamp to `TMR + 1` | `rd` | timed |
 | `emite rd` | fires when `(pins_in & EMASK) == (ECOND & EMASK)` | `rd` | edge |
 
 A timed event fires when `target == TMR` **or when it is overdue**
 (`(target - TMR) & 0xFFFF >= 0x8000`) — so an armed edge can never be dropped, even if the
 scheduler's look-ahead was exceeded; it fires on the next cycle instead of silently disappearing.
+
+Enqueue-time clamping is a separate, narrower rule: `emit` (periodic chain) and `emita` (absolute
+target) clamp a target that is already behind schedule to `TMR + 1`, while `emitd` takes a relative
+delay in `1..65535` cycles and is never clamped (`d16 = 0` is defined as `TMR + 1`). In other words
+the *firing* rule is "never drop an armed edge"; the *enqueue* rule is "an absolute target in the
+past becomes the next cycle".
 
 The value written on firing is `(pins_out & ~TMASK) | (value & TMASK)`, so a thread only disturbs
 the pins it owns. `emit*` stalls the thread when the 4-deep queue is full; **the events already in
@@ -217,7 +223,7 @@ timed events already queued.
     setp  0x208D            ; 115200 Bd at 60 MHz
     setm  0x2000            ; own P[13] (UART_TX in the example pin map)
     li    r0, 0x2000
-    emit  r0                ; drive P10 high, PERIOD cycles from the last event
+    emit  r0                ; drive P13 high, PERIOD cycles from the last event
     emitd r0, 200           ; ... or 200 cycles from now
     emita r0, 1234          ; ... or exactly when TMR == 1234
     emite r0                ; ... or as soon as the EMASK/ECOND pattern appears
@@ -286,9 +292,11 @@ current PC, so `jmp .` is a spin.
 
 A jump whose target comes from a register — or from a *newly written* `TPC` — resolves in the same
 cycle: `csrw TPC, r3` immediately followed by `jmp rel16` redirects that cycle's fetch, with no
-bubble and no stale fetch buffer (VER-004 in [`verification.md` §9.2](verification.md); `JUMP_TB`
-regression). That is what makes "computed goto" a supported idiom for thread dispatch, not an
-accident.
+bubble and no stale fetch buffer (`verification.md` §9.2; `JUMP_TB` regression). Any write to `TPC`
+— thread `csrw TPC` or the host's `SET_PC` command — **invalidates the thread's prefetched
+instruction**, so there is no stale-word hazard and a host can re-point a thread at a new program
+between `STOP` and `RUN` without a synchronisation dance. That is what makes "computed goto" a
+supported idiom for thread dispatch, not an accident.
 
 `rpt n` re-issues the following instruction `n+1` times without advancing the PC — a 1-instruction
 loop that costs no branch slot, e.g. `rpt 7` + `shl r0, 1` = `shl` by 8.
@@ -317,7 +325,7 @@ command, which writes CSR `IRQ = 0`.
 | `0x12` | `TMR` | R | global | 16 | free-running 16-bit cycle counter | — |
 | `0x13` | `EVT` | RW | global | 8 | 8 event flags | — |
 | `0x14` | `IRQ` | RW | global | 16 | host IRQ code (non-destructive read; ACK=write 0) | bit0..15 code |
-| `0x15` | `WCTRL` | RW | global | 16 | wave player control | bit0=start (write-1 pulse, reads 0), bit1=loop, bit2=oneshot (wins over loop) |
+| `0x15` | `WCTRL` | RW | global | 16 | wave player control | bit0=start (write-1 pulse), bit1=loop, bit2=oneshot (wins over loop); read returns last written data[2:0] |
 | `0x16` | `WADDR` | RW | global | 6 | wave buffer start (DMEM word address) | — |
 | `0x17` | `WLEN` | RW | global | 7 | wave buffer length in words (1..64) | — |
 | `0x18` | `WPER` | RW | global | 16 | wave symbol period, 12.4 fixed point | — |
@@ -336,7 +344,7 @@ Bit layouts worth memorising (`[x:y]` in the column headers are bit positions):
 | `TFIFO` | 0 | `rx_count[3:0]` | `tx_count[3:0]` | 0 | 0 | `tx_full` | `rx_empty` |
 | `TEQ` | 0 | 0 | 0 | 0 | 0 | 0 | `eq_count[2:0]` (0–4) |
 | `GSTATUS` | 0 | `en[3:0]` at [8:5] | 0 | 0 | 0 | 0 | `irq` pending |
-| `WCTRL` | 0 | 0 | 0 | 0 | `oneshot` | `loop` | `start` (write-1 pulse) |
+| `WCTRL` | 0 | 0 | 0 | 0 | `oneshot` | `loop` | `start` (one-cycle pulse; read returns the last written `data[2:0]`, so `start` reads back as written) |
 | `WSTATUS` | 0 | 0 | 0 | 0 | 0 | `busy` | `done` |
 
 **Host addressing.** Per-thread CSRs live in bank `n = 0x00`–`0x0F`; the host reaches thread `t`

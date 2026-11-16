@@ -103,27 +103,24 @@ for the submitted build. Both are flow configuration, owned by the Lead; the RTL
 | formal F1–F9 (bounded, yosys SMT2 + z3) | TBD | `formal/` log |
 | `docs` action | TBD | Actions run |
 
-## 5. Verification results (current, RTL simulation)
+## 5. Verification results (landed RTL, simulation)
 
-All below are Lead-verified on Icarus Verilog 12 at `f6ffe72`; the full layer table with artefact
-paths is [`verification.md` §9](verification.md), including the **four deviations the methodology
-caught in the first bring-up** (VER-001..004).
+`make` from `test/` (Icarus Verilog 12 + cocotb, ~145 s): **59 tests, 57 PASS, 0 FAIL, 2 SKIP**.
+Full layer table, skips and the fifteen-deviation history: [`verification.md` §9](verification.md).
 
-| Bench | Result |
-|---|---|
-| `CORE_TB` — two concurrent threads, exact 16-cycle and 8-cycle edge streams through queue back-pressure | **PASS** |
-| `JUMP_TB` — computed jump via `csrw TPC` + jump (VER-004 regression) | **PASS** |
-| `HOST_TB` — all 13 host commands at 10 MHz and 100 kHz SCK; CS-abort, long-CS windows | **PASS** |
-| `FIFO_TB` — full/empty/count, simultaneous rw, fall-through read | **PASS** |
-| `WAVE_TB` — 1000 symbols at 1.625 cycles each = 1625 cycles exact | **PASS** |
-| `CAPTURE_TB` — capture engine, 209 checks (stretch; not in the build) | **PASS** |
-| `ITEST` — SPI loads 7 instructions, read-back exact, host global CSR reads correct (`POUT=0x0000`, `TMR=0x04A0`), 25 edges all exactly 16 cycles, 0 errors | **PASS** |
-| ISA assembler/disassembler round-trip, all-op smoke program | TBD |
-| Differential co-simulation vs golden model | TBD |
-| Protocol VIP conformance (UART/SPI/I2C/1-Wire/WS2812/PS-2) | TBD |
-| Formal F1–F9 | TBD |
-| Gate-level protocol suite | TBD |
-| Coverage matrix | TBD |
+| Suite | Result | Notes |
+|---|---|---|
+| host link | **PASS** | 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
+| ISA | **22/22 PASS** | every mnemonic; all 59 tests covered by the coverage meta-test |
+| timing | **7/7 PASS** | drift-free fractional stream, UART 115200 @ 60 MHz, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
+| differential co-sim | **PASS** | 100/100 random programs cycle-exact on full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written programs; 0 artefacts |
+| protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; **I2C 400 kHz and I2C target SKIP** (VER-006/007, firmware-timing triage — 100 kHz passes, so not a core-architecture gap) |
+| formal | **3/3 PASS** | FIFO/queue bounds k=8, core reset+event k=6, host command→effect ordering k=6 (`yosys write_smt2` + `yosys-smtbmc -s z3`) |
+| gate-level protocol suite | TBD | needs the LibreLane netlist |
+
+Earlier fixed-configuration benches (`CORE_TB`, `JUMP_TB`, `HOST_TB`, `FIFO_TB`, `WAVE_TB`,
+`CAPTURE_TB`, `ITEST`, integration) remain in the suite and in the per-bench table of
+[`verification.md` §2.1](verification.md).
 
 ## 6. Errata and known gaps
 

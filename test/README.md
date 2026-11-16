@@ -161,14 +161,14 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-16)
 
-`make` from `test/`: **59 tests, 56 PASS, 0 FAIL, 3 SKIP, 141 s wall** (CI budget
+`make` from `test/`: **59 tests, 57 PASS, 0 FAIL, 2 SKIP, 147 s wall** (CI budget
 < 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
 
 The three requested RTL fixes plus toolchain's model-side S6 pin-merge fix have
 landed, and the differential is fully green: **100/100 seeded random programs
 cycle-exact on the full `(pins_out, DIR)` trace and full architectural state,
 12/12 opt-in pull/reactive seeds, 6/6 hand-written programs**, ISA 22/22,
-timing 7/7, host 18/19.  The three remaining SKIPs are the last open deviations
-below (STATUS pipelining VER-015 and the two I2C items).
+timing 7/7, host **19/19**.  The only remaining SKIPs are the two I2C items
+below (firmware-timing suspects).
 
 

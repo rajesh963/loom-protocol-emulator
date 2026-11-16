@@ -198,7 +198,11 @@ reached when that difference is `0`. Consequences, which are part of the program
 
 * scheduling look-ahead must be **less than 32 768 cycles (546 µs)** — otherwise a "later" time
   looks like "1.09 ms ago";
-* an event whose `t` is already in the past fires **on the next cycle**;
+* an event whose `t` is already in the past fires **on the next cycle** (the firing rule: due or
+  overdue, so an armed edge is never dropped);
+* **enqueue-time clamping** is narrower: `emit` and `emita` clamp an already-behind absolute target
+  to `TMR + 1`, while `emitd` is a *relative* delay in `1..65535` cycles and is never clamped
+  (`d16 = 0` is defined as `TMR + 1`);
 * there is no epoch, no counter high word, and nothing to reset between frames. Protocols whose
   unit interval is shorter than 546 µs (all of UART, SPI, I2C, PS/2, 1-Wire, WS2812, USB LS,
   10BASE-T bit times) fit comfortably.
@@ -291,7 +295,8 @@ a 1.5 Mbaud bit cell with 4× oversampling. For those, LOOM includes a **wave pl
 peripheral that streams 16-bit pin patterns out of DMEM.
 
 * `WADDR` (DMEM word address), `WLEN` (1..64 patterns; `0` behaves as `1`), `WPER` (symbol period,
-  12.4), `WCTRL`
+  12.4), `WCTRL` (bit0 `start` is a one-cycle pulse in hardware but reads back as last written, bit1
+  `loop`, bit2 `oneshot` which wins over `loop`)
   (`start`, `loop`, `oneshot`), `WSTATUS` (`busy`, `done`);
 * `wave_pins` updates once per `WPER` cycles with the same carry accumulator (drift-free), reading
   the next DMEM word one cycle ahead;

@@ -147,7 +147,11 @@ byte `sn` is `[7]=halt, [6]=en, [5]=tx_full, [4]=tx_empty, [3]=rx_full, [2]=rx_e
 
 ### 3.2 CSR addressing pitfall (VER-003)
 
-Thread-local CSR addresses `0x00`–`0x0F` are only meaningful *inside* a thread. A **host** read or
+`SET_PC` writes `TPC`, which **invalidates the thread's prefetched instruction**: there is no
+stale-word hazard when a host re-points a thread at a new program, and no extra dummy `RUN` is
+needed to flush a pipeline. (Writing `WCTRL`'s `start` bit likewise reads back as written; the
+one-cycle start pulse is generated in hardware.) Thread-local CSR addresses `0x00`–`0x0F` are only
+meaningful *inside* a thread. A **host** read or
 write of `0x00`–`0x0F` addresses no thread bank: reads return `0x0000` and writes are ignored. To
 reach thread *t*'s bank the host must use `0x40 + 16*t + n` (`t` = 0..3, `n` = 0..0x0F), e.g.
 thread 2's `TPERIOD` is CSR `0x60`.

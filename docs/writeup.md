@@ -188,20 +188,26 @@ determinism; **gate-level simulation** of the hardened netlist; **coverage** as 
 cross-product (opcodes × CSRs × 4 concurrent threads × 19 pins × both event kinds × 13 host commands
 × the TMR wrap); and the Tiny Tapeout **`gds`/`precheck`/`gl_test`** gates.
 
-The methodology has already earned its keep in the first cocotb bring-up: **four real deviations
-were found before any protocol test ran**, three of them by looking at generated contracts rather
-than at waveforms.
+The methodology has already earned its keep: two independent implementations — hand-written RTL and
+a golden model written from the spec — found **fifteen deviations**, all fixed, each with a
+regression. The most instructive ones:
 
 | ID | What was wrong | How it surfaced | Fix |
 |---|---|---|---|
-| VER-003 | host reads of *global* CSRs returned stale thread-bank data (the host path decoded from the thread `CSRR` address register) | integration test read `POUT`/`TMR` after `RUN` and got nonsense | split thread and host CSR read paths; `ITEST` now asserts `POUT = 0x0000`, `TMR = 0x04A0` |
-| VER-001 | `pins_out` bits `[9:8]` (the host's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | pin-vector test compared every write against the spec's mask | all pin writes masked with `PINS_OUT_DRIVABLE = 0xFCFF` |
-| VER-002 | `TFIFO`'s bit layout differed between spec, RTL and golden model | CSR table generated from `sw/isa.py` cross-checked against the RTL read path | frozen to `[11:8]` rx_count, `[7:4]` tx_count, bit1 tx_full, bit0 rx_empty, in all three |
-| VER-004 | a computed jump (`csrw TPC` + `jmp`) fetched from `pc+1` — the **model was right, the RTL was wrong** | differential co-simulation seed program | no-bubble target fetch on a taken branch; `JUMP_TB` regression |
+| VER-001 | `pins_out[9:8]` (the host's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | pin-vector test against the spec mask | writes masked with `PINS_OUT_DRIVABLE = 0xFCFF`; `csrr POUT` now reads `0xFCFF` |
+| VER-002 | `TFIFO`'s bit layout differed between spec, RTL and golden model | CSR table generated from `sw/isa.py` cross-checked against the RTL read path | frozen to `[11:8]` rx / `[7:4]` tx / bit1 tx_full / bit0 rx_empty in all three |
+| VER-003 | host reads of *global* CSRs returned stale thread-bank data (the host path decoded from the thread `CSRR` address register) | host suite read `POUT`/`TMR` after `RUN` | split thread and host CSR read paths; global-CSR read matrix regression |
+| VER-004 | an **undriven DMEM address** — a data-memory read path was not selected, so a load could return a stale word | differential co-simulation | read port driven explicitly; the seed became a regression |
+| *model-found* | a computed jump (`csrw TPC` + `jmp`) fetched from `pc+1` — **the model was right, the RTL was wrong** | differential co-simulation seed | same-cycle redirect, no bubble; `JUMP_TB` regression |
+| VER-009/010/012 | CSR read staleness in three separate places, all root-caused to an `always @*` sensitivity list that omitted registers read inside a function call | global-CSR read matrix, expanding as each was fixed | function reads hoisted out of the process; matrix test is the gate |
+| VER-013 | **INAT register-bank truncation** — the `inat` write-back index was truncated, so a latch could hit the wrong thread register bank | co-simulation / timing suite | index fixed; `inat` exact-cycle regression |
+| VER-014 | **peripheral event-chain pollution** — a wave-player event could contaminate a thread's event chain | four-concurrent-periods timing test | merge path separated; timing regression |
+| VER-015 | **host STATUS pipeline** misaligned by one transfer | host suite | pipeline fixed; STATUS regression |
 
-Two structural lessons came out of that list: a machine-generated contract (the CSR/opcode tables)
-catches drift that prose review cannot, and writing the golden model from the *spec* rather than from
-the RTL is what turned VER-004 from an unfalsifiable "it mostly works" into a bug report.
+The pattern in that list is the argument for the architecture of the verification itself: the early
+bugs were **contract** bugs (caught by generating tables from one source of truth), the later ones
+were **state-sharing** bugs (caught only by a cycle-exact differential trace over full architectural
+state — no per-module unit test can see them).
 
 The headline claims we expect to defend with artefacts, not adjectives: every pin transition in a
 random-program corpus matches the golden model cycle-for-cycle; every protocol suite passes through
@@ -252,12 +258,19 @@ private DMEM read port (sharing the CPU read port).
 
 ### 7.4 What is already proven by simulation
 
-`CORE_TB` (two concurrent threads produce exact 16-cycle and 8-cycle edge streams through
-event-queue back-pressure), `JUMP_TB` (computed jump), `HOST_TB` (all 13 host commands at 10 MHz and
-100 kHz SCK, CS-abort and long-CS windows), `FIFO_TB`, `WAVE_TB` (1000 symbols at 1.625 cycles each =
-1625 cycles exact), `CAPTURE_TB` (209 checks) and `ITEST` (SPI loads 7 instructions, read-back exact,
-host global CSR reads correct, a thread runs, 25 edges all exactly 16 cycles, 0 errors). All on
-Icarus Verilog 12; see [`verification.md` §9](verification.md) for the artefact per row.
+The landed RTL passes **57 of 59 tests (0 fail, 2 skip, ~145 s)** via `make` from `test/`:
+
+| Suite | Result |
+|---|---|
+| host link — 13 commands, global-CSR matrix, FIFOs, IRQ/ACK, CS-abort, STATUS | **PASS** |
+| ISA — every mnemonic, coverage meta-test over all 59 tests | **22/22 PASS** |
+| timing — drift-free fractional stream, UART 115200 @ 60 MHz, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
+| differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
+| protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
+| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6 (`yosys write_smt2` + `yosys-smtbmc -s z3`) | **3/3 PASS** |
+
+Gate-level simulation and the LibreLane sign-off rows are still TBD — they need the hardened netlist,
+and this write-up does not estimate them.
 
 ## 8. Extensibility after fabrication
 

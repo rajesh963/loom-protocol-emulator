@@ -347,3 +347,10 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "entry (also re-gates the STATUS-dependent host checks).",
     },
 }
+
+# Environment override: `LOOM_KNOWN_FIXED=VER-004,VER-013 make ...` forces the
+# named entries open=False so the gated tests run against a scratch/pre-validated
+# RTL tree without editing this file.
+for _key, _entry in list(KNOWN_ISSUES.items()):
+    if _key in _FORCE_FIXED or _entry.get("id") in _FORCE_FIXED:
+        _entry["open"] = False
