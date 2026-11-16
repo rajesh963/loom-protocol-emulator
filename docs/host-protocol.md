@@ -17,8 +17,8 @@ Pins: `ui[0]=H_CS_N`, `ui[1]=H_SCK`, `ui[2]=H_MOSI`, `uo[0]=H_MISO`, `uo[1]=H_IR
 | SPI mode | 0 (CPOL = 0, CPHA = 0), MSB first |
 | MOSI sampled by LOOM on | `H_SCK` **rising** edge |
 | MISO shifted by LOOM on | `H_SCK` **falling** edge |
-| Max `H_SCK` | `clk / 6` = **10 MHz** at 60 MHz (11 MHz at 66 MHz) |
-| CS setup / hold | ≥ 3 `clk` (50 ns) before the first rising edge, ≥ 3 `clk` after the last |
+| Max `H_SCK` | `clk / 6` = **5.56 MHz** at the shipped 33.33 MHz (7.3 MHz at 44 MHz; 10 MHz needs a 60 MHz clock) |
+| CS setup / hold | ≥ 3 `clk` (90 ns at 33.33 MHz) before the first rising edge, ≥ 3 `clk` after the last |
 | Multi-byte values | **least-significant byte first** |
 | Idle MISO | `0x00` |
 | Idle H_IRQ | 0 (level, active high) |
@@ -28,7 +28,7 @@ host runs faster than `clk/6` the 2-FF synchroniser misses edges and bytes are c
 Respect the limit.
 
 `H_SCK` is asynchronous to the core clock. It is sampled through a 2-flip-flop synchroniser and an
-edge detector, so the LOOM core is a single-clock (60 MHz) design; the host link is the only place
+edge detector, so the LOOM core is a single-clock (33.33 MHz) design; the host link is the only place
 where an external clock exists, and it never reaches the protocol engines.
 
 ### One byte on the wire
@@ -186,7 +186,8 @@ halted.
 ## 5. Captured wire traces
 
 These are **real captures**, not hand-written examples: `test/unit_host/run.sh` bit-bangs SCK at
-10 MHz against `rtl/loom_host.v` at `clk = 60 MHz` and dumps every transfer to
+10 MHz against `rtl/loom_host.v` at `clk = 60 MHz` (the original design point; the shipped clock is
+33.33 MHz with a 5.56 MHz SCK ceiling — the protocol is unchanged) and dumps every transfer to
 `test/unit_host/build/tb_host.log`. Format: `txn N xfer K MOSI/MISO` with bytes in hex, T1 = first
 transfer after CS falls.
 
@@ -273,7 +274,7 @@ normative artefact is §1–§4 of this document**, and `test/unit_host/run.sh` 
 ```python
 from host.loom_host import LoomHost, SpiTransport
 
-h = LoomHost(SpiTransport(sck_hz=8_000_000))
+h = LoomHost(SpiTransport(sck_hz=4_000_000))
 assert h.ping()                       # 0x0D -> 0xA5
 h.load_hex("sw/examples/uart_tx.hex") # SET_ADDR + WRITE_MEM loop
 h.set_pc(0, 0x0000)
@@ -296,7 +297,8 @@ The demo board's RP2350 is the natural host. The chip's pads land on these RP235
 `H_CS_N/H_SCK/H_MOSI` are `ui[0..2]` = GPIO17–19 and `H_MISO` is `uo[0]` = GPIO33. The RP2350's
 hardware SPI0 can plausibly be routed to CS/SCK/MOSI on GPIO17–19, but its MISO is on GPIO33, which
 is not the conventional SPI0 MISO pin — so **the reference host implements the SPI master in PIO (or
-bit-bangs it)**. Any 4-wire SPI master up to ~10 MHz SCK works: the protocol has no clock stretching,
+bit-bangs it)**. Any 4-wire SPI master up to `clk/6` works — **~5.5 MHz at the shipped 33.33 MHz**
+(1 MHz is plenty): the protocol has no clock stretching,
 no dummy byte and no minimum transfer length constraints beyond "clock exactly the documented
 number of bytes, then raise CS".
 

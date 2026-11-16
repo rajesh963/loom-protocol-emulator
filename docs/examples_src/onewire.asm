@@ -1,9 +1,9 @@
 ; 1-Wire reset/presence on P[4] = ONEWIRE = uio[4] (0x10), open drain.
 .equ DQ,   0x0010
-.equ W60,  0xE100            ; 3600 cycles = 60 us
-.equ W30,  0x7080            ; 1800 cycles = 30 us
-.equ W6,   0x1680            ;  360 cycles =  6 us
-.equ W9,   0x21C0            ;  540 cycles =  9 us
+.equ W60,  0x7D00            ; 2000 cycles = 60 us
+.equ W30,  0x3E80            ; 1000 cycles = 30 us
+.equ W6,   0x0C80            ;  200 cycles =  6 us
+.equ W9,   0x12C0            ;  300 cycles =  9 us
 
 ow_reset:
     dset   DQ                ; enable the driver

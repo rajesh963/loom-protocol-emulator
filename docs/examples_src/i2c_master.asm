@@ -2,7 +2,7 @@
 ; DIR bit = 1 pulls the line low, DIR bit = 0 releases it to the external pull-up.
 .equ SCL,     0x0001
 .equ SDA,     0x0002
-.equ QUARTER, 0x0960         ; 150 cycles = 2.5 us
+.equ QUARTER, 0x0535         ; 83.3 cycles = 2.5 us (100 kHz; 0x014D for 400 kHz)
 
 i2c:
     dset  SCL|SDA            ; enable both drivers

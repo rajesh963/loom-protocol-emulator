@@ -1,6 +1,6 @@
-; UART receiver, 8N1, 115200 baud @ 60 MHz. RX on P[11] = ui[3].
-.equ BITPER,  0x208D         ; 520.8125 cycles
-.equ MIDBIT,  0x30D4         ; 1.5 bits = 781.25 cycles
+; UART receiver, 8N1, 115200 baud @ 33.33 MHz. RX on P[11] = ui[3].
+.equ BITPER,  0x1216         ; 289.375 cycles
+.equ MIDBIT,  0x1B21         ; 1.5 bits = 434.0625 cycles
 .equ RX,      0x0800         ; P[11] in the pins_in vector
 
 rx:

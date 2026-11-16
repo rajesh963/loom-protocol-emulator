@@ -52,7 +52,7 @@ What that buys, concretely:
 | no timing jitter from code | the edge is in the queue before the branch/FIFO stall happens |
 | the loop can be "slow" | the thread may take 3 or 300 cycles per bit; only the queue must not run dry |
 | four independent protocols | four threads, four schedulers, one shared issue slot — issue order is irrelevant to edges |
-| sub-cycle periods | the `PERIOD` register is **12.4 fixed point**, so 520.8333-cycle bit cells are representable with a carry accumulator |
+| sub-cycle periods | the `PERIOD` register is **12.4 fixed point**, so 289.352-cycle bit cells are representable with a carry accumulator (289.375 used, ~80 ppm) |
 | reactive protocols | an event can fire on a *pin-pattern match* instead of a time, so a target/slave answers within one cycle of the master's edge |
 | decoders without sampling jitter | `inat` latches the pin vector on a chosen cycle, not "whenever the loop gets there" |
 | sustained high rates | a wave player streams a 16-bit pin pattern per N fractional cycles straight out of DMEM |
@@ -60,14 +60,14 @@ What that buys, concretely:
 
 The cost is honest: the CPU must keep four queues fed, and it must be told the schedule. Both are
 firmware's problem, and firmware is fast enough — a 15-instruction loop feeds a 115200-baud UART
-with a 40 % duty cycle and 1500 cycles of slack per bit.
+with a 40 % duty cycle and ~868 cycles of slack per bit at 115200 baud.
 
 ## 3. How the timing is exact
 
 ### 3.1 The bit-period arithmetic
 
-`PERIOD` is `int[15:4] . frac[3:0]`: 12 integer bits, 4 fraction bits, unit = 1/16 cycle = 1.042 ns
-at 60 MHz. `emit` computes
+`PERIOD` is `int[15:4] . frac[3:0]`: 12 integer bits, 4 fraction bits, unit = 1/16 cycle = 1.875 ns
+at the shipped 33.33 MHz. `emit` computes
 
 ```
 sum    = PERIOD_int·16 + PERIOD_frac + PFRAC
@@ -81,12 +81,13 @@ cycle, forever. For UART at 115200 baud:
 
 | | value |
 |---|---|
-| ideal bit cell at 60 MHz | 60 000 000 / 115 200 = **520.8333** cycles |
-| nearest 12.4 value | `0x208D` = 8333/16 = **520.8125** cycles |
-| baud rate produced | **115 205.4 Bd** (+0.0046 %) |
-| UART tolerance | ±2 % (≈ ±10.4 cycles/bit) |
+| ideal bit cell at 33.33 MHz | 33 333 333 / 115 200 = **289.3518** cycles |
+| nearest 12.4 value | `0x1216` = 4630/16 = **289.3750** cycles |
+| rate at the divider level | 115 191 Bd (−80 ppm) |
+| **rate RTL-measured** | **289.35 cycles/bit = 115.20 kBd (+0.001 %)** — start-to-start, averaged over a frame |
+| UART tolerance | ±2 % (≈ ±5.8 cycles/bit) |
 | per-event phase error | ≤ 0.5 cycle, non-accumulating |
-| phase error after a 10-bit frame | ≤ 0.21 cycle (3.5 ns) |
+| phase error after a 10-bit frame | ≤ 0.12 cycle (3.5 ns) |
 
 Compare a 16-bit integer divider: 520 cycles/bit = 115 384 Bd, a +0.16 % baud error that eats 8 % of
 the ±2 % budget *and* drifts monotonically through the frame. The fractional register costs 4 flops
@@ -105,8 +106,8 @@ clock edge is the quantum: 16.67 ns. The fractional machinery controls *phase ac
 sub-cycle edge placement — edges land on the cycle grid, but the grid position is computed rather
 than counted, so it never drifts and never depends on what the CPU is doing.
 
-All time comparisons are modular over 16 bits (`TMR` wraps every 1.0923 ms). Scheduling look-ahead
-must be under 32 768 cycles (546 µs), which covers every unit interval in UART, SPI, I2C, PS/2,
+All time comparisons are modular over 16 bits (`TMR` wraps every 1.966 ms at 33.33 MHz). Scheduling
+look-ahead must be under 32 768 cycles (983 µs), which covers every unit interval in UART, SPI, I2C, PS/2,
 1-Wire, WS2812, USB LS and 10BASE-T. An event whose time is already past fires on the next cycle —
 a safe failure, not a lost edge.
 
@@ -132,10 +133,10 @@ latency and no scheduling noise.
 | threads / issue | 4 thread slots, 1 instruction per cycle shared |
 | per-thread | 10-bit PC, R0–R7 (16-bit), Z/C, stall, 12.4 PERIOD + 4-bit carry, TMASK/EMASK/ECOND, NEXTT, 4-deep event queue, 8-byte TX + 8-byte RX FIFO |
 | memory | 1024 × 32 PMEM (IHP `1024x32` SRAM macro = 140 183 µm² ≈ 14 % of die; 128-word FF fallback), 64 × 16 DMEM, FF arrays |
-| time base | 16-bit `TMR`, wraps every 1.0923 ms |
+| time base | 16-bit `TMR`, wraps every 1.966 ms |
 | host link | SPI mode 0, ≤ 10 MHz, 24-bit address, 13 commands, level IRQ |
 | pins | 19 protocol (14 drivable, 13 readable, 8 open-drain capable) + 5 host |
-| extras | wave player (1–64 patterns, 12.4 period, 60 M patterns/s peak) |
+| extras | wave player (1–64 patterns, 12.4 period, 33.3 M patterns/s peak) |
 | die | 8×4 tiles ≈ 1.00 mm², IHP CMOS5L, 60 MHz target |
 
 The 19 protocol pins need a word of explanation: Tiny Tapeout gives 24 digital pads, but LOOM spends
@@ -153,17 +154,17 @@ The deliverable is not a UART block — it is a *programming model* that happens
 I2C, PS/2, 1-Wire and WS2812 short programs. That is the flexibility claim the competition asks for,
 and it is why the examples are the real specification of the architecture.
 
-| Protocol | Role | Timing strategy | Timing budget at 60 MHz |
+| Protocol | Role | Timing strategy | Timing budget at 33.33 MHz (shipped) |
 |---|---|---|---|
-| UART 9600–921600 | both | periodic `emit`, `waitd`+`in` receive | 520.8333 cycles/bit @ 115200, ±0.5 cycle per edge |
-| SPI modes 0–3 | controller | two events per bit, `PERIOD` = half clock | 3 cycles/half at 10 MHz |
+| UART 9600–921600 | both | periodic `emit`, `waitd`+`in` receive | 289.375 cycles/bit @ 115200, ±0.5 cycle per edge |
+| SPI modes 0–3 | controller | two events per bit, `PERIOD` = half clock | nominal 32 cycles/bit; **RTL 1.04–1.06 MHz SCK** |
 | SPI | target | `emite` on `CS&SCK` pattern | one-cycle reaction |
-| I2C 100/400 kHz | controller + target | open-drain `DIR` ops, fractional `waitd` phases | 150 / 37.5 cycles per quarter bit |
-| PS/2 | host + device | `waitp` edge detect, `in` sample; `emite` answer | 3600–6000 cycles/clock |
-| 1-Wire | master | chained `waitd` for 60 µs–480 µs pulses | 3600 cycles per 60 µs |
-| WS2812 | driver | `emitd` one-shot edge pairs, `waitd` loop pad | 75 cycles/bit (T0H 24, T1H 48) |
-| wave player | generic | DMEM pattern stream | 60 M patterns/s |
-| USB low-speed, 10BASE-T | stretch | NRZI/Manchester state machine + scheduler / wave player | 40 cycles/bit, 6 cycles/symbol |
+| I2C 100/400 kHz | controller + target | open-drain `DIR` ops, fractional `waitd` phases | nominal 166.6 / 41.6 cycles per half phase; **RTL-measured full SCL period → 92.5 / 344.2 kHz** (legal: I²C specifies maxima) |
+| PS/2 | host + device | `waitp` edge detect, `in` sample; `emite` answer | 2000–3333 cycles/clock |
+| 1-Wire | master | `waitd` for 60 µs–480 µs pulses | 2000 cycles per 60 µs |
+| WS2812 | driver | `emitd` one-shot edge pairs, `waitd` loop pad | 41.7 cycles/bit (T0H 13.3, T1H 26.7) |
+| wave player | generic | DMEM pattern stream | 33.3 M patterns/s |
+| USB low-speed, 10BASE-T | stretch | NRZI/Manchester state machine + scheduler / wave player | 22.2 cycles/bit, 3.33 cycles/symbol |
 
 Full walkthroughs with verified code for each are in [`examples.md`](examples.md), and the
 assembled versions in [`examples_src/`](examples_src/). Because pins are software-muxed, the same
@@ -216,12 +217,16 @@ pin is exercised at least once with four threads running concurrently.
 
 ## 7. Results
 
-> **Status: area solved, hardening finishing, reported as measured.** Three FF-build attempts failed
-> on area; the SRAM build (**attempt 3**) measured **622 401 µm² = 51.5 % raw area ratio / 44.7 %
-> movable-relative flow utilisation — a −46 % area reduction** — and failed only on a placement-*mode* check that a
-> one-line config fix addresses. **Attempt 4 (same design, routability-driven placement disabled) is
-> running now.** The RTL being hardened passes the **full 59/59 simulation matrix with 0 skips**.
-> Nothing in §7.1–§7.4 is marked passing until the flow step passed; canonical log
+> **Status: area solved, timing solved, and the last blocker was a library-hygiene bug — reported as
+> measured.** Three FF-build attempts failed on area; the SRAM build (**attempt 3**) measured
+> **622 401 µm² = 51.5 % raw area ratio / 44.7 % movable-relative flow utilisation — a −46 % area
+> reduction**. Attempt 4 reached global routing but was blocked by an unplaced instance while 60 MHz
+> also failed setup (WNS −4.125 ns, 20.8 ns path). Attempt 5 re-targeted to **33.33 MHz** and **closed
+> setup** (`RSZ-0098 No setup violations found`) — and still hit the same instance, which turned out to
+> be **four stray `IOPadOut16mA` cells (57 600 µm², 12 % of moved area) that ABC had mapped onto
+> internal high-fanout nets** because the IO library was in the synthesis set. **Attempt 6 excludes
+> `sg13cmos5l_IOPad*` and is running.** The RTL being hardened passes the **full 59/59 simulation
+> matrix with 0 skips**. Nothing here is marked passing until the flow step passed; canonical log
 > [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ### 7.1 What the flow told us, and why it was worth four attempts
@@ -237,8 +242,9 @@ design that does not fit:
 | 2 `33012d5` | FF, relaxed `MAX_FANOUT_CONSTRAINT` (40) | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
 | 2b | FF, 25 MHz probe (`CLOCK_PERIOD` 40 ns) | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
 | 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | area **solved (−46 % vs attempt 1)**; failed `[GRT-0010]` inside GPL routability-driven mode (`gpl.tcl:88`) | **622 401 µm²** (148 563 fixed + 473 838 movable) | **44.7 %** movable-relative (raw 51.5 %) |
-| 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; failed on **timing** — **WNS −4.125 ns, TNS −1658.6**, 1 028 setup endpoints, critical path ≈ 20.8 ns at 16.67 ns | 622 401 µm² | 44.7 % movable-relative |
-| 5 `98cd5d6` | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **running** — ~44 % margin over the 20.8 ns path | — | — |
+| 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; blocked by an unplaced instance while 16.67 ns also failed setup (**WNS −4.125 ns, TNS −1658.6**, 1 028 endpoints, path ≈ 20.8 ns) | 622 401 µm² | 44.7 % movable-relative |
+| 5 `98cd5d6` | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **setup closed** (`RSZ-0098 No setup violations found`), 3 177 hold endpoints repaired — still `[GRT-0010]` on the same unplaced cell | 622 401 µm² | — |
+| 6 (master) | same design + `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` | **running** — expected routing clean, and **−57 600 µm²** of stray pad area | — | — |
 
 Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
 305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
@@ -268,18 +274,39 @@ attempt 4 disables it — one line in `src/config.json`. That is the shape of th
 design was never the problem after the structural fix; a placement heuristic was.
 
 Attempt 4 then went a long way — floorplan, macro placement + PDN, global and detailed placement, CTS,
-post-CTS repair, a 27-minute run — and failed at global routing with one unplaced instance. The root
-cause is **timing, not congestion**: post-GPL repair found **1 028 setup-violated endpoints, WNS
-−4.125 ns and TNS −1658.6** at a 16.67 ns clock, i.e. a **critical path ≈ 20.8 ns**, and the resizer's
-inserted cells left one instance unplaced for the router. The design places; 60 MHz on 130 nm does not
-close for this netlist.
+post-CTS repair, a 27-minute run — and failed at global routing with one unplaced instance, while the
+60 MHz clock also did not close: post-GPL repair found **1 028 setup-violated endpoints, WNS −4.125 ns,
+TNS −1658.6**, i.e. a **critical path ≈ 20.8 ns**. Attempt 5 separated the two problems by running the
+identical design at **33.33 MHz** (`CLOCK_PERIOD 30 ns`, ~44 % margin): its post-CTS repair reported
+**`RSZ-0098 No setup violations found`** — **setup closes at 33.33 MHz** — and 3 177 hold endpoints
+were repaired. It *still* aborted on the same unplaced instance, so timing was never the routing
+blocker.
 
-The right response is the one the competition invites: it sets **no frequency target** — "pick one that
-closes timing" — so attempt 5 re-targets the *same* design to **33.33 MHz** (`CLOCK_PERIOD 30 ns`),
-**~44 % margin over the measured 20.8 ns path**. 33.33 MHz still supports every demonstrated protocol
-with large margin (UART 115200, I²C 100/400 kHz, PS/2, 1-Wire, bit-banged SPI, WS2812); the only
-clock-sensitive path in practice is the wave player, and that scales with the clock divider. Frequency
-is a knob, not a feature — and the write-up will state the achieved number only after it is measured.
+**The root cause was library hygiene.** `_40267_` was not logic: the netlist contained **four
+`sg13cmos5l_IOPadOut16mA` IO-pad cells**, ≈ 14 400 µm² each — **57 600 µm² total, 12 % of the moved
+cell area** — with their `pad` pin driving *internal* logic. ABC had mapped four high-fanout internal
+nets onto the 16 mA pad driver because the IO library was part of the synthesis library set. A Tiny
+Tapeout design owns no pads (the shuttle supplies the padring), so IO placement never places them, and
+global routing aborts with `[GRT-0010] Instance is not placed`. That one quirk explains attempts 3, 4
+and 5 failing at the same point, and the fix is one line: **attempt 6 adds
+`"EXTRA_EXCLUDED_CELLS": ["sg13cmos5l_IOPad*"]`** (a LibreLane wildcard exclusion over the synthesis
+library set) and is running — with a bonus **−57 600 µm²** of cell area (473 838 → ~416 000, ~36–39 %
+utilisation).
+
+### Flow lessons worth keeping
+
+1. **Only post-synthesis mapped area is a budget.** A pre-ABC estimate can be optimistic (FF build:
+   modelled ~0.5 M, measured 1.148 M) *or* pessimistic (SRAM build: predicted 748 598, measured
+   622 401) depending on what the synthesiser has to invent.
+2. **Constraint knobs do not recover area; structure does.** Relaxing `MAX_FANOUT_CONSTRAINT` and
+   halving the clock both made the design *bigger*; replacing the flop-array PMEM with a macro removed
+   46 %.
+3. **Library hygiene matters as much as RTL.** An IO library in the synthesis set made ABC map four
+   internal nets onto 16 mA pad drivers: invisible in simulation, fatal at routing, and worth 12 % of
+   the cell area.
+4. **Tools report symptoms, not causes.** A placement-mode heuristic produced `[GRT-0010]` long before
+   anyone suspected the netlist contents, and the eventual fix was one configuration line. Read the
+   artifact, not just the error string.
 
 ### 7.2 The budget lesson
 
@@ -314,9 +341,9 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 
 | Check | Result |
 |---|---|
-| WNS / TNS, hold | attempt 4 at 16.67 ns: **WNS −4.125 ns, TNS −1658.6**; timing clean at the 30 ns re-target is **TBD** (attempt 5) |
-| achieved frequency | **TBD** — stated only from attempt 5's measured WNS; the design was re-targeted from 60 MHz to 33.33 MHz after the 20.8 ns critical path was measured |
-| `gds` action | **not passed** — attempt 4 reached global routing, then failed timing at 60 MHz; attempt 5 (33.33 MHz) running |
+| WNS / TNS, hold | **60 MHz does not close** (attempt 4 at 16.67 ns: WNS −4.125 ns, TNS −1658.6, 1 028 endpoints); **setup closes at 33.33 MHz** (attempt 5: `RSZ-0098 No setup violations found`; 3 177 hold endpoints repaired) |
+| achieved frequency | **33.33 MHz closes setup** (`CLOCK_PERIOD 30 ns`); the final achieved-frequency claim awaits a completing flow (attempt 6 running) |
+| `gds` action | **not passed** — attempts 4/5 were blocked by stray IO-pad cells at global routing; attempt 6 (pads excluded, 33.33 MHz) running |
 | `precheck` | not reached |
 | `gl_test` (gate-level protocol suite) | not reached |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
@@ -337,7 +364,7 @@ on every push:
 |---|---|
 | host link — 13 commands, global-CSR matrix, FIFOs, IRQ/ACK, CS-abort, STATUS | **PASS** |
 | ISA — every mnemonic, coverage meta-test over all 59 tests | **22/22 PASS** |
-| timing — drift-free fractional stream, UART 115200 @ 60 MHz, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
+| timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
 | formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6 (`yosys write_smt2` + `yosys-smtbmc -s z3`) | **3/3 PASS** |

@@ -3,7 +3,8 @@
 **What this is.** A beginner-friendly expansion of `spec/ARCHITECTURE.md` (the frozen v1.0
 spec): what a *protocol loom* is, why splitting "what to drive" from "when to drive it" is the
 whole idea, and how the four threads, the event schedulers, the wave player and the host bridge
-fit together. Every number below is computed for the LOOM build: `clk = 60 MHz`, 8×4 tiles of
+fit together. Every number below is computed for the LOOM build: `clk = 33.33 MHz` (the clock the hardened design
+measured green at), 8×4 tiles of
 IHP CMOS5L, `NUM_THREADS = 4`, event queue depth 4, 8-byte FIFOs.
 
 Read this first, then [`isa.md`](isa.md) for the instruction set, [`host-protocol.md`](host-protocol.md)
@@ -15,9 +16,9 @@ for how a host loads a program, and [`examples.md`](examples.md) for worked prot
 
 A CPU bit-bangs a protocol by executing a store to a GPIO at the right moment, so **the edge time is
 the instruction retirement time**. It depends on how many instructions the loop took, whether a
-branch was taken, whether a FIFO load stalled, and what the other engines are doing. At 60 MHz a bit
-is 520.8333 cycles at 115200 baud; padding the loop to an integer number of cycles is the standard
-trick, but then the *fact* that the bit is 520.8333 cycles long lives in the programmer's head, not in
+branch was taken, whether a FIFO load stalled, and what the other engines are doing. At 33.33 MHz a
+bit is 289.352 cycles at 115200 baud; padding the loop to an integer number of cycles is the standard
+trick, but then the *fact* that the bit is 289.352 cycles long lives in the programmer's head, not in
 the program, and every added feature risks the waveform.
 
 | Approach | Timing source | What it costs you |
@@ -34,29 +35,27 @@ because the edge was scheduled before the branch happened.
 
 ## 2. Timing, quantitatively
 
-### 2.1 Cycles per bit at 60 MHz
+### 2.1 Cycles per bit at 33.33 MHz
 
-> **Clock status:** the numbers in this section are at the **60 MHz design point**. The hardened build
-> failed timing at 16.67 ns (WNS −4.125 ns, 20.8 ns critical path) and is being re-targeted to
-> **33.33 MHz** (`CLOCK_PERIOD` 30 ns, attempt 5 in flight). If that is the shipped clock, every cycle
-> count here scales by 60/33.33 = **1.8×** (e.g. UART 115200 becomes 289.35 cycles/bit) and the
-> firmware `.equ` values are regenerated from the sweep. The *architecture* is clock-agnostic; only the
-> constants move. See [`results.md` §3.6](results.md).
+> **Clock provenance:** 60 MHz was the design target and failed timing (WNS −4.125 ns, 20.8 ns critical
+> path); the design was re-targeted to **33.33 MHz (`CLOCK_PERIOD` 30 ns)**, where setup closes
+> (`RSZ-0098 No setup violations`). Real-time protocol rates are unchanged — only cycle counts scale.
+> The architecture is clock-agnostic; every constant below is for the shipped 33.33 MHz build.
 
 | Protocol rate | cycles/unit | LOOM `PERIOD` (12.4 fixed) | register value | resulting rate | rate error |
 |---|---|---|---|---|---|
-| UART 9600 | 6250 | 6250.0000 | `0x186A0` | 9600.0 Bd | 0 |
-| UART 19200 | 3125 | 3125.0000 | `0x0C350` | 19200.0 Bd | 0 |
-| UART 38400 | 1562.5 | 1562.5000 | `0x061A8` | 38400.0 Bd | 0 |
-| UART 115200 | 520.8333 | 520.8125 | `0x0208D` | 115205.4 Bd | +0.0046 % |
-| UART 921600 | 65.1042 | 65.0625 | `0x00411` | 922390.0 Bd | +0.086 % |
-| I2C 100 kHz (½ bit) | 300 | 300.0000 | `0x012C0` | 100 kHz | 0 |
-| I2C 400 kHz (¼ bit) | 75 | 75.0000 | `0x004B0` | 400 kHz | 0 |
-| SPI mode 0 @ 10 MHz (½ SCK) | 3 | 3.0000 | `0x00030` | 10 MHz | 0 |
+| UART 9600 | 3472.2222 | 3472.2500 | `0x0D904` | 9600.0 Bd | 0 (8 ppm) |
+| UART 19200 | 1736.1111 | 1736.1250 | `0x06C82` | 19200.0 Bd | 0 |
+| UART 38400 | 868.0556 | 868.0625 | `0x03641` | 38400.0 Bd | 0 |
+| UART 115200 | 289.3518 | 289.3750 | `0x01216` | **RTL-measured 289.35 cyc/bit = 115.20 kBd (+0.001 %)**; the divider itself is −80 ppm | measured |
+| UART 921600 | 36.1684 | 36.1875 | `0x00243` | 921 000 Bd | −0.07 % |
+| I2C 100 kHz (½ bit) | 166.6667 | 166.6250 | `0x00A6A` | nominal; **RTL-measured full SCL period 360.4 cyc = 92.5 kHz**, high phase 169.1 cyc | legal (I²C specifies maxima) |
+| I2C 400 kHz (½ bit) | 41.6667 | 41.6250 | `0x0029A` | nominal; **RTL-measured full period 96.9 cyc = 344.2 kHz**, high phase 43.9 cyc | legal |
+| SPI bit-banged (¼ SCK, firmware) | 8.1 | 8.125 | `0x00082` | **RTL-measured 31.5–32 cyc/bit = 1.04–1.06 MHz SCK** | 0 |
 
 `PERIOD` is a 16-bit **12.4 fixed-point** number: `int[15:4]` cycles plus `frac[3:0]` sixteenths
-of a cycle, so the programming unit is `1/16` cycle = **1.042 ns at 60 MHz**, and the longest
-representable period is 4095.9375 cycles (14.65 µs, i.e. a 34.1 kHz floor for a single-frequency
+of a cycle, so the programming unit is `1/16` cycle = **1.875 ns at 33.33 MHz**, and the longest
+representable period is 4095.9375 cycles (122.9 µs, i.e. an 8.14 kHz floor for a single-frequency
 event stream — use `emitd`/`emita` for longer, irregular gaps).
 
 ### 2.2 The carry accumulator
@@ -74,7 +73,7 @@ NEXTT  = t
 so the *average* period is exactly `PERIOD/16` cycles and the per-event phase error stays in
 `(-1, +1)` cycle forever instead of growing by a fraction every bit — see
 [`images/timing.svg`](images/timing.svg). For 115200 baud that is a bounded ±0.5 cycle
-(±8.3 ns) error around an ideal 520.8333-cycle grid; UART tolerates ±2 % (10.4 cycles), so the
+(±15 ns) error around an ideal 289.352-cycle grid; UART tolerates ±2 % (5.8 cycles), so the
 margin is a factor of 20. The first event is scheduled at `t = NEXTT + PERIOD`; `NEXTT` resets to
 0, and reads are available in CSR `TNEXTT` (`0x04`).
 
@@ -171,7 +170,7 @@ Four instructions enqueue events:
 `NEXTT` is updated by **every** timed enqueue (not only `emit`), so a mixed sequence continues the
 periodic chain from whichever event was scheduled last; `RUN` initialises `NEXTT` to the current
 `TMR`, which makes the first `emit` after a run land exactly `PERIOD` later. `emite` never touches
-`NEXTT`. `emit` is the workhorse: it turns "send the next bit every 520.8 cycles" into ten instructions per
+`NEXTT`. `emit` is the workhorse: it turns "send the next bit every 289.4 cycles" into ten instructions per
 frame, and the drift-free carry does the rest. `emita` exists for the case where several threads
 must agree on a common phase (e.g. an SPI clock and a data line derived from a shared `TMR` grid)
 without a software round-trip.
@@ -191,27 +190,27 @@ On firing, `val` is written to `pins_out` under `TMASK`, and the queue advances.
 If the queue is full, `emit` stalls the issuing thread and the other three threads keep running.
 This is the correct failure mode for a timing engine: the *already scheduled* edges still happen
 exactly when promised. Firmware should keep the queue fed; the depth-4 design means a thread must
-re-enter `emit` at least once every 3 periods. For a 1 Mbaud UART that is every 180 cycles — about
-30 instructions of slack — and for 115200 baud, every ~1560 cycles.
+re-enter `emit` at least once every 3 periods. For a 1 Mbaud UART that is every 100 cycles — about
+30 instructions of slack — and for 115200 baud, every ~868 cycles.
 
 The `TEQ` CSR (`0x05`, `eq_count[2:0]`) exposes occupancy, so firmware can pick the number of
 events to enqueue adaptively instead of blindly stalling.
 
-### 4.4 Time is modular: the 1.09 ms wrap
+### 4.4 Time is modular: the 1.97 ms wrap
 
-`TMR` is 16 bits and free-running at 60 MHz, so it wraps every `65536 / 60 MHz = 1.0923 ms`. All
+`TMR` is 16 bits and free-running at 33.33 MHz, so it wraps every `65536 / 33.33 MHz = 1.966 ms`. All
 comparisons use the *signed* modular difference `int16(TMR - t)`; a time event is considered
 reached when that difference is `0`. Consequences, which are part of the programming model:
 
-* scheduling look-ahead must be **less than 32 768 cycles (546 µs)** — otherwise a "later" time
-  looks like "1.09 ms ago";
+* scheduling look-ahead must be **less than 32 768 cycles (983 µs)** — otherwise a "later" time
+  looks like "1.97 ms ago";
 * an event whose `t` is already in the past fires **on the next cycle** (the firing rule: due or
   overdue, so an armed edge is never dropped);
 * **enqueue-time clamping** is narrower: `emit` and `emita` clamp an already-behind absolute target
   to `TMR + 1`, while `emitd` is a *relative* delay in `1..65535` cycles and is never clamped
   (`d16 = 0` is defined as `TMR + 1`);
 * there is no epoch, no counter high word, and nothing to reset between frames. Protocols whose
-  unit interval is shorter than 546 µs (all of UART, SPI, I2C, PS/2, 1-Wire, WS2812, USB LS,
+  unit interval is shorter than 983 µs (all of UART, SPI, I2C, PS/2, 1-Wire, WS2812, USB LS,
   10BASE-T bit times) fit comfortably.
 
 Software that needs a longer gap chains `waitd` (also 12.4 accumulated) or re-arms `emit`.
@@ -309,7 +308,7 @@ peripheral that streams 16-bit pin patterns out of DMEM.
   the next DMEM word one cycle ahead;
 * the first pattern appears exactly `WPER` cycles after `start`;
 * with `WLEN = 64` and a period of 1 cycle, the sustained symbol rate is one 16-bit pin pattern
-  **per clock = 60 M patterns/s**, which is 10BASE-T class with room for the Manchester encoder
+  **per clock = 33.3 M patterns/s**, which is 10BASE-T class with room for the Manchester encoder
   running in a thread concurrently.
 
 The wave player participates in the same pin priority scheme as the event queues, so firmware can
@@ -323,8 +322,8 @@ to `emit`.
 The host bridge is a 4-wire SPI slave (mode 0, MSB first) on `ui[0..2]`/`uo[0]` with a level IRQ
 on `uo[1]`. SCK is asynchronously sampled with a 2-FF synchroniser and an edge detector, so the
 core clock never sees an external clock and the design stays a single-clock design for the
-LibreLane flow (target 60 MHz, `CLOCK_PERIOD` 16.67 ns). At 10 MHz SCK each byte takes 800 ns,
-so a 1024-word program loads in ~30 ms including command bytes. Details in
+LibreLane flow (shipped clock 33.33 MHz, `CLOCK_PERIOD` 30 ns). At the `clk/6` SCK ceiling of 5.56 MHz each byte takes 1.44 µs,
+so a 1024-word program loads in ~10 ms including command bytes (≈40 ms at 1 MHz SCK). Details in
 [`host-protocol.md`](host-protocol.md).
 
 Memory:

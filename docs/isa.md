@@ -220,7 +220,7 @@ against the live pin vector, which is what makes them glitch-free, and they are 
 timed events already queued.
 
 ```asm
-    setp  0x208D            ; 115200 Bd at 60 MHz
+    setp  0x1216            ; 115200 Bd at 33.33 MHz
     setm  0x0400            ; own P[10] (UART_TX in the info.yaml pin map)
     li    r0, 0x0400
     emit  r0                ; drive P10 high, PERIOD cycles from the last event
@@ -234,7 +234,7 @@ timed events already queued.
 | Instruction | Stalls until | Notes |
 |---|---|---|
 | `waitu t16` | `TMR == t16` | absolute; wrap-safe under the modular rules |
-| `waitd d16` | `d16` cycles have elapsed | 12.4 fixed point, carry accumulated: drift-free |
+| `waitd d16` | `d16` cycles have elapsed | 12.4 fixed point, carry accumulated: drift-free (max 4095.9 cycles = 122.9 µs per call) |
 | `waitp mask\|value` | `(pins_in[7:0] & mask) == value`, `mask = imm16[15:8]`, `value = imm16[7:0]` | watches **only the 8 bidirectional pins** `P[7:0]`; ≤ 2 cycles latency |
 | `inat rd, t16` | `TMR == t16`, then `rd = pins_in` **sampled in that cycle** | zero sampling jitter |
 | `evwait imm8` | event flag `imm8` is set, then clears it | thread-to-thread/host synchronisation |
@@ -252,7 +252,7 @@ cycle count (never drifting by more than one cycle), which a plain loop of `nop`
 
 ```asm
     waitp 0x0A05            ; wait until (P[7:0] & 0b00001010) == 0b00000101
-    waitd 0x30D4            ; 781.25 cycles = 1.5 bits
+    waitd 0x1B21            ; 434.06 cycles = 1.5 bits @ 115200/33.33 MHz
     in    r0                ; centre of bit 0
 ```
 
@@ -371,10 +371,10 @@ first.
 
 ## 7. Assembler
 
-> **Timing constants:** every `TPERIOD`/`waitd` value in this document assumes the **60 MHz design
-> point**. The hardened build is being re-targeted to 33.33 MHz after a measured 20.8 ns critical path
-> (`CLOCK_PERIOD` 30 ns), in which case period constants scale by 1.8× and firmware regenerates them
-> from its `.equ CLOCK_HZ` sweep. Nothing about the ISA or the scheduler semantics changes.
+> **Timing constants:** every `TPERIOD`/`waitd` value in this document is for the **shipped 33.33 MHz**
+> build (`CLOCK_PERIOD` 30 ns; 60 MHz failed timing at a 20.8 ns critical path). Firmware derives them
+> from `CLOCK_HZ = 33333333` in its `.equ` sweep (`sw/examples/`, `sw/prog/manifest.json`), so
+> re-targeting the clock again would be a constant sweep, not an ISA change.
 
 `sw/loom_asm.py` (owner: toolchain) is a two-pass assembler with relocations.
 
@@ -402,8 +402,8 @@ The whole point of LOOM is that the *program* never has to be cycle-counted. Her
 `MIDBIT`-style constants. Everything else is logic.
 
 ```asm
-; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[10] = uo[2].
-.equ BITPER, 0x208D          ; 520.8125 cycles/bit (12.4 fixed) -> 115205 Bd
+; UART transmitter, 8N1, 115200 baud @ 33.33 MHz. TX on P[10] = uo[2].
+.equ BITPER, 0x1216          ; 289.375 cycles/bit (12.4); RTL measures 289.35 = 115.20 kBd
 .equ TX,     0x0400          ; P[10] in the pins_out vector
 
 start:
@@ -444,8 +444,8 @@ How it works, line by line:
    no gap arithmetic.
 6. The loop takes about 8 issue slots per bit, but *the queue is filled faster than the wire drains
    it*: at 115200 the first four emits fit in the 4-deep queue and the fifth stalls the thread for
-   ~520 cycles. That stall is invisible on the wire: events 1–4 fire on schedule, and the thread
-   wakes with ~1500 cycles of slack. At 1 Mbaud, still 180 cycles of slack.
+   ~289 cycles. That stall is invisible on the wire: events 1–4 fire on schedule, and the thread
+   wakes with ~868 cycles of slack. At 1 Mbaud, still ~100 cycles of slack.
 7. The old stop bit remains asserted until the next start bit's event fires, so the line idles high
    between frames — 8N1 by construction, not by luck.
 
@@ -453,9 +453,11 @@ Host-side, one frame is: `TX_PUSH 0, 'A'` (command `0x06`). The host can verify 
 cocotb VIP or a scope; the demonstration in `docs/examples.md` includes the expected 10-bit
 waveform with cycle counts.
 
-Relative timing you can *read off* the program: `BITPER = 0x208D` → 520.8125 cycles → bit rate
-`60e6 / 520.8125 = 115 205 Bd`, +0.0046 % against 115 200 (UART spec allows ±2 %). Frame time =
-10 × 520.8125 = 5208.125 cycles = 86.8 µs.
+Relative timing you can *read off* the program: `BITPER = 0x1216` → 289.375 cycles → bit rate
+`33 333 333 / 289.375 = 115 191 Bd` at the divider level, and the **RTL-measured** rate is
+289.35 cycles/bit = **115.20 kBd** (+0.001 % — start-to-start, averaged over a frame). Frame time =
+10 × 289.375 = 2893.75 cycles = 86.8 µs — unchanged in real time, because the clock and the constants
+were both rescaled.
 
 ### Common variations
 

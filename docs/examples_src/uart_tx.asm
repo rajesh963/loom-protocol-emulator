@@ -1,5 +1,5 @@
-; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[10] = uo[2].
-.equ BITPER, 0x208D          ; 520.8125 cycles/bit (12.4 fixed) -> 115205 Bd
+; UART transmitter, 8N1, 115200 baud @ 33.33 MHz. TX on P[10] = uo[2].
+.equ BITPER, 0x1216          ; 289.375 cycles/bit (12.4 fixed) -> 115.2 kBd
 .equ TX,     0x0400          ; P[10] in the pins_out vector
 
 start:

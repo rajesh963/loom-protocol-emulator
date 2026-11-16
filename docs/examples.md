@@ -2,7 +2,7 @@
 
 **What this is.** A walkthrough of every protocol LOOM targets — UART, SPI (controller and target),
 I2C, PS/2, 1-Wire, WS2812, plus the stretch goals USB low-speed and 10BASE-T — with the pin
-mapping, the timing budget at 60 MHz, the event-scheduling strategy, and an assembler-ready code
+mapping, the timing budget at 33.33 MHz (the shipped clock), the event-scheduling strategy, and an assembler-ready code
 sketch. Every sketch below compiles with the repo's assembler:
 
 ```sh
@@ -41,11 +41,16 @@ threads apart; set it first.
 
 ### 1.1 Transmitter (115200 Bd, 8N1)
 
-| Quantity | Cycles @ 60 MHz | Value |
+| Quantity | Cycles @ 33.33 MHz | Value |
 |---|---|---|
-| bit cell | 520.8333 | `PERIOD = 0x208D` (520.8125, +0.0046 %) |
-| frame (10 bit) | 5208.33 | 86.80 µs |
-| queue refill deadline | 3 periods = 1562 | > 150 instructions of slack |
+| bit cell (design) | 289.3518 | `PERIOD = 0x1216` = 289.375 cyc (divider −80 ppm) |
+| bit cell (RTL-measured) | **289.35** | **115.20 kBd (+0.001 %)** — start-to-start averaged over a frame |
+
+*Measurement definition:* the UART rate is the **start-to-start interval averaged over a frame**
+(10 bit cells), measured on the RTL pin trace — not the instantaneous cell period, which is 289.375
+cycles from the divider.
+| frame (10 bit) | 2893.75 | 86.81 µs (unchanged in real time) |
+| queue refill deadline | 3 periods = 868 | > 150 instructions of slack |
 | host latency tolerated | 8 bytes deep × 86.8 µs = 694 µs | FIFO, not wire |
 
 **Strategy.** One periodic event stream: `setp` once, then `emit` one pin vector per bit cell. The
@@ -53,8 +58,8 @@ scheduler owns the wire; the loop that builds the frame can branch, stall, and f
 FIFO without touching the timing.
 
 ```asm
-; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[10] = uo[2].
-.equ BITPER, 0x208D          ; 520.8125 cycles/bit (12.4 fixed) -> 115205 Bd
+; UART transmitter, 8N1, 115200 baud @ 33.33 MHz. TX on P[10] = uo[2].
+.equ BITPER, 0x1216          ; 289.375 cycles/bit (12.4 fixed) -> 115.2 kBd
 .equ TX,     0x0400          ; P[10] in the pins_out vector
 
 start:
@@ -85,9 +90,9 @@ the rate is one `.equ`; there is no divider, prescaler or code re-padding.
 
 | Quantity | Cycles | Note |
 |---|---|---|
-| start-edge hunt | 3-cycle loop | `in`/`andi`/`jnz`, ±3 cycles = 0.6 % of a bit |
-| first sample | 1.5 bits = 781.25 | start-edge → bit-0 centre |
-| subsequent samples | + 520.8125 each | `waitd` fractional accumulator, drift-free |
+| start-edge hunt | 3-cycle loop | `in`/`andi`/`jnz`, ±3 cycles = 1.0 % of a bit |
+| first sample | 1.5 bits = 434.06 | start-edge → bit-0 centre |
+| subsequent samples | + 289.375 each | `waitd` fractional accumulator, drift-free |
 | stop-bit sample | + 9.5 bits | framing check |
 
 **Strategy.** Acquisition is a tight polling loop (`waitp` only sees the `uio` pins, and `UART_RX`
@@ -96,9 +101,9 @@ executes at a fixed cycle after the wait expires, so the sample point is determi
 the thread is not cycle-counted as a whole.
 
 ```asm
-; UART receiver, 8N1, 115200 baud @ 60 MHz. RX on P[11] = ui[3].
-.equ BITPER,  0x208D         ; 520.8125 cycles
-.equ MIDBIT,  0x30D4         ; 1.5 bits = 781.25 cycles
+; UART receiver, 8N1, 115200 baud @ 33.33 MHz. RX on P[11] = ui[3].
+.equ BITPER,  0x1216         ; 289.375 cycles
+.equ MIDBIT,  0x1B21         ; 1.5 bits = 434.0625 cycles
 .equ RX,      0x0800         ; P[11] in the pins_in vector
 
 rx:
@@ -139,25 +144,29 @@ scheduled edge.
 
 | SCK rate | Half period | `PERIOD` | `PERIOD` (hex) |
 |---|---|---|---|
-| 1 MHz | 30 cycles | 30.0000 | `0x01E0` |
-| 2 MHz | 15 cycles | 15.0000 | `0x00F0` |
-| 4 MHz | 7.5 cycles | 7.5000 | `0x0078` |
-| 10 MHz | 3 cycles | 3.0000 | `0x0030` |
+| 1 MHz | 16.67 cycles | 16.6250 | `0x010A` |
+| 2 MHz | 8.33 cycles | 8.3125 | `0x0085` |
+| 4 MHz | 4.17 cycles | 4.1875 | `0x0043` |
+| 8 MHz | 2.08 cycles | 2.0625 | `0x0021` |
+
+The shipped firmware runs a nominal 32 cycles/bit (`QUARTER_CYCLES=4`, ~1.03 MHz) and **RTL measures
+31.5–32 cycles/bit = 1.04–1.06 MHz SCK** standalone, with a ceiling of ~1.63 MHz and ~0.3–0.6 MHz
+when all four threads are busy.
 
 **Strategy.** Two events per bit: one for the data-setup phase (SCK low, MOSI valid) and one for the
 SCK rising edge. Both are emitted on the same periodic stream, so the SCK duty cycle and the data
 setup are exact and independent of loop overhead. Modes 1/3 shift the same events by one half
-period; mode 2 inverts the SCK bit in the two emitted values. At 10 MHz the queue depth limits a
-thread to ~4 pending events, which is still two complete bits of look-ahead.
+period; mode 2 inverts the SCK bit in the two emitted values. At the ~1 MHz shipped rate the queue
+depth (4 events = 2 bits) is ample, and even the ~1.6 MHz ceiling keeps one bit of look-ahead.
 
 ```asm
-; SPI controller, mode 0, transmit only, 1 MHz SCK @ 60 MHz (canonical info.yaml map).
+; SPI controller, mode 0, transmit only, 1 MHz SCK @ 33.33 MHz (canonical info.yaml map).
 ; SCK=P[5]=uio[5], MOSI=P[6]=uio[6], CS_N=P[11]=uo[3]  (MISO would be P[7]=uio[7], input)
 .equ SCK,  0x0020            ; P[5]  = uio[5]
 .equ MOSI, 0x0040            ; P[6]  = uio[6]
 .equ CSN,  0x0800            ; P[11] = uo[3]
 .equ DIRB, 0x0060            ; DIR bits 5:6 -> SCK/MOSI are outputs
-.equ HALF, 0x01E0            ; 30 cycles = half of a 1 MHz SCK period
+.equ HALF, 0x010A            ; 16.625 cycles = half of a ~1 MHz SCK period
 
 spi:
     dir   DIRB               ; uio pins need DIR=1 to drive
@@ -258,8 +267,15 @@ coincidence is deliberate: the bidirectional half of the pin vector is where sla
 
 | Quantity | 100 kHz | 400 kHz |
 |---|---|---|
-| bit period | 600 cycles (10 µs) | 150 cycles (2.5 µs) |
-| quarter phase | 150 cycles = `0x0960` | 37.5 cycles = `0x0258` |
+| bit period | 333.3 cycles (10 µs) | 83.3 cycles (2.5 µs) |
+| half phase (firmware) | 166.625 cycles = `0x0A6A` | 41.625 cycles = `0x029A` |
+| quarter phase (sketch) | 83.3 cycles = `0x0535` | 20.8 cycles = `0x014D` |
+| RTL-measured SCL **full period, rising-to-rising** | 360.4 cyc = **92.5 kHz** (high phase 169.1) | 96.9 cyc = **344.2 kHz** (high phase 43.9) |
+| golden-model figure (model-only) | 97.6 kHz | 364 kHz |
+
+*Measurement definition:* the I²C rate is the **full SCL period, rising-to-rising** (high + low
+phase), not 2 × the high phase. The low phase carries the polled SCL-release overhead, which is why
+the measured rate is below the nominal setting — I²C specifies *maxima*, so both are legal.
 | 9-bit byte (8 + ACK) | 5400 cycles (90 µs) | 1350 cycles (22.5 µs) |
 | START/STOP setup | 150 cycles | 37.5 cycles |
 
@@ -276,7 +292,7 @@ minimum setup/hold, which the 150-cycle quarter phase satisfies with a factor of
 ; DIR bit = 1 pulls the line low, DIR bit = 0 releases it to the external pull-up.
 .equ SCL,     0x0001
 .equ SDA,     0x0002
-.equ QUARTER, 0x0960         ; 150 cycles = 2.5 us
+.equ QUARTER, 0x0535         ; 83.3 cycles = 2.5 us (100 kHz; 0x014D for 400 kHz)
 
 i2c:
     dset  SCL|SDA            ; enable both drivers
@@ -320,17 +336,17 @@ sclk:
     jmp   i2c
 ```
 
-For 400 kHz change `QUARTER` to `0x0258` (37.5 cycles). Nothing else changes — that is the point
+For 400 kHz change `QUARTER` to `0x014D` (20.8 cycles). Nothing else changes — that is the point
 of a fixed-point delay: the same program is a different bus rate.
 
 ---
 
 ## 4. PS/2 (device → host)
 
-| Quantity | Cycles @ 60 MHz |
+| Quantity | Cycles @ 33.33 MHz |
 |---|---|
-| clock period (10–16.7 kHz) | 3600–6000 |
-| 11-bit frame | 39 600–66 000 (0.66–1.1 ms) |
+| clock period (10–16.7 kHz) | 2000–3333 |
+| 11-bit frame | 22 000–36 700 (0.66–1.1 ms) |
 | sampling | on each falling CLK edge |
 
 **Strategy.** PS/2 is slow and glitch-prone: the keyboard's clock can stop for milliseconds between
@@ -369,26 +385,26 @@ no_bit:
 
 ## 5. 1-Wire
 
-| Phase | Duration | Cycles | Value |
+| Phase | Duration | Cycles @ 33.33 MHz | Value |
 |---|---|---|---|
-| reset pulse | 480 µs | 28 800 | 8 × `waitd 0xE100` (60 µs each) |
-| presence sample | ~30 µs after release | 1800 | `waitd 0x7080` |
-| write-1 low | ~6 µs | 360 | `0x1680` |
-| write-0 low | ~60 µs | 3600 | `0xE100` |
-| read slot: low then sample | 6 µs / 9 µs | 360 / 540 | `0x1680` / `0x21C0` |
-| recovery | 60 µs | 3600 | `0xE100` |
+| reset pulse | 480 µs | 16 000 | 8 × `waitd 0x7D00` (60 µs = 2000 cycles each) |
+| presence sample | ~30 µs after release | 1000 | `waitd 0x3E80` |
+| write-1 low | ~6 µs | 200 | `0x0C80` |
+| write-0 low | ~60 µs | 2000 | `0x7D00` |
+| read slot: low then sample | 6 µs / 9 µs | 200 / 300 | `0x0C80` / `0x12C0` |
+| recovery | 60 µs | 2000 | `0x7D00` |
 
-**Strategy.** `waitd`'s maximum is `0xFFFF/16 = 4095.9` cycles (68.3 µs), so long 1-Wire pulses are
-built from chained `waitd`s. Because the accumulator is fractional, 8 × 60 µs is exactly 28 800
-cycles, not 28 800 ± rounding. `ONEWIRE` is `uio[4]`, so `DIR` is the open-drain control.
+**Strategy.** `waitd`'s maximum is `0xFFFF/16 = 4095.9` cycles (122.9 µs at 33.33 MHz), so the
+sub-120 µs 1-Wire pulses each fit in one `waitd`; the 480 µs reset is eight 60 µs (`0x7D00`) steps.
+Because the accumulator is fractional, 8 × 60 µs is exactly 16 000 cycles, not 16 000 ± rounding. `ONEWIRE` is `uio[4]`, so `DIR` is the open-drain control.
 
 ```asm
 ; 1-Wire reset/presence on P[4] = ONEWIRE = uio[4] (0x10), open drain.
 .equ DQ,   0x0010
-.equ W60,  0xE100            ; 3600 cycles = 60 us
-.equ W30,  0x7080            ; 1800 cycles = 30 us
-.equ W6,   0x1680            ;  360 cycles =  6 us
-.equ W9,   0x21C0            ;  540 cycles =  9 us
+.equ W60,  0x7D00            ; 2000 cycles = 60 us
+.equ W30,  0x3E80            ; 1000 cycles = 30 us
+.equ W6,   0x0C80            ;  200 cycles =  6 us
+.equ W9,   0x12C0            ;  300 cycles =  9 us
 
 ow_reset:
     dset   DQ                ; enable the driver
@@ -425,14 +441,14 @@ present:
 
 ## 6. WS2812 / SK6812
 
-| Quantity | Cycles @ 60 MHz |
+| Quantity | Cycles @ 33.33 MHz |
 |---|---|
-| bit period (800 kHz) | 75 |
-| T0H (0.4 µs) | 24 |
-| T1H (0.8 µs) | 48 |
-| reset latch (>50 µs) | > 3000 |
-| 24-bit pixel | 1800 (30 µs) |
-| 60-pixel strip | 108 000 (1.8 ms) |
+| bit period (800 kHz) | 41.67 |
+| T0H (0.4 µs) | 13.3 |
+| T1H (0.8 µs) | 26.7 |
+| reset latch (>50 µs) | > 1667 |
+| 24-bit pixel | 1000 (30 µs) |
+| 60-pixel strip | 60 000 (1.8 ms) |
 
 **Strategy.** This is the one protocol where the edge times are data-dependent, so neither a single
 `PERIOD` nor a wave-player pattern applies directly: the two edges of each bit go out as `emitd`
@@ -442,11 +458,11 @@ data paths the same length; that is the only cycle-counting in the program, and 
 instruction, not a whole protocol.
 
 ```asm
-; WS2812 / SK6812 stream at 800 kHz (75 cycles/bit @ 60 MHz).
+; WS2812 / SK6812 stream at 800 kHz (41.67 cycles/bit @ 33.33 MHz).
 ; LED data on P[12] = WS2812_DATA = uo[4] (0x1000). T0H = 24, T1H = 48 cycles.
 .equ LED,   0x1000
-.equ SPIN,  0x0410            ; waitd 65 cycles; loop body = 10 cycles -> 75
-.equ RESET, 0xF000            ; 3840 cycles = 64 us low
+.equ SPIN,  0x01FC            ; waitd 31.75 cycles; loop body = 10 cycles -> 41.75
+.equ RESET, 0x682B            ; 1666.7 cycles = 50 us low
 
 pixel:
     setm   LED
@@ -459,14 +475,14 @@ bitloop:
     andi   r2, 0x80           ; MSB first
     jz     bit0
     emitd  r5, 0              ; rise (fires next cycle)
-    emitd  r3, 48             ; fall after 48 cycles = a '1'
+    emitd  r3, 27             ; fall after 27 cycles = a '1'
     jmp    next
 bit0:
     emitd  r5, 0
-    emitd  r3, 24             ; fall after 24 cycles = a '0'
+    emitd  r3, 13             ; fall after 13 cycles = a '0'
     nop                       ; pad so both branches take the same time
 next:
-    waitd  SPIN               ; 65 + 10 = 75 cycles per bit
+    waitd  SPIN               ; 31.75 + 10 = 41.75 cycles per bit
     shl    r0, 1
     subi   r1, 1
     jnz    bitloop
@@ -484,7 +500,7 @@ low for ≥ 50 µs (`waitd RESET`) between frames.
 |---|---|---|---|
 | WS2812 at 800 kHz, pre-encoded | 8 patterns × 1 cycle each = 8 cycles/bit? | — | not needed, see §6 |
 | 10BASE-T Manchester symbols | 64 patterns | 6 cycles (100 ns) | 10 Mbaud, 6-cycle symbol |
-| arbitrary 16-bit waveform | 64 patterns | 1 cycle | 60 M patterns/s |
+| arbitrary 16-bit waveform | 64 patterns | 1 cycle | 33.3 M patterns/s |
 
 **Strategy.** Anything that is a repeating or precomputed pin-pattern sequence does not need the
 thread at all: preload DMEM with 16-bit pin vectors and let the wave player walk them, one pattern
@@ -509,20 +525,20 @@ done:
 
 ## 8. Stretch: USB low-speed
 
-USB LS is 1.5 Mbit/s = 40 cycles per bit at 60 MHz, with NRZI encoding, bit stuffing after six
+USB LS is 1.5 Mbit/s = 22.2 cycles per bit at 33.33 MHz, with NRZI encoding, bit stuffing after six
 identical bits, a 7-bit sync and a CRC-5/CRC-16. The plan: one thread does the NRZI/bit-stuffing
 state machine and emits a symbol every 40 cycles with `setp 640` (`0x0280`), while the host streams
 the packet payload through the FIFO — the protocol logic is real firmware, the *bit* timing is the
 scheduler's. Sampling the upstream traffic uses `emite` on the `D+`/`D-` pins with a 4×
-oversampling strategy: `EMASK` = both data lines, sample with `inat` on a 10-cycle (0.25-bit) grid.
+oversampling strategy: `EMASK` = both data lines, sample with `inat` on a 5.6-cycle (0.25-bit) grid.
 USB's own bit-rate tolerance (±0.25 %) is far wider than LOOM's fractional period error
 (≤ 0.09 % at 1.5 Mbit/s), so the timing side is not the risk; the packet/CRC state machine and the
 host's USB stack are.
 
 ## 9. Stretch: 10BASE-T
 
-10BASE-T is 10 Mbaud Manchester: a 100 ns symbol, 6 cycles at 60 MHz, with the line state changing
-every half symbol (2 bits per symbol, one transition per bit). At 6 cycles per symbol the bit-banger
+10BASE-T is 10 Mbaud Manchester: a 100 ns symbol, 3.33 cycles at 33.33 MHz, with the line state changing
+every half symbol (2 bits per symbol, one transition per bit). At 3.33 cycles per symbol the bit-banger
 would need an event every 6 cycles — possible with `emit` (`PERIOD = 0x0060` = 6.0 cycles) but with
 almost no slack for the encoder. The wave player is the intended tool: precompute 64 symbols
 (384 cycles = 6.4 µs) encoding a preamble/start-of-frame/CRC-32 bit-stream, `WPER = 0x0060`, and
@@ -544,7 +560,7 @@ for the one-table summary.
 | Program | Threads | Pins | Rate | Core instruction | Status |
 |---|---|---|---|---|---|
 | `uart_tx` / `uart_rx` | 1 each | UART_TX / UART_RX | 9600–921600 | `setp`+`emit` / polling+`waitd` | sketch here, assembles |
-| `spi_master` (mode 0) | 1 | SCK/MOSI/CS | ≤ 10 MHz | `setp`+`emit` | sketch here, assembles |
+| `spi_master` (mode 0) | 1 | SCK/MOSI/CS | **1.04–1.06 MHz measured** (1.63 MHz ceiling) | `setp`+`emit` | sketch here, assembles |
 | `spi_master` modes 1–3 | 1 | same | as above | constant changes | planned |
 | `spi_target` | 1 | re-mux `uio[5..7]` | as master | `setem`/`setec`/`emite` | sketch here, assembles |
 | `i2c_master` | 1 | SCL/SDA | 100 / 400 kHz | `waitd` + `dset`/`dclr` | sketch here, assembles |

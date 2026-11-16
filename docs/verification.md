@@ -114,7 +114,7 @@ protocol rules rather than the implementation:
 | Protocol | Checks |
 |---|---|
 | UART | bit-centre sampling within ±2 % over 10 000 frames, start/stop framing, idle level, back-to-back frames, break detection, 9600…921600 Bd, both directions |
-| SPI controller | CPOL/CPHA for modes 0–3, MOSI setup/hold vs SCK, MSB-first, CS setup/hold, 8/16-bit transfers, 1–10 MHz SCK |
+| SPI controller | CPOL/CPHA for modes 0–3, MOSI setup/hold vs SCK, MSB-first, CS setup/hold, 8/16-bit transfers, ≈1 MHz SCK (shipped firmware rate) |
 | SPI target | responds at the right edge, MISO tri-states off-select, no spurious clocks |
 | I2C controller | START/STOP conditions, 9th-clock ACK sampling, clock at 100 ± 5 kHz / 400 ± 20 kHz, no SDA transition while SCL high except START/STOP |
 | 1-Wire | reset 480 µs, presence sampled in its window, write-1/0 slot widths, recovery times |
@@ -206,7 +206,7 @@ meta-test.
   *recovery* is firmware's job, not the hardware's.
 * **No analog/electrical verification.** IO drive strength, pad timing and signal integrity are the
   Tiny Tapeout pad ring's and the board's; we only verify digital behaviour at the pin vector.
-* **The host link is verified at ≤ 10 MHz SCK.** Above `clk/6` the synchroniser can miss edges; that
+* **The host link is verified at 10 MHz SCK at the 60 MHz design point** (≈5.5 MHz ceiling at the shipped 33.33 MHz). Above `clk/6` the synchroniser can miss edges; that
   is documented as a host requirement, not defended against.
 * **Stretch features** (capture/record-replay, USB LS, 10BASE-T) are verified only if they ship;
   their rows stay TBD until then.
@@ -229,7 +229,7 @@ meta-test.
 |---|---|---|
 | host link | **PASS** | all 13 commands; global-CSR read matrix; FIFO occupancy; IRQ/ACK; CS-abort; STATUS bytes (guard test `test_host.test_status_command` passes with `decoded OK: ['0x24','0x90','0x94','0x94']`; the single-line alarm it raises is documented in `test/README.md`) |
 | ISA | **22/22 PASS** | every mnemonic executes with the documented architectural state; all 59 tests are covered by the coverage meta-test |
-| timing | **7/7 PASS** | fractional drift-free event stream; UART 115200 @ 60 MHz; `waitu` jitter-free; `inat` exact-cycle sample; `emite` latency; four concurrent periods; queue back-pressure (`max_eq = 4`) |
+| timing | **7/7 PASS** | fractional drift-free event stream; UART 115200 with the shipped-clock constants (**RTL-measured 289.35 cycles/bit = 115.20 kBd, +0.001 %**); I²C full-period measured 92.5 / 344.2 kHz; bit-banged SPI 1.04–1.06 MHz SCK; `waitu` jitter-free; `inat` exact-cycle sample; `emite` latency; four concurrent periods; queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | **100/100 random programs** cycle-exact on the full `(pins_out, DIR)` transition trace *and* full architectural state; **12/12** pull/reactive seeds; **6/6** hand-written programs; 0 artefacts (harness backdoor made SRAM-aware) |
 | protocol VIPs | **8/8 PASS** | UART TX/RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz, **I2C 400 kHz**, **I2C target**, clock stretching — including the two tests gated during bring-up |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |

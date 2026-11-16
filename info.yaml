@@ -5,7 +5,7 @@ project:
   description: 'A programmable protocol loom: 4 threads and a hardware event scheduler drive bit-exact
     UART, SPI, I2C and more; loaded over SPI after fabrication.'
   language: Verilog
-  clock_hz: 60000000
+  clock_hz: 33333333
   tiles: 8x4
   top_module: tt_um_rajesh963_loom
   # `loom_sram_model.v` is SIM-only (behavioural SRAM for iverilog/cocotb) and is deliberately NOT

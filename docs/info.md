@@ -23,14 +23,15 @@ the chip was fabricated. No protocol is hard-wired.
 A conventional bit-banging CPU decides an edge time by when an instruction retires, so every
 protocol becomes a cycle-counted loop. LOOM separates the two questions: `emit` enqueues
 `(time, pin value)` into a 4-entry hardware queue, and the event scheduler applies the value on the
-exact 60 MHz cycle the free-running 16-bit counter `TMR` reaches that time. The instruction stream
+exact 33.33 MHz cycle the free-running 16-bit counter `TMR` reaches that time. The instruction stream
 can branch, stall on a host FIFO, or wait for another protocol without touching an edge.
 
 * **4 threads**, one shared instruction slot, one instruction per cycle. Program memory is
   1024 × 32 words (IHP `1024x32` SRAM macro; a 128-word flip-flop build is the area-safe fallback).
 * **Fractional periods.** Each thread has a 12.4 fixed-point period register with a carry
-  accumulator, so a 115200-baud bit cell (520.8333 cycles at 60 MHz) is 520.8125 cycles in the
-  register — a +0.0046 % baud error that never drifts (phase error stays under one cycle forever).
+  accumulator, so a 115200-baud bit cell (289.352 cycles at 33.33 MHz) is 289.375 cycles in the
+  register — the divider is −80 ppm and the **RTL-measured** rate is 289.35 cycles/bit = 115.20 kBd
+  (+0.001 %). The fractional carry means the phase error never accumulates.
 * **Event kinds:** timed (`emit`), relative one-shot (`emitd`), absolute (`emita`), and
   edge-triggered (`emite`, fires on a pin-pattern match — the mechanism for target/slave
   protocols, with one-cycle reaction and no missed pulses).
@@ -38,12 +39,12 @@ can branch, stall on a host FIFO, or wait for another protocol without touching 
   jitter-free sample point.
 * **Wave player.** Streams 16-bit pin patterns from data memory, one per fractional-period tick, for
   sustained high-rate waveforms (10BASE-T class).
-* **Host link.** 4-wire SPI slave, mode 0, ≤ 10 MHz SCK, 13 commands, 24-bit address space, level
+* **Host link.** 4-wire SPI slave, mode 0, ≤ `clk/6` SCK (≈5.5 MHz at 33.33 MHz), 13 commands, 24-bit address space, level
   interrupt. Per-thread 8-byte FIFOs decouple host latency from wire timing.
 
-Timing vocabulary: a 12.4 period register is `int[15:4].frac[3:0]`, unit 1/16 cycle = 1.042 ns at
-60 MHz; time comparisons are modular over 16 bits, so `TMR` wraps every 1.0923 ms and scheduling
-look-ahead must stay below 546 µs. An event that is already due fires on the next cycle — an armed
+Timing vocabulary: a 12.4 period register is `int[15:4].frac[3:0]`, unit 1/16 cycle = 1.875 ns at
+33.33 MHz; time comparisons are modular over 16 bits, so `TMR` wraps every 1.966 ms and scheduling
+look-ahead must stay below 983 µs. An event that is already due fires on the next cycle — an armed
 edge is never dropped.
 
 ## Program memory (SRAM build)
@@ -108,8 +109,7 @@ link's own outputs) can never be driven by firmware — `csrr POUT` after `out 0
 Nothing is pre-programmed: the chip comes out of reset with all threads halted and waits for a host.
 
 1. **Wire the host link.** `ui[0]=CS_N`, `ui[1]=SCK`, `ui[2]=MOSI`, `uo[0]=MISO`,
-   `uo[1]=IRQ`, `clk` = 60 MHz design point (the hardened build targets 33.33 MHz — see
-   [`results.md` §3.6](results.md)), `rst_n` high. Any 4-wire SPI master up to 10 MHz works; the
+   `uo[1]=IRQ`, `clk` = 33.33 MHz, `rst_n` high. Any 4-wire SPI master up to `clk/6` ≈ 5.5 MHz works (1 MHz is plenty); the
    protocol needs no clock stretching and no dummy byte.
 2. **PING.** Send `0D 5A`; MISO returns `80 A5`. This proves clock sampling, the command FSM and
    MISO all work.
@@ -176,13 +176,13 @@ and cleared only by `ACK_IRQ`; FIFO conditions do not raise it.
 | Program | Pins | Rate | Strategy |
 |---|---|---|---|
 | UART TX / RX | UART_TX, UART_RX | 9600–921600 | periodic `emit`; hunt + `waitd`/`in` |
-| SPI controller modes 0–3 | SPI_SCK/MOSI/CS, SPI_MISO | ≤ 10 MHz SCK | two events per bit, `PERIOD` = half period |
+| SPI controller modes 0–3 | SPI_SCK/MOSI/CS, SPI_MISO | 1.04–1.06 MHz SCK measured (1.63 MHz ceiling) | two events per bit, `PERIOD` = half period |
 | SPI target | re-mux to `uio[5..7]` | as master | `emite` pattern match |
 | I2C controller / target | I2C_SCL/SDA | 100 / 400 kHz | open-drain `DIR` + fractional `waitd` |
 | PS/2 host / device | PS2_CLK/DAT | 10–16.7 kHz | `waitp` edge detect, `in` sample |
 | 1-Wire master | ONEWIRE | standard/fast | chained `waitd` (60 µs units) |
 | WS2812 driver | WS2812_DATA | 800 kHz | `emitd` edge pairs, 75-cycle bit |
-| wave player demo | WAVE_OUT0 | ≤ 60 M patterns/s | DMEM pattern stream |
+| wave player demo | WAVE_OUT0 | ≤ 33.3 M patterns/s | DMEM pattern stream |
 
 Ready-to-assemble sources are in `docs/examples_src/`; the walkthroughs (with timing budgets and
 the reasoning) are in `docs/examples.md`. The assembler is `python3 -m sw.loom_asm`.

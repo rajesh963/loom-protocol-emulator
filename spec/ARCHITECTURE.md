@@ -26,7 +26,9 @@ LOOM instead separates **what to drive** (software: encoders, CRCs, framing, sta
   add edge jitter. Instruction scheduling can be work-conserving without hurting timing.
 * **Fractional periodic events.** Each thread has a 12.4 fixed-point period register with carry
   accumulation, so a stream of events is drift-free over arbitrarily long runs (UART 115200 baud at
-  60 MHz = 520.8333 cycles/bit; error is bounded by 1/32 cycle per event and averages to zero).
+  33.33 MHz shipped design point, `CLOCK_PERIOD` 30 ns = 289.375 cycles/bit for UART 115200; error is
+  bounded by 1/32 cycle per event and averages to zero). The original 60 MHz target did not close timing
+  in the LibreLane flow (critical path 20.8 ns), so the shipped design point is 33.33 MHz.)
 * **Reactive events (edge-triggered).** The same queue entries can fire on a pin-pattern match
   (with per-thread mask/expected value), giving glitch-free slave/reactive behaviour without the
   CPU having to poll.
@@ -56,7 +58,7 @@ Everything user-visible is reprogrammable after fabrication (no protocol hard-bl
 | `uio_out[7:0]` | out | protocol outputs `P[7:0]`, gated by `uio_oe` |
 | `uio_oe[7:0]` | out | per-pin output enable (`DIR`); `0` = high-Z input (open-drain friendly) |
 | `uio_in[7:0]` | in | protocol inputs `P[7:0]` (readable, readback of pin state) |
-| `clk` | in | system clock, target **60 MHz** (accept anything 10–66 MHz) |
+| `clk` | in | system clock, **shipped design point 33.33 MHz** (`CLOCK_PERIOD` 30 ns); accepts 10–66 MHz. The 60 MHz target failed timing closure (critical path ≈20.8 ns), so all cycle budgets in this spec are stated at both points where they matter. |
 | `rst_n` | in | asynchronous active-low reset; all state defined after reset |
 
 **Protocol pin vectors** (the 16-bit instruction operand maps 1:1 onto these):
@@ -99,7 +101,7 @@ Per thread state:
 | `TXFIFO` | 8×8 | thread→host bytes |
 | `RXFIFO` | 8×8 | host→thread bytes |
 
-`TMR` is a free-running 16-bit cycle counter (wraps every 1.09 ms at 60 MHz; all time arithmetic is
+`TMR` is a free-running 16-bit cycle counter (wraps every 1.966 ms at 33.33 MHz; all time arithmetic is
 modular/signed-difference, so wrap is safe as long as scheduling look-ahead < 32K cycles).
 
 Thread slots: instructions issue in round-robin order `0,1,2,3` skipping non-runnable threads.
@@ -266,7 +268,7 @@ registers, but **not** the host bridge, PMEM/DMEM contents, the wave player's in
 
 ## 6. Host protocol (SPI slave, mode 0, MSB first)
 
-4-wire: `H_CS_N`, `H_SCK`, `H_MOSI`, `H_MISO` + `H_IRQ` output. Max `H_SCK` 10 MHz at 60 MHz
+4-wire: `H_CS_N`, `H_SCK`, `H_MOSI`, `H_MISO` + `H_IRQ` output. Max `H_SCK` = `clk/6` (5.56 MHz at 33.33 MHz,
 `clk` (SCK is synchronous-sampled with 2-FF sync + edge detect; the core never sees an async
 clock). Every 8-bit transfer simultaneously returns one byte; commands are a byte stream:
 `[CMD][ARG...]`, and read commands return their payload on the *following* transfers.

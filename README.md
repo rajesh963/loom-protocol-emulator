@@ -4,7 +4,7 @@
 
 **LOOM is a protocol emulator**: four programmable threads, a hardware event scheduler, and exact
 timing. A thread does not toggle pins — it enqueues `(time, pin value)` events into a 4-deep hardware
-queue, and the scheduler applies each one on the exact 60 MHz cycle it is due. The instruction stream
+queue, and the scheduler applies each one on the exact cycle it is due (33.33 MHz shipped). The instruction stream
 can branch, stall on a host FIFO, or wait for another protocol without moving an edge, and four
 threads run four protocols concurrently on 19 pins. Nothing is hard-wired: a protocol is a program
 loaded over SPI after the chip is fabricated, so the same silicon is a UART, an SPI controller *and*
@@ -14,7 +14,7 @@ year. Discrete logic blocks would have needed a mask; LOOM needs an assembler.
 ```
                           ┌──────────────────────────────────────────────────────┐
                           │  tt_um_rajesh963_loom      IHP CMOS5L 8x4            │
-                          │  60 MHz · 19 protocol pins · ~1.0 mm²                │
+                          │  33.33 MHz · 19 protocol pins · ~1.0 mm²             │
   ┌──────────┐  SPI      ├──────────────────────────────────────────────────────┤
   │ host MCU │  mode 0    │  ┌─────────────┐   ┌────────────┐                    │
   │ (RP2350) │  ≤10 MHz   │  │ host bridge │   │ 4 threads  │                    │
@@ -57,10 +57,10 @@ Both RP2040 PIO and TI PRU make a pin transition *be* an instruction. LOOM makes
 | | RP2040 PIO | TI PRU | **LOOM** |
 |---|---|---|---|
 | timing source | SM instruction issue, 16.8-divided SM clock | instruction issue at 200 MHz | hardware comparator against a 16-bit cycle counter |
-| fractional baud | yes (16.8 divider — average rate exact) | no (cycle-counted loops) | yes — 12.4 per-thread period, drift-free carry, per **edge** |
+| fractional baud | yes (16.8 divider — average rate exact) | no (cycle-counted loops) | yes — 12.4 per-thread period, drift-free carry, per **edge** (115200 → 0x1216 at 33.33 MHz) |
 | edge-triggered events | no | no | **yes** — `emite` fires on a pin-pattern match in hardware |
 | timed sampling | no | no | **yes** — `inat` latches pins on a chosen cycle |
-| wave player | no (DMA→FIFO is host-paced) | no | **yes** — DMEM patterns at a 12.4 period, 60 M patterns/s |
+| wave player | no (DMA→FIFO is host-paced) | no | **yes** — DMEM patterns at a 12.4 period, 33.3 M patterns/s |
 | host streaming | 4-deep FIFOs + DMA | shared memory / RPMsg | 8-byte FIFOs per thread, SPI bridge with IRQ, no DMA needed |
 | program size | 32 words shared per 4 SMs, per block | 8 KB IRAM | 1024 words, relocatable, 4 threads |
 | what it is worst at | code-shaped timing | code-shaped timing + clock rate | small memory, no interrupts |
@@ -76,10 +76,10 @@ on another thread, or a slow host cannot move an edge. See
   thread never blocks the others and never affects an edge.
 * **Event scheduler per thread**, depth 4, four kinds: periodic (`emit`), relative (`emitd`),
   absolute (`emita`), edge-triggered (`emite`).
-* **12.4 fixed-point periods** (1/16 cycle = 1.042 ns at 60 MHz) with a carry accumulator —
-  UART 115200 is a +0.0046 % baud error that does not drift.
+* **12.4 fixed-point periods** (1/16 cycle = 1.875 ns at 33.33 MHz) with a carry accumulator —
+  UART 115200 is measured at **115.20 kBd (+0.001 %)** and does not drift.
 * **Timed sampling** (`inat`/`waitu`/`waitd`) with a fractional-delay chain that cannot drift.
-* **Wave player**: 1–64 patterns of 16 pin bits, 12.4 period, loop/one-shot, up to 60 M patterns/s.
+* **Wave player**: 1–64 patterns of 16 pin bits, 12.4 period, loop/one-shot, up to 33.3 M patterns/s.
 * **19 protocol pins** — 14 drivable, 13 readable, 8 true bidirectional with per-pin `DIR` for
   open-drain (I2C/PS/2/1-Wire without external buffers).
 * **SPI host bridge**: mode 0, ≤ 10 MHz, 13 commands, 24-bit address space, level IRQ,
@@ -109,7 +109,7 @@ pin by software**.
 | `uio[2]` | `PS2_CLK` (open drain) | `uio[6]` | `SPI_MOSI` |
 | `uio[3]` | `PS2_DAT` (open drain) | `uio[7]` | `SPI_MISO` |
 
-`clk` = 60 MHz design point, re-targeted to **33.33 MHz** for the hardened build pending attempt 5 (10–66 MHz accepted; see [flow status](docs/FLOW_STATUS.md)), `rst_n` asynchronous active low, `ena` ignored. The full
+`clk` = **33.33 MHz** (the shipped clock; 60 MHz failed timing — see [flow status](docs/FLOW_STATUS.md)), `rst_n` asynchronous active low, `ena` ignored; the design accepts 10–66 MHz with the firmware constants re-swept. The full
 pad map, the instruction-level pin vector and the in/out overlap are in
 [`docs/architecture.md` §5](docs/architecture.md#5-pins) and [`docs/images/pinout.svg`](docs/images/pinout.svg).
 
@@ -133,7 +133,7 @@ loom/
 ├── formal/         bounded proofs (yosys write_smt2 + z3)                             [in progress]
 ├── tools/          sync_src.sh, area_synth.sh, helpers                               [area script in progress]
 ├── docs/           datasheet, architecture, ISA, host protocol, examples, verification, write-up
-├── info.yaml       Tiny Tapeout project metadata (8×4, 60 MHz, source_files, pinout)
+├── info.yaml       Tiny Tapeout project metadata (8×4, 33.33 MHz, source_files, pinout)
 └── spec/           the frozen architecture/interface spec and ownership map
 ```
 
@@ -183,12 +183,12 @@ artifact (illegal clock-stretch injection).
 |---|---|---|
 | host link | **PASS** | all 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
 | ISA | **22/22 PASS** | every mnemonic; coverage meta-test covers all 59 tests |
-| timing | **7/7 PASS** | drift-free fractional stream, UART 115200 @ 60 MHz, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
+| timing | **7/7 PASS** | drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts |
 | protocol VIPs | **8/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + 400 kHz + clock stretching, I2C target |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
 | gate-level | pending | awaits the attempt-4 netlist |
-| sign-off (`gds`/`precheck`) | **attempt 5 running** | area solved (622 401 µm² = 51.5 % raw / 44.7 % movable-relative, −46 %); attempt 4 reached global routing then failed timing at 60 MHz (**WNS −4.125 ns**, 20.8 ns path) → re-targeted to 33.33 MHz — see [flow status](docs/FLOW_STATUS.md) |
+| sign-off (`gds`/`precheck`) | **attempt 6 running** | area solved (622 401 µm², −46 %); timing solved (**setup closes at 33.33 MHz**, `RSZ-0098`); last blocker was 4 stray IO-pad cells (57 600 µm²) now excluded — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
@@ -205,12 +205,14 @@ clock to 25 MHz both made it *worse*, localising the 305 304 µm² of buffers (2
 ABC's SCL sequential-mapping pass — constraint knobs are a dead end, structure is the lever.
 **Attempt 3 (SRAM 1024×32 macro + 32-word DMEM) measured 622 401 µm² = 51.5 % raw area ratio /
 44.7 % flow utilisation (movable area over the free, non-macro core area) — a −46 % area
-reduction**, failing only a placement-*mode* check. **Attempt 4 fixed that
-(`PL_ROUTABILITY_DRIVEN: false`) and reached global routing, then failed on timing**: 1 028
-setup-violated endpoints, **WNS −4.125 ns / TNS −1658.6** at a 16.67 ns clock — a **20.8 ns critical
-path**. The competition sets no frequency target, so **attempt 5 re-targets the identical design to
-33.33 MHz (`CLOCK_PERIOD` 30 ns, ~44 % margin) and is running now**; **no frequency is claimed until
-its WNS is measured**. Both build configurations pass the full
+reduction**. Attempt 4 fixed the placement-mode check and reached global routing, where the 16.67 ns
+clock also failed setup (**WNS −4.125 ns, TNS −1658.6**, 20.8 ns path) — and **attempt 5 at 33.33 MHz
+closed setup** (`RSZ-0098 No setup violations found`, 3 177 hold endpoints repaired). The routing abort
+turned out to be neither congestion nor timing: the netlist held **four stray `IOPadOut16mA` cells
+(57 600 µm², 12 % of moved cell area) that ABC had mapped onto internal high-fanout nets** because the
+IO library was in the synthesis set — and a Tiny Tapeout design owns no pads, so IO placement never
+placed them. **Attempt 6 excludes `sg13cmos5l_IOPad*` and is running**, expecting a routing-clean result
+plus ~−57 600 µm² of cell area. Both build configurations pass the full
 **59/59 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level
 all pass on one commit. Canonical log: [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in
 [`docs/results.md`](docs/results.md).

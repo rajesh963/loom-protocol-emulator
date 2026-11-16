@@ -2,6 +2,14 @@ name: gds
 
 on:
   push:
+    paths:
+      - 'src/**'
+      - 'rtl/**'
+      - 'flow/**'
+      - 'tools/sync_src.sh'
+      - 'info.yaml'
+      - 'librelane_plugin_*.py'
+      - 'odb_stripes.py'
   workflow_dispatch:
 
 jobs:

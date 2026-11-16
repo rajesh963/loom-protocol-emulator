@@ -1,10 +1,10 @@
-; SPI controller, mode 0, transmit only, 1 MHz SCK @ 60 MHz (canonical info.yaml map).
+; SPI controller, mode 0, transmit only, 1 MHz SCK @ 33.33 MHz (canonical info.yaml map).
 ; SCK=P[5]=uio[5], MOSI=P[6]=uio[6], CS_N=P[11]=uo[3]  (MISO would be P[7]=uio[7], input)
 .equ SCK,  0x0020            ; P[5]  = uio[5]
 .equ MOSI, 0x0040            ; P[6]  = uio[6]
 .equ CSN,  0x0800            ; P[11] = uo[3]
 .equ DIRB, 0x0060            ; DIR bits 5:6 -> SCK/MOSI are outputs
-.equ HALF, 0x01E0            ; 30 cycles = half of a 1 MHz SCK period
+.equ HALF, 0x010A            ; 16.625 cycles = half of a ~1 MHz SCK period
 
 spi:
     dir   DIRB               ; uio pins need DIR=1 to drive
