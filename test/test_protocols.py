@@ -30,7 +30,8 @@ from known_issues import KNOWN_ISSUES
 REPO = __import__("pathlib").Path(__file__).resolve().parent.parent
 EX = REPO / "sw" / "examples"
 
-CLK_NS = 16.67            # real 60 MHz target clock
+CLOCK_HZ = 33333333.0     # shipped target clock (CLOCK_PERIOD 30 ns)
+CLK_NS = 30.0             # 33.33 MHz target clock for the protocol tests
 
 # 400 kHz triage knobs (defaults = shipped settings; env overrides for bring-up)
 I2C_400K_POLL = int(os.environ.get("I2C_400K_POLL", "2"))
@@ -93,7 +94,7 @@ def bit_tr(mon, bit: int, t_from: int = 0):
 # ---------------------------------------------------------------------------
 @cocotb.test()
 async def test_uart_tx(dut):
-    """UART TX, 115200 8N1 @ 60 MHz: decode 3 bytes, framing + baud error."""
+    """UART TX, 115200 8N1 @ 33.33 MHz: decode 3 bytes, framing + baud error."""
     host, mon = await start_loom(dut, clk_ns=CLK_NS, spi_half=3)
     await load_firmware(host, "uart_tx.asm", run=False)
     payload = [0x55, 0xA3, 0x00]
@@ -101,11 +102,11 @@ async def test_uart_tx(dut):
         await host.tx_push(0, b)
     t0 = mon.mark()
     await host.run(1)
-    await host._clk(int(10 * 3 * 520.8125) + 2500)
+    await host._clk(int(10 * 3 * 289.375) + 2500)
     await host.stop(0x1)
 
     tr = bit_tr(mon, 10, t0)
-    period = 8333 / 16                     # 520.8125 cycles/bit @ 60 MHz
+    period = 4630 / 16                     # 289.375 cycles/bit @ 33.33 MHz (0x1216 in 12.4)
     dec = v_uart.UartDecoder(period)
     dec.decode(tr, mon.mark())
     log_wave(host, v_wave.render(tr, t0=t0, t1=tr[-1][0] + 600, cols=100,
@@ -116,10 +117,39 @@ async def test_uart_tx(dut):
     got = [f.byte for f in dec.frames if f.ok]
     assert got == payload, f"UART TX decoded {[hex(b) for b in got]} != {[hex(b) for b in payload]}"
     assert not dec.errors, dec.errors
-    baud = 60e6 / period
-    host.log.info("UART TX: %d bytes exact, framing OK, baud=%.2f (target 115200, "
-                  "error %+.4f %%)", len(got), baud, (baud / 115200 - 1) * 100)
+    if len(dec.frames) >= 2:
+        measured = ((dec.frames[-1].start_cycle - dec.frames[0].start_cycle) /
+                    ((len(dec.frames) - 1) * 10))
+        baud = CLOCK_HZ / measured
+    else:
+        measured, baud = period, CLOCK_HZ / period
+    host.log.info("UART TX: %d bytes exact, framing OK, measured %.3f cycles/bit "
+                  "-> %.2f baud (target 115200, error %+.4f %%)",
+                  len(got), measured, baud, (baud / 115200 - 1) * 100)
     assert abs(baud / 115200 - 1) < 0.02
+
+
+# ---------------------------------------------------------------------------
+# UART VIP decoder regression: fractional bit period, back-to-back frames
+# ---------------------------------------------------------------------------
+@cocotb.test()
+async def test_uart_decoder_back_to_back(dut):
+    """0x1216/16 = 289.375 cycles/bit: three back-to-back frames must all decode
+    (the decoder previously advanced its cursor to round(start+10*period), which
+    is past the next frame's start edge for this fractional period)."""
+    payload = [0x55, 0xA3, 0x00, 0xFF]
+    for period in (4630 / 16, 520.8333, 289.375):   # 33.33 MHz, 60 MHz-style, exact
+        drv = v_uart.UartDriver(period)
+        tr = drv.transitions(payload, t_start=1000)
+        dec = v_uart.UartDecoder(period)
+        dec.decode(tr, int(tr[-1][0]) + int(3 * period))
+        got = [f.byte for f in dec.frames if f.ok]
+        assert got == payload, (
+            f"decoded {[hex(b) for b in got]} != {[hex(b) for b in payload]} "
+            f"at {period:.4f} cycles/bit")
+        assert not dec.errors, dec.errors
+        dut._log.info("UART decoder: %d/%d back-to-back frames at %.4f cycles/bit",
+                      len(got), len(payload), period)
 
 
 # ---------------------------------------------------------------------------
@@ -127,12 +157,12 @@ async def test_uart_tx(dut):
 # ---------------------------------------------------------------------------
 @cocotb.test()
 async def test_uart_rx(dut):
-    """UART RX, 115200 8N1 @ 60 MHz, including +/-1.5 % baud tolerance."""
+    """UART RX, 115200 8N1 @ 33.33 MHz, including +/-1.5 % baud tolerance."""
     host, mon = await start_loom(dut, clk_ns=CLK_NS, spi_half=3)
     for baud_scale, tag in ((1.0, "nominal"), (1.015, "+1.5%"), (0.985, "-1.5%")):
         await host.reset(cycles=8)
         await load_firmware(host, "uart_rx.asm")
-        period = 8333 / 16 * baud_scale
+        period = 4630 / 16 * baud_scale
         payload = [0x41]
         drv = v_uart.UartDriver(period)
         t_start = mon.mark() + 200
@@ -203,6 +233,12 @@ async def test_spi_master_modes(dut):
         assert t.mosi_bytes == [0xA5], f"mode {mode}: MOSI {[hex(b) for b in t.mosi_bytes]}"
         assert edges == 16, f"mode {mode}: {edges} SCK edges (want 16)"
         assert got == miso_reply[0], f"mode {mode}: MISO received 0x{got:02x}"
+        if len(t.edges) >= 3:
+            ec = [e[0] for e in t.edges]
+            half = (ec[-1] - ec[0]) / (len(ec) - 1)
+            host.log.info("mode %d: measured SCK half %.2f cycles -> %.2f MHz "
+                          "(bit %.2f cycles)", mode, half, CLOCK_HZ / (2 * half) / 1e6,
+                          2 * half)
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +337,8 @@ async def run_i2c_controller(host, mon, *, i2c_hz: int, payload: list[int],
     scl_tr, sda_tr = [], []
     prev = (1, 1)
     deadline = t0 + int(i2c_hz / 1000.0 * 40 * 16) + 20000
-    # bit period = 60e6/i2c_hz cycles; run ~45 bit periods + margin
-    duration = int(60e6 / i2c_hz * 45) + 8000
+    # bit period = CLOCK_HZ/i2c_hz cycles; run ~45 bit periods + margin
+    duration = int(CLOCK_HZ / i2c_hz * 45) + 8000
     deadline = t0 + duration
     while mon.mark() < deadline and not (target.events and
                                          target.events[-1].kind == "stop"):
@@ -348,6 +384,19 @@ async def test_i2c_controller_100k(dut):
         f"target received {[hex(b) for b in target.data_rx]} (want reg 0x00, data 0x5A)"
     acks = [e.ack for e in events if e.kind == "ack"]
     assert all(a == 0 for a in acks), f"ACK bits {acks} (want all 0 = ACK)"
+    ed = []
+    for cc, lvl in scl_tr:
+        if not ed or ed[-1][1] != lvl:
+            ed.append((cc, lvl))
+    rises = [c for c, lvl in ed if lvl == 1]
+    hi = [c2 - c1 for (c1, l1), (c2, l2) in zip(ed, ed[1:]) if l1 == 1]
+    lo = [c2 - c1 for (c1, l1), (c2, l2) in zip(ed, ed[1:]) if l1 == 0]
+    if len(rises) >= 9:
+        per = (rises[-1] - rises[0]) / (len(rises) - 1)
+        host.log.info("I2C controller 100 kHz: measured SCL period %.3f cycles "
+                      "-> %.2f kHz (target 100 kHz; high %.2f low %.2f)",
+                      per, CLOCK_HZ / per / 1e3,
+                      sum(hi) / max(1, len(hi)), sum(lo) / max(1, len(lo)))
     host.log.info("I2C controller 100 kHz: START, addr 0xA0 ACKed, reg 0x00, "
                   "data 0x5A, all ACKs, STOP -- exact")
 
@@ -370,6 +419,19 @@ async def test_i2c_controller_400k(dut):
     assert any(e.kind == "start" for e in events) and any(e.kind == "stop" for e in events)
     assert target.data_rx[:2] == [0x00, 0x5A], \
         f"target received {[hex(b) for b in target.data_rx]}"
+    ed = []
+    for cc, lvl in scl_tr:
+        if not ed or ed[-1][1] != lvl:
+            ed.append((cc, lvl))
+    rises = [c for c, lvl in ed if lvl == 1]
+    hi = [c2 - c1 for (c1, l1), (c2, l2) in zip(ed, ed[1:]) if l1 == 1]
+    lo = [c2 - c1 for (c1, l1), (c2, l2) in zip(ed, ed[1:]) if l1 == 0]
+    if len(rises) >= 9:
+        per = (rises[-1] - rises[0]) / (len(rises) - 1)
+        host.log.info("I2C controller 400 kHz: measured SCL period %.3f cycles "
+                      "-> %.2f kHz (target 400 kHz; high %.2f low %.2f)",
+                      per, CLOCK_HZ / per / 1e3,
+                      sum(hi) / max(1, len(hi)), sum(lo) / max(1, len(lo)))
     host.log.info("I2C controller 400 kHz with target clock stretching: complete")
 
 
@@ -404,7 +466,7 @@ async def test_i2c_target_write(dut):
     """I2C target: VIP master writes reg 0x02 = 0x5A; ACK + DMEM readback."""
     host, mon = await start_loom(dut, clk_ns=CLK_NS, spi_half=3)
     await load_firmware(host, "i2c_target.asm")
-    m = v_i2c.I2cMasterModel(half_period=300, setup=40)
+    m = v_i2c.I2cMasterModel(half_period=166, setup=22)   # 100 kHz at 33.33 MHz
     t_start = mon.mark() + 400
     events, ack_samples = m.schedule(0x50, writes=[0x5A], reg=0x02, t_start=t_start)
     scl_bit, sda_bit = 6, 7              # target SCL=P[6], SDA=P[7]

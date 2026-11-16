@@ -58,7 +58,8 @@ cd .. && ../.venv/bin/python formal/run_formal.py        # bounded formal proofs
 
 Simulation time scale is a knob, not a claim: `LoomHost` uses
 `clk_ns=10.0` (100 MHz) for CI speed because architectural behaviour is
-cycle-counted, and `clk_ns=16.67` (real 60 MHz target) for the protocol tests
+cycle-counted, and `clk_ns=30.0` (shipped 33.33 MHz target, CLOCK_PERIOD 30 ns)
+for the protocol tests
 whose *rates* are real-world (UART/SPI/I2C baud, MHz) and for the UART timing
 case.  SPI SCK is always ≤ 10 MHz (≤ clk/6), the documented host-link limit.
 
@@ -97,7 +98,7 @@ against a driven pin vector, `ld/st/ldi/sti`, FIFO ops with real host pushes,
    cycles, 200 events; every rising interval is 33.250 cycles within 1 cycle,
    max prefix error ≤ 1 cycle, total error ≤ 1 cycle (an integer/16 divider
    would already be off by >100 cycles).
-2. **UART-115200-style bit clock at 60 MHz**: `0x208D` = 520.8125 cycles/bit,
+2. **UART-115200-style bit clock at 33.33 MHz**: `0x1216` = 289.375 cycles/bit,
    64 bit cells; per-edge prefix error ≤ 1 cycle, implied baud 115204.6
    (−40 ppm), and the integer-divider counterfactual is printed for contrast.
 3. **WAITU absolute scheduling**: six absolute wake targets 50 cycles apart →
@@ -172,19 +173,29 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-16)
 
-`make` from `test/`: **59 tests, 59 PASS, 0 FAIL, 0 SKIP, ~149 s wall** (CI budget
+`make` from `test/`: **60 tests, 60 PASS, 0 FAIL, 0 SKIP, ~150 s wall** (CI budget
 < 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
-SRAM build: `make SRAM_SIM=1024` → same 59/59 (RTL behavioural macro model,
+SRAM build: `make SRAM_SIM=1024` → same 60/60 (RTL behavioural macro model,
 no PDK needed); `make SRAM_SIM=512` also runs (host layer verified incl. the
 PMEM depth guard).  A clean clone (`env -i make` with only an installed cocotb
-on `PATH`) reproduces 59/59, so there is no local-venv or untracked-file
-dependency.
+on `PATH`) reproduces the full matrix, so there is no local-venv or
+untracked-file dependency.  All protocol tests run at the **shipped clock:
+CLOCK_PERIOD 30 ns / 33.33 MHz** (`CLK_NS=30.0`), against the `CLOCK_HZ =
+33_333_333` firmware sweep.
+
+Measured rates at 33.33 MHz (from the RTL pin traces; `test_protocols` logs
+these every run): UART 115.2 kBd (measured 289.35 cycles/bit, +0.0006 %),
+SPI master SCK 1.04–1.06 MHz (31.5–32 cycles/bit), I²C controller 92.5 kHz /
+344 kHz over full periods (measured high phases 169.1 / 43.9 cycles; the low
+phase carries the firmware's polled SCL-release overhead), I²C target 100 kHz
+VIP master.  The docs' 97.6 kHz / 364 kHz I²C figures correspond to the
+nominal/high-phase measurement (`2 × HALF`), not the full-period average.
 
 Every deviation found during bring-up is fixed and re-tested, and the
 differential is fully green: **100/100 seeded random programs cycle-exact on the
 full `(pins_out, DIR)` trace and full architectural state, 12/12 opt-in
 pull/reactive seeds, 6/6 hand-written programs**, ISA 22/22, timing 7/7, host
-19/19, protocols 8/8.  The last two I2C items were: a **VIP clock-stretch
+19/19, protocols 9/9.  The last two I2C items were: a **VIP clock-stretch
 model bug** (the test target pulled SCL low during the master's high phase;
 fixed in `test/vip/i2c.py` to start the stretch from the ACK low phase) and a
 **firmware byte-boundary classifier bug** in `i2c_target.asm` (polled SDA

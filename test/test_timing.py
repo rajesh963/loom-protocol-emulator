@@ -7,8 +7,8 @@ Claims exercised
 ----------------
 1. fractional periodic events, drift-free:  PERIOD = 0x010A = 16.625 cycles,
    200 events; total elapsed within 1 cycle of exact, prefix error bounded.
-2. UART-115200-style bit period at 60 MHz (60e6/115200 = 520.8333; nearest 12.4
-   value 0x208D = 520.8125): 64 bit cells; long-term count exact against the
+2. UART-115200-style bit period at 33.33 MHz (33.333e6/115200 = 289.351; nearest
+   12.4 value 0x1216 = 289.375, the shipped BAUD_DIV): 64 bit cells; long-term count exact against the
    programmed period, baud error 0.004 % (vs 0.16 % for an integer divider).
 3. WAITU absolute scheduling: consecutive absolute wake targets 50 cycles apart
    -> measured pin edges exactly 50 cycles apart (no jitter, no drift).
@@ -136,16 +136,16 @@ async def test_periodic_fractional_drift_free(dut):
 
 
 # ---------------------------------------------------------------------------
-# 2. UART 115200 baud bit period at 60 MHz
+# 2. UART 115200 baud bit period at 33.33 MHz
 # ---------------------------------------------------------------------------
 @cocotb.test()
 async def test_uart_115200_bit_period(dut):
-    """520.8125-cycle bit cells at 60 MHz: bit clock is exact, no drift."""
-    host, mon = await start_loom(dut, clk_ns=16.67, spi_half=3)   # real 60 MHz
+    """289.375-cycle bit cells at 33.33 MHz: bit clock is exact, no drift."""
+    host, mon = await start_loom(dut, clk_ns=30.0, spi_half=3)    # shipped 33.33 MHz
     src = """
         movi r0, 0x0400
         movi r1, 0x0000
-        setp 0x208D          ; 520.8125 cycles (nearest 1/16 to 520.8333)
+        setp 0x1216          ; 289.375 cycles = BAUD_DIV 4630 @ 33.33 MHz
         setm 0x0400
     bitloop:
         emit r0
@@ -169,13 +169,13 @@ async def test_uart_115200_bit_period(dut):
         prev = v
     n = len(rises) - 1
     assert n >= 30, f"only {n} bit periods observed"
-    period = 2 * (8333 / 16)              # two emits per toggle = 1041.625 cycles
+    period = 2 * (4630 / 16)              # two emits per toggle = 578.75 cycles
     errs = [rises[i] - (rises[0] + i * period) for i in range(n + 1)]
     max_err = max(abs(e) for e in errs)
-    show(host, mon, pins=(10,), title="UART 115200 bit clock, 520.8125 cycles/bit @ 60 MHz",
+    show(host, mon, pins=(10,), title="UART 115200 bit clock, 289.375 cycles/bit @ 33.33 MHz",
          t0=t_run, t1=rises[-1] + 600, cols=72)
     avg = (rises[-1] - rises[0]) / n
-    baud = 60e6 / (avg / 2)
+    baud = 33333333.0 / (avg / 2)
     # counterfactual integer dividers
     host.log.info("bit cells: %d toggles, avg toggle period %.4f cycles (ideal %.4f)",
                   n, avg, period)
@@ -183,8 +183,9 @@ async def test_uart_115200_bit_period(dut):
                   baud, (baud - 115200) / 115200 * 100)
     host.log.info("integer dividers: 520 -> baud %.0f (+%.3f %% error, %+.1f cycles "
                   "drift over %d bits); 521 -> %.0f (-%.3f %%)",
-                  60e6 / 520, (60e6 / 520 / 115200 - 1) * 100, n * (8333 / 16 - 520),
-                  2 * n, 60e6 / 521, (60e6 / 521 / 115200 - 1) * 100)
+                  33333333.0 / 289.0, (33333333.0 / 289.0 / 115200 - 1) * 100,
+                  n * (4630 / 16 - 289), 2 * n, 33333333.0 / 290.0,
+                  (33333333.0 / 290.0 / 115200 - 1) * 100)
     assert max_err <= 1.0, f"bit clock drifts: max prefix error {max_err} cycles"
     assert abs((baud - 115200) / 115200) < 0.001, f"baud error {baud}"
 

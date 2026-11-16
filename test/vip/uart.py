@@ -92,7 +92,9 @@ class UartDecoder:
                 self.errors.append(
                     f"framing error in byte 0x{value:02x} at cycle {int(start)}: "
                     f"start/stop/samples={samples}")
-            c = int(round(stop_t + 0.5 * self.period))
+            # resume scanning from mid-stop-bit (never past the next start
+            # edge, which rounding can put one cycle before start+10*period)
+            c = int(start + 9.5 * self.period)
 
     def baud_error(self, known_cycles: int | None = None) -> float:
         """Average measured bit period vs the nominal decoder period."""
