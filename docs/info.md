@@ -42,6 +42,12 @@ can branch, stall on a host FIFO, or wait for another protocol without touching 
 * **Host link.** 4-wire SPI slave, mode 0, ≤ `clk/6` SCK (≈5.5 MHz at 33.33 MHz), 13 commands, 24-bit address space, level
   interrupt. Per-thread 8-byte FIFOs decouple host latency from wire timing.
 
+**I/O capability.** Tiny Tapeout quotes ~10 ns pad round trip and ~66 MHz maximum output frequency
+through the pad ring; inside the chip, LOOM's pin updates are scheduled at **1-cycle (30 ns)
+granularity**, one event stream per thread (up to 33.3 M events/s per thread, 133 M/s aggregate), with
+**1/16-cycle (1.875 ns) period resolution**, a wave player at up to **33.3 M patterns/s**, and a host
+SPI link at **`clk/6` = 5.56 MHz**. These are design numbers, not silicon measurements.
+
 Timing vocabulary: a 12.4 period register is `int[15:4].frac[3:0]`, unit 1/16 cycle = 1.875 ns at
 33.33 MHz; time comparisons are modular over 16 bits, so `TMR` wraps every 1.966 ms and scheduling
 look-ahead must stay below 983 µs. An event that is already due fires on the next cycle — an armed

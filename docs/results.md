@@ -16,7 +16,7 @@ TNS −1658.6**, 20.8 ns path); attempt 5 at **33.33 MHz closed setup** (`RSZ-00
 found`) and still hit the same instance — traced to **four stray `IOPadOut16mA` cells (57 600 µm²,
 12 % of moved area) mapped from internal nets** because the IO library was in the synthesis set;
 **attempt 6 excludes `sg13cmos5l_IOPad*` and is running**, with a bonus ~−57 600 µm² of cell area.
-Verification on this exact build configuration is **59/59 PASS, 0 skip**. Nothing is marked passing
+Verification on this exact build configuration is **60/60 PASS, 0 skip** (9/9 protocol tests). Nothing is marked passing
 until GDS + precheck + gate-level pass on one commit; canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ---
@@ -37,7 +37,7 @@ fallback only**: it is fast to elaborate and is what most regression runs use, b
 | read latency | 1 cycle (`A_DLY=1`) | combinational | 1 cycle |
 | flow extras | official TT CMOS5L SRAM plugin + `pdn_cfg.tcl` | none | same as SRAM candidate |
 | measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm²** (51.5 % raw ratio; 44.7 % movable-relative) | **1 147 604 µm² = 98.4 % → placement failed** | **561 938 µm² = 46.5 %** raw ratio (reserve; 512-word limit) |
-| simulation matrix on this exact config | **59 tests, 59 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, 154 s) | **59/59** (157 s; the earlier 2 I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
+| simulation matrix on this exact config | **60 tests, 60 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, ~138 s) | **60/60** (~138 s; the earlier 2 I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
 | role | **tape-out candidate** (clock = whichever attempt measures green; 33.33 MHz targeted) | fast regression; **cannot fit 8×4** | documented area lever |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** nominal; the core the flow lays out is
@@ -146,7 +146,7 @@ _40267_ is not placed`, raised inside GPL's routability-driven mode at `gpl.tcl:
 the global router on a mid-placement snapshot). At 44.7 % utilisation routability-driven placement
 is unnecessary, so attempt 4 disables it — a one-line `src/config.json` change.
 
-Simulation on this exact RTL configuration: **59/59 PASS, 0 skip** (§5).
+Simulation on this exact RTL configuration: **60/60 PASS, 0 skip** (§5).
 
 ### 3.3 Attempts 4–5 — two problems, and the routing blocker was not timing
 
@@ -222,19 +222,19 @@ matches at `33333333`. 60 MHz was the original target and failed timing (see §3
 ## 5. Verification results (landed RTL, simulation)
 
 **Both configurations are now fully green, including the one headed for tape-out.** On the exact
-RTL configuration being hardened (`make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP**, 154 s
+RTL configuration being hardened (`make SRAM_SIM=1024`): **60 tests, 60 PASS, 0 FAIL, 0 SKIP**, ~138 s
 (protocol rates RTL-measured at the shipped clock: UART 289.35 cyc/bit = **115.20 kBd (+0.001 %)**,
 I²C full SCL period → **92.5 / 344.2 kHz**, bit-banged SPI **1.04–1.06 MHz**; I²C and SPI are legal
 because their specs give maxima, not exact rates)
 (incl. 100/100 differential co-sim seeds, harness backdoor made SRAM-aware). The FF regression build
-is also **59/59**, 157 s — the two I²C gates that were skipped during bring-up are closed (VER-006
+is also **60/60**, 138 s — the two I²C gates that were skipped during bring-up are closed (VER-006
 VIP artifact, VER-007 firmware byte-boundary bug).
 Full layer tables and the sixteen-deviation history: [`verification.md` §9](verification.md).
 
 | Suite | Result | Notes |
 |---|---|---|
 | host link | **PASS** | 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
-| ISA | **22/22 PASS** | every mnemonic; all 59 tests covered by the coverage meta-test |
+| ISA | **22/22 PASS** | every mnemonic; all 60 tests covered by the coverage meta-test |
 | timing | **7/7 PASS** | drift-free fractional stream, UART 115200 (constant sweep at the shipped clock), `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written programs; 0 artefacts |
 | protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; **I2C 400 kHz and I2C target SKIP** (VER-006/007, firmware-timing triage — 100 kHz passes, so not a core-architecture gap) |

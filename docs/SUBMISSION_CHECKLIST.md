@@ -132,7 +132,7 @@ echo "REMEMBER: docs/results.md filled with the final git revision and CI number
 5. Record in `results.md` which build was submitted, **the clock it was measured-green at** (60 MHz
    failed timing: WNS −4.125 ns / 20.8 ns path; attempt 5 targets 33.33 MHz) and the exact git SHA.
    The submitted candidate is the **SRAM 1024×32 + 32-word DMEM build** (the only one that fits 8×4
-   and whose exact RTL passes the full 59/59 matrix); the FF build is a *simulation/regression* configuration only (it
+   and whose exact RTL passes the full 60/60 matrix); the FF build is a *simulation/regression* configuration only (it
    measured 1.15 M µm² and cannot fit), and `tools/select_build.sh sram512` is the documented area
    reserve (−60 k µm², 512-word firmware limit).
 6. Submit the repository link through the competition form (added to the announcement page before

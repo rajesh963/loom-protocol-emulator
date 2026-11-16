@@ -256,6 +256,27 @@ would give 24, which is wrong — and in the pin vector `P[9:8]` are the host ou
 read back the host inputs, so a bit's *in* and *out* halves can belong to different pads. For
 example `pins_out[10]` is `uo[2]` (protocol) while `pins_in[10]` is `ui[2]` (`H_MOSI`).
 
+### 5.1 I/O capability (design numbers)
+
+The competition FAQ asks how fast the I/O can go. Tiny Tapeout quotes roughly **10 ns pad round trip**
+and **~66 MHz maximum output frequency** through the pad ring; those are the *pad* limits. Inside the
+chip, what LOOM can do:
+
+| Quantity | Value at the shipped 33.33 MHz | Why |
+|---|---|---|
+| pin-update granularity | **1 cycle = 30 ns**, per thread, from the event scheduler | every edge is scheduled against `TMR`; jitter is ±1 cycle, not instruction-dependent |
+| event rate per thread | up to **33.3 M events/s** (one enqueue/cycle; queue depth 4 back-pressures, never drops) | the scheduler, not the CPU, applies edges |
+| aggregate across 4 threads | up to **133 M scheduled pin writes/s** (four independent queues) | one scheduler per thread, deterministic priority merge |
+| wave-player rate | up to **33.3 M patterns/s** (one 16-bit pattern per cycle) | DMEM pattern stream at a 12.4 period |
+| fractional period resolution | **1/16 cycle = 1.875 ns** | 12.4 fixed-point `PERIOD` with carry accumulation |
+| host SPI link | **`clk/6` = 5.56 MHz**, one byte per 8 SCK cycles | 2-FF-synchronised SCK, edge-detected |
+| timed sampling | **±0 cycles** (exact-cycle latch) | `inat` samples `pins_in` on a chosen `TMR` value |
+
+These are **design capabilities, not silicon measurements** — no LOOM silicon exists yet. The
+protocol-visible consequence is the one that matters: two edges can be placed anywhere on the 30 ns
+grid, and the *gap between them* is exact to 1/16 cycle, which is what makes 115200-baud UART
+(289.352-cycle cells) and 400 kHz I²C (83.3-cycle bit periods) come out right.
+
 Two bits of `pins_out` are special: `P[9:8]` are the host link's `H_IRQ`/`H_MISO` outputs, so the
 pin register is masked with `PINS_OUT_DRIVABLE = 0xFCFF` on every write (immediate op, event fire or
 host CSR write). `out 0xFFFF` followed by `csrr POUT` reads back `0xFCFF` — firmware cannot drive

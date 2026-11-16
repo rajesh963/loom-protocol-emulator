@@ -217,8 +217,8 @@ meta-test.
 
 > **Landed RTL, simulation only — and both configurations are green, including the tape-out one.**
 > On the exact RTL configuration being hardened (`LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz,
-> `make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP in 154 s wall**. The FF regression
-> configuration is also **59/59** (157 s) — the two I²C gates skipped during bring-up are closed (§9.2).
+> `make SRAM_SIM=1024`): **60 tests, 60 PASS, 0 FAIL, 0 SKIP in ~138 s wall**. The FF regression
+> configuration is also **60/60** (~138 s) — the two I²C gates skipped during bring-up are closed (§9.2).
 > `docs` and `test` GitHub Actions workflows are green and reproduce the matrix on each push.
 > No LibreLane/gate-level/silicon rows are claimed: see [`FLOW_STATUS.md`](FLOW_STATUS.md) and
 > [`results.md`](results.md) §3.
@@ -228,12 +228,12 @@ meta-test.
 | Suite | Result | What it proves |
 |---|---|---|
 | host link | **PASS** | all 13 commands; global-CSR read matrix; FIFO occupancy; IRQ/ACK; CS-abort; STATUS bytes (guard test `test_host.test_status_command` passes with `decoded OK: ['0x24','0x90','0x94','0x94']`; the single-line alarm it raises is documented in `test/README.md`) |
-| ISA | **22/22 PASS** | every mnemonic executes with the documented architectural state; all 59 tests are covered by the coverage meta-test |
+| ISA | **22/22 PASS** | every mnemonic executes with the documented architectural state; all 60 tests are covered by the coverage meta-test |
 | timing | **7/7 PASS** | fractional drift-free event stream; UART 115200 with the shipped-clock constants (**RTL-measured 289.35 cycles/bit = 115.20 kBd, +0.001 %**); I²C full-period measured 92.5 / 344.2 kHz; bit-banged SPI 1.04–1.06 MHz SCK; `waitu` jitter-free; `inat` exact-cycle sample; `emite` latency; four concurrent periods; queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | **100/100 random programs** cycle-exact on the full `(pins_out, DIR)` transition trace *and* full architectural state; **12/12** pull/reactive seeds; **6/6** hand-written programs; 0 artefacts (harness backdoor made SRAM-aware) |
-| protocol VIPs | **8/8 PASS** | UART TX/RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz, **I2C 400 kHz**, **I2C target**, clock stretching — including the two tests gated during bring-up |
+| protocol VIPs | **9/9 PASS** | UART TX, **UART back-to-back decoder**, UART RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz, **I2C 400 kHz**, **I2C target**, clock stretching — including the two tests gated during bring-up |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
-| **total** | **59 PASS / 0 FAIL / 0 SKIP** | 59 tests, 154 s wall (SRAM) / 157 s (FF) |
+| **total** | **60 PASS / 0 FAIL / 0 SKIP** | 60 tests, ~138 s wall on either memory build |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
 Python golden model written from the spec) agree on the exact cycle of every pin transition and on
@@ -280,7 +280,7 @@ state is built to catch, and which per-module unit tests cannot see.
 
 | Dimension | Status |
 |---|---|
-| opcode | **PASS** — every mnemonic exercised; coverage meta-test over all 59 tests |
+| opcode | **PASS** — every mnemonic exercised; coverage meta-test over all 60 tests |
 | CSR | **PASS** — global-CSR read matrix test |
 | thread concurrency | **covered** by the differential sweep (4 threads active) |
 | protocol pins | covered by the protocol VIP suite (all 19 exercised across the examples) |
