@@ -48,6 +48,8 @@ module loom_mem #(
 );
 
   localparam [9:0] DMEM_BASE = 10'h3C0;
+  // parameterised DMEM: addresses fold modulo DMEM_WORDS (power of two)
+  localparam [5:0] DMEM_MASK = DMEM_WORDS[5:0] - 6'd1;
 
   // --------------------------------------------------------------------------
   // PMEM
@@ -74,8 +76,8 @@ module loom_mem #(
     for (j = 0; j < DMEM_WORDS; j = j + 1) dmem[j] = 16'd0;
   end
 
-  assign dmem_rdata = dmem[dmem_addr];
-  assign wave_data  = dmem[wave_addr];
+  assign dmem_rdata = dmem[dmem_addr & DMEM_MASK];
+  assign wave_data  = dmem[wave_addr & DMEM_MASK];
 
   // --------------------------------------------------------------------------
   // Host port (write PMEM, write DMEM, read either)
@@ -88,7 +90,7 @@ module loom_mem #(
       host_rvalid <= host_re;
       if (host_re) begin
         if (host_addr >= DMEM_BASE)
-          host_rdata <= {16'd0, dmem[host_addr[5:0]]};
+          host_rdata <= {16'd0, dmem[host_addr[5:0] & DMEM_MASK]};
         else if (host_addr < PMEM_WORDS)
           host_rdata <= pmem[host_addr];
         else
@@ -103,11 +105,11 @@ module loom_mem #(
   // --------------------------------------------------------------------------
   always @(posedge clk) begin
     if (dmem_we)
-      dmem[dmem_addr] <= dmem_wdata;
+      dmem[dmem_addr & DMEM_MASK] <= dmem_wdata;
     else if (host_we && (host_addr >= DMEM_BASE))
-      dmem[host_addr[5:0]] <= host_wdata[15:0];
+      dmem[host_addr[5:0] & DMEM_MASK] <= host_wdata[15:0];
     else if (cap_we)
-      dmem[cap_addr] <= cap_wdata;
+      dmem[cap_addr & DMEM_MASK] <= cap_wdata;
   end
 
   // --------------------------------------------------------------------------

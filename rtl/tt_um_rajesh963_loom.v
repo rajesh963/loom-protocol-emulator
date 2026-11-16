@@ -17,6 +17,12 @@
   localparam PMEM_WORDS_C = 1024;     // full program space (simulation / SRAM build)
 `endif
 
+`ifdef LOOM_DMEM_SMALL
+  localparam DMEM_WORDS_C = 32;       // area-reduced build (wave buffer <= 32 patterns)
+`else
+  localparam DMEM_WORDS_C = 64;
+`endif
+
 module tt_um_rajesh963_loom (
     input  wire [7:0] ui_in,
     output wire [7:0] uo_out,
@@ -118,7 +124,7 @@ module tt_um_rajesh963_loom (
   // Core
   // --------------------------------------------------------------------------
   loom_core #(
-      .NUM_THREADS(4), .EQ_DEPTH(4), .FIFO_DEPTH(8), .DMEM_WORDS(64)
+      .NUM_THREADS(4), .EQ_DEPTH(4), .FIFO_DEPTH(8), .DMEM_WORDS(DMEM_WORDS_C)
   ) u_core (
       .clk(clk), .rst_n(rst_n),
       .imem_addr(imem_addr), .imem_data(imem_data),
@@ -177,7 +183,7 @@ module tt_um_rajesh963_loom (
   // Memory
   // --------------------------------------------------------------------------
   loom_mem #(
-      .PMEM_WORDS(PMEM_WORDS_C), .DMEM_WORDS(64), .PMEM_IMPL("ff")
+      .PMEM_WORDS(PMEM_WORDS_C), .DMEM_WORDS(DMEM_WORDS_C), .PMEM_IMPL("ff")
   ) u_mem (
       .clk(clk), .rst_n(rst_n),
       .imem_addr(imem_addr), .imem_data(imem_data),
