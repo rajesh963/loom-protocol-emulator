@@ -103,18 +103,6 @@ module tb_top;
     end
   end
 
-  always @(posedge clk) if (dut.u_host.mem_re || dut.u_host.mem_we || dut.host_rvalid)
-    $display("MEMIO t=%0t re=%b we=%b addr=%h wdata=%h rdata=%h rvalid=%b",
-      $time, dut.u_host.mem_re, dut.u_host.mem_we, dut.u_host.mem_addr,
-      dut.u_host.mem_wdata, dut.host_rdata, dut.host_rvalid);
-  // ---- host bridge internal trace -----------------------------------------
-  always @(posedge clk) begin
-    if (dut.u_host.byte_done)
-      $display("BYTE st=%0d cmd=%h argi=%0d nargs=%0d rx=%h tx=%h addrptr=%h mem_we=%b maddr=%h mwdata=%h",
-               dut.u_host.st, dut.u_host.cmd, dut.u_host.argi, dut.u_host.nargs,
-               dut.u_host.rx_byte, dut.u_host.tx_shift, dut.u_host.addr_ptr,
-               dut.u_host.mem_we, dut.u_host.mem_addr, dut.u_host.mem_wdata);
-  end
   integer i;
   initial begin
     $readmemh("itest.hex", prog);
@@ -154,7 +142,6 @@ module tb_top;
       end
     end
 
-    $display("MEMCHECK pmem[0]=%h pmem[1]=%h", dut.u_mem.pmem[0], dut.u_mem.pmem[1]);
     // ---- start thread 0 --------------------------------------------------
     cs_begin; spi(8'h08, r1); spi(8'h00, r1); spi(8'h00, r1); spi(8'h00, r1); cs_end; // SET_PC t0=0
     cs_begin; spi(8'h09, r1); spi(8'h01, r1); cs_end;                                   // RUN mask=1

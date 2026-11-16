@@ -44,3 +44,4 @@ formal/build/
 .ci_logs/
 .reference/
 CI_RESULTS*.md
+.area_synth/

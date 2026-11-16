@@ -11,7 +11,9 @@
 `default_nettype none
 `include "loom_bus.vh"
 
-`ifdef LOOM_PMEM_SMALL
+`ifdef LOOM_PMEM_TINY
+  localparam PMEM_WORDS_C = 8;        // measurement-only: isolates non-PMEM cost
+`elsif LOOM_PMEM_SMALL
   localparam PMEM_WORDS_C = 128;      // FF fallback build (area-safe)
 `else
   localparam PMEM_WORDS_C = 1024;     // full program space (simulation / SRAM build)

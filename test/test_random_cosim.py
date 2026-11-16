@@ -62,6 +62,14 @@ class RtlView:
         self.top = tb.dut
         self.core = self.top.u_core
         self.mem = self.top.u_mem
+        # PMEM backdoor: FF-array build exposes `pmem`, the SRAM build exposes
+        # the behavioural macro model's `mem` array (same words, same indices)
+        if hasattr(self.mem, "pmem"):
+            self.pmem = self.mem.pmem
+            self.pmem_sram = False
+        else:
+            self.pmem = self.mem.u_pmem.sram.mem
+            self.pmem_sram = True
 
     def _i(self, handle) -> int:
         return int(handle.value)
@@ -70,7 +78,7 @@ class RtlView:
     def load_program(self, words, fill_word: int, min_len: int):
         n = max(len(words), min_len)
         for i in range(n):
-            self.mem.pmem[i].value = words[i] if i < len(words) else fill_word
+            self.pmem[i].value = words[i] if i < len(words) else fill_word
 
     def clear_dmem(self):
         for i in range(64):
@@ -82,7 +90,7 @@ class RtlView:
         keeps PCs identical while every register/flag diverges)."""
         for i in range(span):
             want = words[i] if i < len(words) else (fill_word & 0xFFFFFFFF)
-            got = int(self.mem.pmem[i].value)
+            got = int(self.pmem[i].value)
             assert got == want, (
                 f"PMEM image mismatch at word {i}: rtl=0x{got:08x} "
                 f"expected=0x{want:08x}")
