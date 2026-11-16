@@ -9,7 +9,12 @@ and a runnable demo in `host/demos/`.
 **Shipped design point: 33.33 MHz** (`CLOCK_PERIOD` 30 ns, the frequency the
 post-CTS resizer closes at; the competition sets no frequency target). Every
 rate below is the real-time rate at 33.33 MHz; the cycle counts are what the
-firmware and the tests actually use.
+firmware and the tests actually use. Unless stated otherwise, rates are
+**pin-trace measurements over a full protocol period** (UART: start-edge to
+start-edge across bytes; I²C: rising-to-rising SCL, i.e. high + low phase —
+*not* 2x the high phase), measured on the RTL at 30 ns with `verify`'s VIPs;
+the golden-model numbers agree within the polled-release overhead noted per
+protocol.
 
 ```
 sw/examples/*.asm        firmware sources (this README describes each one)
@@ -54,12 +59,12 @@ protocols share one 1-instruction/cycle datapath.
 
 | program | thread in demo | pins (P[n]) | size | status | measured rate |
 |---|---|---|---|---|---|
-| `uart_tx.asm` | t0 | TX=P[10]=uo[2] | 34 | model-verified | 115200 8N1, 289.375 cyc/bit (+80 ppm) |
+| `uart_tx.asm` | t0 | TX=P[10]=uo[2] | 34 | model + RTL verified | 115200 8N1, 289.375 cyc/bit (divider −80 ppm) |
 | `uart_rx.asm` | t1 | RX=P[11]=ui[3] | 32 | model-verified | 115200 8N1, full duplex with tx |
 | `uart_loopback.asm` | — | RX=P[11], TX=P[10] | 41 | model-verified | half-duplex echo, needs inter-byte gap |
 | `spi_master.asm` | t2 | SCK=P[0], MOSI=P[1], MISO=P[2], CS_N=P[3] | 49 | model-verified, modes 0–3 | ~1.03 MHz SCK (32 cyc/bit, `QUARTER_CYCLES=4`); 1.63 MHz ceiling |
 | `spi_slave.asm` | — | MISO=P[0], SCK=P[4], MOSI=P[5], CS_N=P[6] | 31 | model-verified | 1 MHz external SCK clean (16-cyc half is the RTL edge) |
-| `i2c_master.asm` | t3 | SCL=P[4]=uio[4], SDA=P[5]=uio[5] | 125 | model + RTL verified | 100 kHz (166.6-cyc phases → 97.6 kHz), 400 kHz variant (→ 364 kHz) |
+| `i2c_master.asm` | t3 | SCL=P[4]=uio[4], SDA=P[5]=uio[5] | 125 | model + RTL verified | nominal 100 kHz (RTL 92.5 kHz), nominal 400 kHz (RTL 344 kHz) |
 | `i2c_target.asm` | — | SCL=P[6]=uio[6], SDA=P[7]=uio[7] | 121 | model + RTL verified | 100 kHz, register file = DMEM[0..7] |
 | `ws2812.asm` | — | DATA=P[12]=uo[4] | 47 | model-verified | 800 kHz (T0H 13.3 / T1H 26.7 cyc), 50 us latch |
 | `ps2_target.asm` | — | CLK=P[13]=uo[5], DATA=P[14]=uo[6] | 58 | model-verified | 14.28 kHz clock, 11-bit frames + odd parity |
@@ -78,8 +83,10 @@ four-program demo needs the 1024-word SRAM build.
 ## UART — 115200 8N1, full duplex (`uart_tx.asm`, `uart_rx.asm`, `uart_loopback.asm`)
 
 * **Bit clock**: `BAUD_DIV = round(33.33e6·16/115200) = 4630 = 0x1216` →
-  289.375 cycles/bit (+80 ppm divider error; the measured cell average is
-  289.14 → 115.28 kBd, +0.07 %, well inside UART tolerance). The 12.4 period
+  289.375 cycles/bit; the exact ideal is 289.3518, so the divider is **−80 ppm**
+  (115,190.8 Bd vs 115,200 nominal). RTL pin-trace measurement over back-to-back
+  frames: 289.35 cycles/bit → **115.20 kBd (+0.001 %)**, i.e. the quantisation
+  is below measurement resolution. Well inside UART tolerance either way. The 12.4 period
   register is at most 4095.9 cycles, so slow rates use
   `CELLS = ceil(BAUD_DIV/65535)` event cells per bit
   (`9600 baud = 55556 = 3472.25 cycles/bit`, CELLS=1). Both TX and RX implement
@@ -140,10 +147,15 @@ four-program demo needs the 1024-word SRAM build.
 * Open-drain on `uio[4]`/`uio[5]`: pin value always 0, `DIR` bit = 1 pulls low,
   0 releases to the external pull-up. SDA/SCL are read back through `pins_in`.
 * `HALF_DIV = round(33.33e6·16/(2·I2C_HZ))`: 100 kHz → 166.6-cycle phases
-  (0x0A6A), 400 kHz → 41.6 cycles (0x029A). The `WAITP`/`WAITD` overhead at
-  33.33 MHz gives ~97.6 kHz measured SCL at the 100 kHz setting and ~364 kHz at
-  400 kHz — both within their I2C maxima (the protocol specifies maximum rates;
-  slower is legal). Every time SCL is released the firmware `WAITP`s for it to
+  (0x0A6A), 400 kHz → 41.6 cycles (0x029A), i.e. a **nominal** 100/400 kHz.
+  Measured full SCL period (rising-to-rising, high + low phase): **92.5 kHz /
+  344.2 kHz on the RTL** (golden model 97.6 / 364 kHz). The difference is the
+  *polled SCL-release overhead*: after `dclr SCL` the firmware `WAITP`s for the
+  line to rise (2-4 cycles) and the low phase also carries the instruction
+  issue, so the low phase is ~20 cycles longer than the high phase on RTL. I²C
+  specifies **maximum** rates, so 92.5 kHz is a legal 100 kHz-mode controller;
+  quoting 2x the high phase (169.1×2 = 338 cyc = 98.6 kHz) overstates it — use
+  the full period. Every time SCL is released the firmware `WAITP`s for it to
   actually go high, so **a target may stretch the clock** — no timeout, no
   corruption (the model test stretches 450 cycles on every ACK; the cocotb RTL
   test at 400 kHz passes with legal stretching).

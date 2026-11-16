@@ -240,7 +240,7 @@ def test_i2c_master() -> None:
     d = periods(bus.wave[4], skip=3, count=12)         # SCL transitions
     if d:
         avg = statistics.mean(d)
-        check("i2c_master: SCL half period ~167 cycles (100 kHz)",
+        check("i2c_master: measured SCL half period ~171 cyc (nominal 167)",
               150 <= avg <= 220, f"avg={avg:.1f} cycles")
     # fast mode variant
     prog4 = assemble("i2c_master",
