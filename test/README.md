@@ -183,13 +183,17 @@ untracked-file dependency.  All protocol tests run at the **shipped clock:
 CLOCK_PERIOD 30 ns / 33.33 MHz** (`CLK_NS=30.0`), against the `CLOCK_HZ =
 33_333_333` firmware sweep.
 
-Measured rates at 33.33 MHz (from the RTL pin traces; `test_protocols` logs
-these every run): UART 115.2 kBd (measured 289.35 cycles/bit, +0.0006 %),
-SPI master SCK 1.04–1.06 MHz (31.5–32 cycles/bit), I²C controller 92.5 kHz /
-344 kHz over full periods (measured high phases 169.1 / 43.9 cycles; the low
-phase carries the firmware's polled SCL-release overhead), I²C target 100 kHz
-VIP master.  The docs' 97.6 kHz / 364 kHz I²C figures correspond to the
-nominal/high-phase measurement (`2 × HALF`), not the full-period average.
+Measured rates at 33.33 MHz, **full protocol period** (UART: start-edge to
+start-edge across frames; I²C: rising-to-rising SCL, i.e. high + low phase,
+*not* 2× the high phase) — `test_protocols` logs designed + measured columns
+every run:
+UART **115.2 kBd nominal, RTL measured 289.35 cycles/bit** (design divider 4630,
+−80 ppm); I²C controller **92.5 kHz / 344.2 kHz RTL full-period** (high phases
+169.1 / 43.9 cycles, low phase carries the firmware's polled SCL-release
+overhead; design halves 166.625 / 41.625 cycles); SPI master **~1.04–1.06 MHz**
+(design `QUARTER_CYCLES=4` → 32-cycle bit).  The golden model measures
+97.6 / 364 kHz for I²C because its WAITP retry latency is smaller — quoted as
+model-only; the RTL full-period numbers are authoritative.
 
 Every deviation found during bring-up is fixed and re-tested, and the
 differential is fully green: **100/100 seeded random programs cycle-exact on the

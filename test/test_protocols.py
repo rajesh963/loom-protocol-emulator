@@ -123,9 +123,10 @@ async def test_uart_tx(dut):
         baud = CLOCK_HZ / measured
     else:
         measured, baud = period, CLOCK_HZ / period
-    host.log.info("UART TX: %d bytes exact, framing OK, measured %.3f cycles/bit "
-                  "-> %.2f baud (target 115200, error %+.4f %%)",
-                  len(got), measured, baud, (baud / 115200 - 1) * 100)
+    host.log.info("UART TX: %d bytes exact, framing OK; designed 289.375 cyc/bit "
+                  "(BAUD_DIV 4630, 115.19 kBd, -80 ppm), RTL measured %.3f "
+                  "cyc/bit -> %.2f kBd (%+.4f %%)",
+                  len(got), measured, baud / 1e3, (baud / 115200 - 1) * 100)
     assert abs(baud / 115200 - 1) < 0.02
 
 
@@ -236,9 +237,9 @@ async def test_spi_master_modes(dut):
         if len(t.edges) >= 3:
             ec = [e[0] for e in t.edges]
             half = (ec[-1] - ec[0]) / (len(ec) - 1)
-            host.log.info("mode %d: measured SCK half %.2f cycles -> %.2f MHz "
-                          "(bit %.2f cycles)", mode, half, CLOCK_HZ / (2 * half) / 1e6,
-                          2 * half)
+            host.log.info("mode %d: designed QUARTER_CYCLES=4 (bit 32 cyc ~1.04 MHz); "
+                          "RTL measured SCK half %.2f cyc -> %.2f MHz (bit %.2f cyc)",
+                          mode, half, CLOCK_HZ / (2 * half) / 1e6, 2 * half)
 
 
 # ---------------------------------------------------------------------------
@@ -393,8 +394,10 @@ async def test_i2c_controller_100k(dut):
     lo = [c2 - c1 for (c1, l1), (c2, l2) in zip(ed, ed[1:]) if l1 == 0]
     if len(rises) >= 9:
         per = (rises[-1] - rises[0]) / (len(rises) - 1)
-        host.log.info("I2C controller 100 kHz: measured SCL period %.3f cycles "
-                      "-> %.2f kHz (target 100 kHz; high %.2f low %.2f)",
+        host.log.info("I2C controller 100 kHz: designed HALF_DIV 2666/16 = "
+                      "166.625 cyc -> 100 kHz nominal; RTL full-period "
+                      "(rising-to-rising) measured %.3f cyc -> %.2f kHz "
+                      "(high %.2f low %.2f)",
                       per, CLOCK_HZ / per / 1e3,
                       sum(hi) / max(1, len(hi)), sum(lo) / max(1, len(lo)))
     host.log.info("I2C controller 100 kHz: START, addr 0xA0 ACKed, reg 0x00, "
@@ -428,8 +431,10 @@ async def test_i2c_controller_400k(dut):
     lo = [c2 - c1 for (c1, l1), (c2, l2) in zip(ed, ed[1:]) if l1 == 0]
     if len(rises) >= 9:
         per = (rises[-1] - rises[0]) / (len(rises) - 1)
-        host.log.info("I2C controller 400 kHz: measured SCL period %.3f cycles "
-                      "-> %.2f kHz (target 400 kHz; high %.2f low %.2f)",
+        host.log.info("I2C controller 400 kHz: designed HALF_DIV 666/16 = "
+                      "41.625 cyc -> 400 kHz nominal; RTL full-period "
+                      "(rising-to-rising) measured %.3f cyc -> %.2f kHz "
+                      "(high %.2f low %.2f)",
                       per, CLOCK_HZ / per / 1e3,
                       sum(hi) / max(1, len(hi)), sum(lo) / max(1, len(lo)))
     host.log.info("I2C controller 400 kHz with target clock stretching: complete")
