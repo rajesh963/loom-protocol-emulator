@@ -449,13 +449,14 @@ async def test_global_csr_reads(dut):
     assert ((t1 - t0) & 0xFFFF) < 0x8000, f"TMR backwards {t0}->{t1}"
     await host.write_csr(CSR["EVT"], 0x005A)
     assert await host.read_csr(CSR["EVT"]) == 0x005A
+    # spec (2026-11-16): CSR_IRQ reads are non-destructive; ACK_IRQ clears.
     await host.write_csr(CSR["IRQ"], 0x1234)
     assert await host.read_csr(CSR["IRQ"]) == 0x1234
-    if not KNOWN_ISSUES["irq_read_clear"]["open"]:
-        assert await host.read_csr(CSR["IRQ"]) == 0, "IRQ read must clear"
-    else:
-        host.log.info("IRQ read-clear is gated on VER-011 (open)")
-        await host.write_csr(CSR["IRQ"], 0)
+    assert await host.read_csr(CSR["IRQ"]) == 0x1234, \
+        "IRQ read must be non-destructive"
+    await host.ack_irq()
+    await host._clk(6)
+    assert await host.read_csr(CSR["IRQ"]) == 0, "ACK_IRQ must clear the IRQ code"
     host.log.info("global CSR host reads OK (POUT/PDIR/TMR/EVT/IRQ-rc)")
 
 

@@ -78,3 +78,16 @@
   macro → expect ~55-65% utilisation of an 8x4 core (~1.0 mm^2), i.e. it should fit but with no
   room for extras. Cheap shrink levers if CI says otherwise: DMEM 64→32 words, FIFO depth 8→4,
   drop the wave player's private DMEM read port (share with CPU).
+- **GitHub repo created (PRIVATE as requested): https://github.com/rajesh963/loom-protocol-emulator**
+  pushed `master`; workflows `gds`, `docs`, `test` triggered on push (2026-11-16 15:25 UTC).
+  `src/config.json` sets `VERILOG_DEFINES=["LOOM_PMEM_SMALL"]` for the first hardening run
+  (FF 128-word build, no SRAM macro) — the flow/area risk is isolated from the macro integration.
+  Plan: get FF-small GDS+precheck green first, then switch to the SRAM `1024x32` flagship and
+  re-run; flip the repo public before submission (user decision).
+- **RTL bug-fix batch (all landed + committed `beeb878`/`d468351`)**: VER-004 DMEM address,
+  VER-008 past-target waits, VER-009/010/012 CSR-read staleness (root cause: `always @*` does not
+  track regs read inside a function in Icarus — replaced with explicit case statements), VER-013
+  INAT rd truncation, VER-014 emita/emitd polluting NEXTT. Soft reset keeps TMR running (spec).
+  Local suites after the batch: unit_core PASS, unit_host PASS, unit_wave PASS, integration PASS,
+  SW_TESTS PASS; cocotb 28 PASS / 1 FAIL (TEQ sampling artefact, verify to fix) / 30 SKIP
+  (known-issue flags still gated — flipping them is verify's next step).

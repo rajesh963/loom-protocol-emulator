@@ -478,10 +478,13 @@ async def test_queue_backpressure_schedule_exact(dut):
     t_run = mon.mark()
     await host.run(0x1)
     max_eq = 0
+    core = dut.dut.u_core
     for _ in range(12):
-        await host._clk(40)
-        teq = await host.get_teq(0)
-        max_eq = max(max_eq, teq & 0x7)
+        # sample every cycle: the depth-4 queue is full most of the time but a
+        # host READ_CSR takes long enough to miss the instant
+        for _ in range(40):
+            await host._clk(1)
+            max_eq = max(max_eq, int(core.eq_cnt[0].value))
     st = await host.get_tstatus(0)
     assert max_eq == 4, f"event queue never saturated: max TEQ={max_eq} (depth 4)"
     assert (st & 0x2) == 0, "producer thread must be stalled (not halted) under back-pressure"

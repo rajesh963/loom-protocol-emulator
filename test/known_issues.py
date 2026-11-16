@@ -95,7 +95,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "are gated and start guarding the moment this flips to False.",
     },
     "dmem_addr": {
-        "open": True,
+        "open": False,
         "id": "VER-004",
         "title": "dmem_addr output never driven -> ld/st/ldi/sti all address DMEM[0]",
         "spec": "spec §4.1 ld/st/ldi/sti use imm16[5:0] / R[rs][5:0] as the DMEM address",
@@ -148,7 +148,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "model waveform and re-enable.",
     },
     "host_read_during_wait": {
-        "open": True,
+        "open": False,
         "id": "VER-009",
         "title": "Host READ_CSR issued while a thread is stalled in WAITU can return "
                  "a stale value and poison later host reads",
@@ -172,7 +172,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "timed-wait windows until resolved.",
     },
     "status_pipeline": {
-        "open": True,
+        "open": False,
         "id": "VER-005",
         "title": "STATUS command bytes are still off by one CSR after the VER-003 fix",
         "spec": "spec §6 STATUS: 4 thread bytes {halted,en,tx_full,tx_empty,"
@@ -192,7 +192,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "earlier). test_status_command is gated and will guard it.",
     },
     "irq_read_clear": {
-        "open": True,
+        "open": False,
         "id": "VER-011",
         "title": "CSR IRQ (0x14) read does not clear the code (host and thread)",
         "spec": "spec §4.2: IRQ RW, \"host IRQ code (read clears)\"",
@@ -202,11 +202,12 @@ KNOWN_ISSUES: dict[str, dict] = {
                   "command still clears it.",
         "repro": "WRITE_CSR(0x14,0x1234); READ_CSR(0x14) -> 0x1234; READ_CSR(0x14) "
                  "-> 0x1234 (spec expects 0).",
-        "decision": "reported to Lead (core); test asserts the spec behaviour when "
-                    "flipped.",
+        "decision": "RESOLVED by spec change 2026-11-16: CSR_IRQ reads are "
+                    "non-destructive; ACK_IRQ (host writes 0 to CSR_IRQ) clears. "
+                    "Tests updated to the new spec.",
     },
     "waitu_past": {
-        "open": True,
+        "open": False,
         "id": "VER-008",
         "title": "WAITU with an already-past absolute target stalls ~65k cycles",
         "spec": "spec §3.1 timing primitives: waitu t -> next issue at max(k+1,t), "
@@ -226,7 +227,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "fixed (test_timing uses future-only targets today).",
     },
     "csrr_tperiod_read": {
-        "open": True,
+        "open": False,
         "id": "VER-010",
         "title": "Thread `csrr rd, TPERIOD` returns the reset period (0x0010), "
                  "not the register value",
@@ -248,7 +249,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "the host view and gates the thread readback until fixed.",
     },
     "host_csr_read_stale": {
-        "open": True,
+        "open": False,
         "id": "VER-012",
         "title": "Host READ_CSR can return the previous read's data (back-to-back "
                  "CSR reads are one read stale)",
@@ -272,7 +273,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "reads and the co-sim layer compares VPI state directly.",
     },
     "inat_rd_truncation": {
-        "open": True,
+        "open": False,
         "id": "VER-013",
         "title": "INAT writeback register index is truncated to 2 bits "
                  "(rd bit 2 lost)",
@@ -295,7 +296,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "is the directed regression and is gated until fixed.",
     },
     "nextt_emita": {
-        "open": True,
+        "open": False,
         "id": "VER-014",
         "title": "EMITA/EMITD update NEXTT and PFRAC (spec: only EMIT does)",
         "spec": "spec §3.1 timing table: `emit` advances NEXTT/PFRAC; "

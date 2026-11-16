@@ -713,10 +713,7 @@ async def test_irq_instruction(dut):
     assert host.irq() == 1, "H_IRQ not raised by irq imm8"
     code = await host.read_csr(CSR["IRQ"])
     assert code == 0x5A, f"IRQ CSR code 0x{code:04x}"
-    if not KNOWN_ISSUES["irq_read_clear"]["open"]:
-        assert await host.read_csr(CSR["IRQ"]) == 0, "IRQ read clears"
-    else:
-        await host.write_csr(CSR["IRQ"], 0)
+    assert await host.read_csr(CSR["IRQ"]) == 0x5A, "IRQ read is non-destructive"
     await host.ack_irq()
     await host._clk(4)
     assert host.irq() == 0
