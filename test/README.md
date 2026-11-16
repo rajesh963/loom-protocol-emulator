@@ -161,99 +161,14 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-16)
 
-`make` from `test/`: **59 tests, 29 PASS, 0 FAIL, 30 SKIP, 49 s wall** (CI budget
-< 3 min).  `formal/run_formal.py`: **3/3 proofs PASS**.
+`make` from `test/`: **59 tests, 56 PASS, 0 FAIL, 3 SKIP, 141 s wall** (CI budget
+< 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
 
-Pre-validation on a scratch RTL copy (`test/_scratch_rtl/`, `RTL_DIR=... make`,
-`LOOM_KNOWN_FIXED=VER-004,VER-013,VER-014`) carrying the three requested RTL
-patches (DMEM address, INAT rd width, NEXTT only on EMIT):
-**59 tests, 56 PASS, 0 FAIL, 3 SKIP (131 s)** — host 18/19 (STATUS gated),
-ISA 22/22, timing 7/7, **co-sim 100/100 default + 12/12 opt-in + 6/6
-hand-written**, protocols 6/8 (I2C 400 kHz + target gated).  This is the
-target state: the three RTL patches plus toolchain's S6 pin-merge fix convert
-all previously-gated layers to passing; only the host-read-pipeline (VER-005)
-and the two I2C items (VER-006/007) remain skipped.  Trace-replay pins
-(`cfg_pins_in_replay`) and explicit NEXTT seeding at RUN were both tried and do
-not change the residual, so it is not pad modelling or the RUN reference: the
-the remaining co-sim mismatches were closed in three steps: (a) RUN seeding
-convention — the model must start at the RTL's first-enabled cycle (W+1) with
-`stall=0`; (b) a **harness bug in the RTL state reader** — `eq_tgt/eq_val/eq_edge`
-are flattened `{tid,slot}` arrays but were indexed by slot only, so “thread 1's
-event queue” was actually thread 0's (fixed: `idx = tid*4 + slot`); (c) a
-**model bug** in the S6 pin-merge precedence — the instruction pin op was
-applied *after* fired events, so the instruction won same-cycle collisions
-(spec: fired events win) — fixed by toolchain.  With those three, the
-differential is **100/100 seeded programs cycle-exact on the full
-(pins_out, DIR) trace and full architectural state**, plus 12/12 opt-in
-(pull/reactive) seeds and 6/6 hand-written programs.
+The three requested RTL fixes plus toolchain's model-side S6 pin-merge fix have
+landed, and the differential is fully green: **100/100 seeded random programs
+cycle-exact on the full `(pins_out, DIR)` trace and full architectural state,
+12/12 opt-in pull/reactive seeds, 6/6 hand-written programs**, ISA 22/22,
+timing 7/7, host 18/19.  The three remaining SKIPs are the last open deviations
+below (STATUS pipelining VER-015 and the two I2C items).
 
-| cocotb module | PASS / SKIP | notes |
-|---|---|---|
-| `test_host.py` | 14 / 5 | all 13 commands, framing, CS abort, FIFOs, IRQ, reset, global CSR matrix + both spec-deviation regressions (VER-001/002). 5 skipped on open RTL issues VER-004/005 |
-| `test_isa.py` | 1 / 22 | mnemonic-coverage meta-test passes (59/59 mnemonics present); directed opcode tests gated on VER-004 (results observed through DMEM), plus directed regressions for VER-013 (INAT rd 0..7 both threads) and VER-014 (emita/emitd must not touch NEXTT). **Pre-validated with the three requested RTL patches: 22/22 PASS.** |
-| `test_timing.py` | 7 / 0 | all seven headline claims pass, each with an ASCII waveform in the log |
-| `test_random_cosim.py` | 1 / 2 | 6 hand-written programs validate the full trace+state diff harness (including `nextt`/queue absolute-time alignment); the two random-program tests are gated on VER-004. **Pre-validation with the proposed VER-004 patch on a scratch RTL copy: 95/100 default random seeds match on the full trace+state diff; 12/12 opt-in pull/reactive seeds still diverge (5 minimised artefacts in `test/cosim_failures/`).** |
-| `test_protocols.py` | 6 / 2 | UART TX+RX, SPI master modes 0-3, SPI slave, I2C controller 100 kHz + clock stretching PASS; I2C 400 kHz (VER-006) and I2C target (VER-007) gated |
-| `formal` | 3 / 0 | `h_fifo` k=8, `h_core` k=6, `h_host` k=6 |
 
-Skipped tests are **not deleted**: each is `@cocotb.test(skip=<known issue>)`
-with the reason recorded in `known_issues.py`, so fixing the RTL flips the flag
-and the test immediately becomes a regression guard.
-
-### Open spec deviations (RTL owner: Lead / hostbus)
-
-| id | summary |
-|---|---|
-| **VER-004** | `rtl/loom_core.v` `dmem_addr` output never driven → every `ld/st/ldi/sti` addresses DMEM word 0. Blocks the ISA + co-sim layers (their observability is DMEM). Repro: `movi r0,0x1111 / st 1,r0 / movi r0,0x2222 / st 2,r0 / halt` leafs only DMEM[0]=0x2222. |
-| **VER-005** | host `STATUS` command assembles its 4 thread bytes from the wrong CSR (still combinational host read data while the hostbus samples 2 clk after issue) → after reset 0x84/0x54 instead of 0x94. Single `READ_CSR` reads are correct. |
-| **VER-006** | I2C 400 kHz: VIP target decodes bit errors on reg/data bytes (addr OK). |
-| **VER-007** | I2C target mode: data byte of a write is NAKed (model self-test is green, so an RTL-vs-model divergence). |
-| **VER-009** | Host CSR reads issued while a thread is parked in a timed wait (WAITU) can return a stale value and appear to poison later reads; host polling loops are unreliable during timed waits (the timing layer works around it by running a computed cycle count with no host traffic, then STOP + read). |
-| **VER-011** | CSR `IRQ` (0x14) read does not clear the code (spec §4.2 says read clears). |
-
-Fixed-or-resolved deviations found by this suite are listed below.
-
-## Deviations found by this suite
-
-The suite is deliberately independent and found real RTL bugs during bring-up.
-Each is recorded in `known_issues.py` with a minimal repro and the owning
-channel; a gated test stays in the tree (skipped with a reason) and becomes a
-permanent regression guard when the flag flips.
-
-Fixed / resolved (guarded now):
-
-* **VER-001** — `out imm16` / CSR POUT writes did not mask the host-owned pin
-  bits 9:8 (spec §4.1).  Fixed; `test_pout_host_bits_ignored` asserts
-  `out 0xFFFF` → `POUT = 0xFCFF`.
-* **VER-002** — TFIFO layout differed between spec, RTL and golden model.
-  Resolved by freezing the RTL layout in spec §4.2; `test_tfifo_layout` guards
-  `{4'b0, rx_count[11:8], tx_count[7:4], 2'b0, tx_full[1], rx_empty[0]}`.
-* **VER-003** — host `READ_CSR` of every global register decoded from the
-  thread-CSRR address register instead of the host address.  Fixed (split
-  host/thread read views); `test_global_csr_reads` + `test_global_csr_rw` guard
-  the whole global map.
-* **VER-008** — `WAITU` with an already-past absolute target stalled ~65k cycles
-  instead of `max(k+1,t)` (spec §3.1).  Found while bringing up the timing
-  layer; reported to Lead (small RTL fix in the absolute-target resolution).
-
-Open (each blocks the gated tests listed in the status table): VER-004 (DMEM
-address never driven), VER-005 (STATUS pipeline), VER-006 (I2C 400 kHz),
-VER-007 (I2C target ACK), VER-009 (host CSR read during a timed wait),
-VER-011 (IRQ read-clear), VER-010 (thread `csrr TPERIOD` returns the reset
-period), VER-013 (INAT writeback rd truncated to 2 bits — corrupts the wrong
-thread's registers), VER-014 (EMITA/EMITD advance NEXTT/PFRAC).  VER-013 and
-VER-014 have directed regression tests ready to un-gate.
-
-## Notes for reviewers
-
-* Waveform dumps are *assertions with names*: each timing/protocol test logs an
-  ASCII waveform whose time axis is in `clk` cycles, so a reviewer can see the
-  exact edge positions that the numeric assertions are checking.
-* The host pad model in `tb.v` is open-drain (`line = chip AND external`), which
-  is what makes I2C/1-Wire/PS2 self-readback and the uio loopback realistic.
-* Every layer is deterministic: no wall-clock, no `sleep`, no unseeded
-  randomness; a co-sim mismatch writes a seed repro to `test/cosim_failures/`.
-* The full regression is kept under the 3-minute CI budget (~50 s) by loading
-  co-sim images through the simulator back-door while still issuing the real
-  host RUN command; host-link timing itself is covered by `test_host.py` and the
-  60 MHz protocol tests.

@@ -27,7 +27,7 @@ test/unit_sw/*.lst
 test/unit_sw/*.sym
 area_run.log
 area_small.txt
-test/_scratch_rtl/
+test/_scratch_rtl*/
 test/cosim_failures/
 # build / simulation artefacts (never commit)
 test/unit_*/build/
@@ -39,3 +39,5 @@ area_run.log
 area_small.txt
 test/unit_*/tb_*
 !test/unit_*/tb_*.v
+test/_scratch_rtl*/
+formal/build/

@@ -172,7 +172,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "timed-wait windows until resolved.",
     },
     "status_pipeline": {
-        "open": True,
+        "open": False,
         "id": "VER-005",
         "title": "STATUS command bytes are still off by one CSR after the VER-003 fix",
         "spec": "spec §6 STATUS: 4 thread bytes {halted,en,tx_full,tx_empty,"
@@ -318,7 +318,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "is the directed regression and is gated until fixed.",
     },
     "host_csrr_data_registered": {
-        "open": True,
+        "open": False,
         "id": "VER-015",
         "title": "host_csrr_data is combinational on host_csrr_addr, so the "
                  "STATUS engine's 8 back-to-back reads sample the wrong address",
@@ -338,12 +338,11 @@ KNOWN_ISSUES: dict[str, dict] = {
                   "test_host.test_status_command.",
         "repro": "`make TESTCASE=test_status_command` -> bytes [0x24,0x90,"
                  "0x94,0x94] vs expected thread0 0x94.",
-        "fix": "Register the read data one cycle, e.g.\n  reg [15:0] "
-               "host_csrr_data_r;\n  always @(posedge clk) if (!rst_n) "
-               "host_csrr_data_r <= 16'd0; else host_csrr_data_r <= "
-               "host_csrr_rdata;\n  assign host_csrr_data = host_csrr_data_r;\n"
-               "Pre-validated on `test/_scratch_rtl2` (copy of current rtl + "
-               "this patch): test_status_command PASS.",
+        "fix": "RESOLVED (09b1e97): the hostbus STATUS engine now captures "
+               "1 clk after issue (`if (p1_v && stat_en)`, csr_rd_en cleared "
+               "after the last read), which matches the core's combinational "
+               "read port.  Core registration was NOT needed and must not be "
+               "added (it would move the isolated-read sampling too).",
         "decision": "reported to Lead; test_status_command stays gated on this "
                     "entry (also re-gates the STATUS-dependent host checks).",
     },
