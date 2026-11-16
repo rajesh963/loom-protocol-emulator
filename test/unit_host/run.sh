@@ -18,13 +18,13 @@ BUILD=test/unit_host/build
 mkdir -p "$BUILD"
 fail=0
 
-echo "== 1/3 warning-clean RTL compile =="
+echo "== 1/4 warning-clean RTL compile =="
 if ! iverilog -g2012 -Wall -o /dev/null rtl/loom_host.v rtl/loom_fifo.v; then
     echo "HOST_TB: FAIL (RTL compile)"
     exit 1
 fi
 
-echo "== 2/3 tb_fifo (DEPTH=8 / DEPTH=2) =="
+echo "== 2/4 tb_fifo (DEPTH=8 / DEPTH=2) =="
 iverilog -g2012 -Wall -o "$BUILD/tb_fifo.vvp" \
     test/unit_host/tb_fifo.v rtl/loom_fifo.v || { echo "HOST_TB: FAIL (tb_fifo compile)"; exit 1; }
 if ! vvp "$BUILD/tb_fifo.vvp" | tee "$BUILD/tb_fifo.log" | grep -q "FIFO_TB: PASS"; then
@@ -34,7 +34,7 @@ else
     grep -o "FIFO_TB: PASS" "$BUILD/tb_fifo.log"
 fi
 
-echo "== 3/3 tb_host (SPI mode 0, 60 MHz clk, 10 MHz and 100 kHz SCK) =="
+echo "== 3/4 tb_host (SPI mode 0, 60 MHz clk, 10 MHz and 100 kHz SCK, FIFO_DEPTH=8) =="
 iverilog -g2012 -Wall -o "$BUILD/tb_host.vvp" \
     test/unit_host/tb_host.v rtl/loom_host.v rtl/loom_fifo.v || { echo "HOST_TB: FAIL (tb_host compile)"; exit 1; }
 
@@ -54,9 +54,20 @@ else
     echo "HOST_TB: PASS (SCK 100 kHz)"
 fi
 
+echo "== 4/4 tb_host (area build: FIFO_DEPTH=4) =="
+iverilog -g2012 -Wall -Ptb_host.FIFO_DEPTH=4 -Ptb_host.FIFO_AW=2 \
+    -o "$BUILD/tb_host_d4.vvp" \
+    test/unit_host/tb_host.v rtl/loom_host.v rtl/loom_fifo.v || { echo "HOST_TB: FAIL (tb_host_d4 compile)"; exit 1; }
+if ! vvp "$BUILD/tb_host_d4.vvp" | tee "$BUILD/tb_host_d4.log" | grep -q "HOST_TB: PASS"; then
+    echo "HOST_TB: FAIL (FIFO_DEPTH=4)"
+    fail=1
+else
+    echo "HOST_TB: PASS (FIFO_DEPTH=4)"
+fi
+
 if [ "$fail" -ne 0 ]; then
     echo "unit_host: FAIL"
     exit 1
 fi
-echo "unit_host: PASS (fifo + host bridge)"
+echo "unit_host: PASS (fifo + host bridge, FIFO_DEPTH 8 and 4)"
 exit 0

@@ -20,7 +20,13 @@
 `timescale 1ns/1ps
 `default_nettype none
 
-module tb_host;
+module tb_host #(
+  // Must match the per-thread FIFO depth of the core model.  Override both
+  // parameters for an area-build configuration, e.g.
+  //   iverilog -Ptb_host.FIFO_DEPTH=4 -Ptb_host.FIFO_AW=2 ...
+  parameter FIFO_DEPTH = 8,
+  parameter FIFO_AW    = 3
+);
 
   // --------------------------------------------------------------------------
   // clock / reset / error bookkeeping
@@ -77,7 +83,7 @@ module tb_host;
   reg  [15:0] irq_req;            // test-controlled "irq instruction" request
   reg  [15:0] irq_code_r;         // core-side IRQ register model
 
-  loom_host dut (
+  loom_host #(.FIFO_DEPTH(FIFO_DEPTH)) dut (
     .clk          (clk),
     .rst_n        (rst_n),
     .spi_cs_n     (spi_cs_n_r),
@@ -142,39 +148,39 @@ module tb_host;
   reg  [7:0] txpush_data;
   reg  [7:0] tx_pop_data_r;
 
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_rx0 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_rx0 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(rx_push && (rx_push_tid == 2'd0)), .wr_data(rx_push_data),
     .full(rx_full[0]), .rd_en(1'b0), .rd_data(rx_rd[0]), .empty(), .count());
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_rx1 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_rx1 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(rx_push && (rx_push_tid == 2'd1)), .wr_data(rx_push_data),
     .full(rx_full[1]), .rd_en(1'b0), .rd_data(rx_rd[1]), .empty(), .count());
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_rx2 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_rx2 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(rx_push && (rx_push_tid == 2'd2)), .wr_data(rx_push_data),
     .full(rx_full[2]), .rd_en(1'b0), .rd_data(rx_rd[2]), .empty(), .count());
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_rx3 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_rx3 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(rx_push && (rx_push_tid == 2'd3)), .wr_data(rx_push_data),
     .full(rx_full[3]), .rd_en(1'b0), .rd_data(rx_rd[3]), .empty(), .count());
 
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_tx0 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_tx0 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(txpush_en[0]), .wr_data(txpush_data), .full(tx_full_v[0]),
     .rd_en(tx_pop && (tx_pop_tid == 2'd0)), .rd_data(tx_rd[0]),
     .empty(tx_empty[0]), .count());
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_tx1 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_tx1 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(txpush_en[1]), .wr_data(txpush_data), .full(tx_full_v[1]),
     .rd_en(tx_pop && (tx_pop_tid == 2'd1)), .rd_data(tx_rd[1]),
     .empty(tx_empty[1]), .count());
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_tx2 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_tx2 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(txpush_en[2]), .wr_data(txpush_data), .full(tx_full_v[2]),
     .rd_en(tx_pop && (tx_pop_tid == 2'd2)), .rd_data(tx_rd[2]),
     .empty(tx_empty[2]), .count());
-  loom_fifo #(.DEPTH(8), .AW(3), .WIDTH(8)) u_tx3 (
+  loom_fifo #(.DEPTH(FIFO_DEPTH), .AW(FIFO_AW), .WIDTH(8)) u_tx3 (
     .clk(clk), .rst_n(rst_n),
     .wr_en(txpush_en[3]), .wr_data(txpush_data), .full(tx_full_v[3]),
     .rd_en(tx_pop && (tx_pop_tid == 2'd3)), .rd_data(tx_rd[3]),
@@ -617,7 +623,7 @@ module tb_host;
     // fifo model at this point: rx1 has 1 byte, tx2 will be filled to 8
     chk8("thread0 halted=0 en=1", th_st0, 2'b01);
     chk8("thread1 halted=1 en=0", th_st1, 2'b10);
-    for (i = 0; i < 8; i = i + 1) thread_tx_push(2'd2, 8'h80 + i[7:0]);
+    for (i = 0; i < FIFO_DEPTH; i = i + 1) thread_tx_push(2'd2, 8'h80 + i[7:0]);
     chk8("thread2 tx fifo full", {3'd0, tx_full_v[2]}, 8'd1);
     run_mask_r = 4'b0101;
     repeat (3) @(posedge clk);

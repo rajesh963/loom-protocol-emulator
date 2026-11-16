@@ -3,6 +3,10 @@
 //
 //  Ports: spec/OWNERS.md (verbatim).  Constants: rtl/loom_bus.vh (frozen).
 //  Protocol: spec/ARCHITECTURE.md sec.6 (canonical framing).
+//  Parameter FIFO_DEPTH (default 8, area build 4) sets the per-thread core FIFO
+//  depth the bridge assumes when it reports `tx_full` in STATUS; the bridge
+//  stores no FIFO bytes and its area is independent of the value.  The port
+//  list is unchanged, so a top that does not override it gets the default 8.
 //
 //  AREA NOTE: this module is deliberately written for minimum flip-flops.
 //  The argument bytes live in ONE 32-bit word (`argw`, one byte lane per
@@ -68,7 +72,7 @@
 //  STATUS thread byte (thread t on transfer t+1):
 //     bit7 = halted         (CSR TSTATUS bit1, csr 0x40+16t+0x02)
 //     bit6 = en             (CSR TSTATUS bit0)
-//     bit5 = tx_full        (CSR TFIFO 0x40+16t+0x03: tx_count[3:0]==8)
+//     bit5 = tx_full        (CSR TFIFO 0x40+16t+0x03: tx_count == FIFO_DEPTH)
 //     bit4 = tx_empty       (direct thread TX-FIFO empty input)
 //     bit3 = rx_full        (direct thread RX-FIFO full input)
 //     bit2 = rx_empty       (CSR TFIFO: rx_count[3:0]==0)
@@ -131,7 +135,12 @@
  `include "rtl/loom_bus.vh"
 `endif
 
-module loom_host (
+module loom_host #(
+  // Bytes per per-thread TX/RX FIFO of the core.  The bridge stores no FIFO
+  // data itself; it only needs the depth to report `tx_full` in STATUS
+  // (tx_count == FIFO_DEPTH).  Area builds may pass 4 (LOOM_FIFO_SMALL).
+  parameter FIFO_DEPTH = 8
+)(
   input  wire        clk,
   input  wire        rst_n,
   // Tiny Tapeout host pins (async to clk on the SCK side: 2-FF sync inside)
@@ -255,10 +264,11 @@ module loom_host (
   reg [7:0]  statb [0:3];            // assembled status byte per thread
   wire [1:0] stat_slot = 2'd0 - resp_left;   // byte index 4-resp_left: 1,2,3
   wire [7:0] stat_addr = 8'h42 + {2'b00, p1_i[2:1], 4'b0000} + {7'b0, p1_i[0]};
+  localparam [3:0] FIFO_FULL_CNT = FIFO_DEPTH;   // tx_full threshold
   wire [3:0] cap_tx_cnt   = csr_rd_data[7:4];
   wire [3:0] cap_rx_cnt   = csr_rd_data[11:8];
-  wire       cap_tx_full  = (cap_tx_cnt == 4'd8);
-  wire       cap_rx_empty = (cap_rx_cnt == 4'd0);
+  wire       cap_tx_full  = (cap_tx_cnt == FIFO_FULL_CNT);
+  wire       cap_rx_empty = (cap_rx_cnt == 4'd0);   // depth independent
 
   // --------------------------------------------------------------------------
   // command decode: HCMD_* byte -> 4-bit internal opcode
