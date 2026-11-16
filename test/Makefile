@@ -48,13 +48,9 @@ SIM_BUILD = sim_build/rtl
 #   make SRAM_SIM=1024   IHP RM_IHPSG13_1P_1024x32 (140 183 um^2, 1024 words)
 #   make SRAM_SIM=512    IHP RM_IHPSG13_1P_512x32  ( 79 720 um^2,  512 words)
 SRAM_SIM ?=
-ifeq ($(SRAM_SIM),512)
-  COMPILE_ARGS += -DLOOM_PMEM_SRAM -DLOOM_PMEM_512 -DLOOM_SIM
-else ifeq ($(SRAM_SIM),1024)
-  COMPILE_ARGS += -DLOOM_PMEM_SRAM -DLOOM_SIM
-endif
+export SRAM_SIM          # tests pick the PMEM depth from this (512 vs 1024)
 
-VERILOG_SOURCES = $(RTL_SRCS) $(TEST_DIR)/tb.v
+VERILOG_SOURCES = $(TEST_DIR)/tb.v
 COMPILE_ARGS   += -g2012 -I$(RTL_DIR)
 COCOTB_HDL_TIMEUNIT      ?= 1ns
 COCOTB_HDL_TIMEPRECISION ?= 1ps
@@ -62,8 +58,18 @@ COCOTB_HDL_TIMEPRECISION ?= 1ps
 # Default = full regression.  Individual layers can be selected on the cmdline.
 COCOTB_TEST_MODULES ?= test_host,test_isa,test_timing,test_random_cosim,test_protocols
 
+# RTL simulation sources (the FF-array or SRAM behavioural build).  In the
+# gate-level branch below the hardened netlist replaces ALL of these (the netlist
+# already contains tt_um_rajesh963_loom and the SRAM macro instance).
 ifneq ($(GATES),yes)
+  VERILOG_SOURCES += $(RTL_SRCS)
+  ifeq ($(SRAM_SIM),512)
+    COMPILE_ARGS += -DLOOM_PMEM_SRAM -DLOOM_PMEM_512 -DLOOM_SIM
+  else ifeq ($(SRAM_SIM),1024)
+    COMPILE_ARGS += -DLOOM_PMEM_SRAM -DLOOM_SIM
+  endif
 else
+  # ---- gate-level: hardened netlist + PDK cell models + SRAM behavioural ----
   SIM_BUILD = sim_build/gl
   COMPILE_ARGS += -DGL_TEST -DFUNCTIONAL -DSIM
   PDK ?= ihp-sg13cmos5l
@@ -72,7 +78,8 @@ else
   VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_io/verilog/$(PDK_CELL_PREFIX)_io.v
   VERILOG_SOURCES += $(wildcard $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_udp.v)
   VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_stdcell.v
-  VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+  # copied in by the GDS action workflow from the LibreLane run
+  VERILOG_SOURCES += $(TEST_DIR)/gate_level_netlist.v
   # IHP SRAM macro behavioural model for gate-level simulation (the RTL build
   # uses rtl/loom_sram_model.v with -DLOOM_SIM instead).  Copied unmodified
   # from IHP-Open-PDK, Apache-2.0 (flow/sram_model/README.md).

@@ -1,11 +1,13 @@
-; SPI controller, mode 0, transmit only, 1 MHz SCK @ 60 MHz.
-; SCK=P[10]=uo[2], MOSI=P[11]=uo[3], CS_N=P[12]=uo[4]
-.equ SCK,  0x0400
-.equ MOSI, 0x0800
-.equ CSN,  0x1000
+; SPI controller, mode 0, transmit only, 1 MHz SCK @ 60 MHz (canonical info.yaml map).
+; SCK=P[5]=uio[5], MOSI=P[6]=uio[6], CS_N=P[11]=uo[3]  (MISO would be P[7]=uio[7], input)
+.equ SCK,  0x0020            ; P[5]  = uio[5]
+.equ MOSI, 0x0040            ; P[6]  = uio[6]
+.equ CSN,  0x0800            ; P[11] = uo[3]
+.equ DIRB, 0x0060            ; DIR bits 5:6 -> SCK/MOSI are outputs
 .equ HALF, 0x01E0            ; 30 cycles = half of a 1 MHz SCK period
 
 spi:
+    dir   DIRB               ; uio pins need DIR=1 to drive
     setm  SCK|MOSI|CSN       ; own all three wires
     setp  HALF               ; one event per half SCK period
     li    r2, CSN            ; CS asserted, SCK low, MOSI low
@@ -16,7 +18,7 @@ send:
 bitloop:
     mov   r3, r0
     andi  r3, 0x80           ; MSB first
-    shl   r3, 4              ; -> MOSI bit (0x0800)
+    shr   r3, 1              ; bit 7 -> bit 6 = MOSI
     ori   r3, CSN            ; CS held low, SCK low: data setup
     emit  r3
     ori   r3, SCK            ; rising edge: the target samples MOSI

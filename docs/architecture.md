@@ -322,11 +322,32 @@ so a 1024-word program loads in ~30 ms including command bytes. Details in
 
 Memory:
 
-| Region | Depth × width | Implementation | Who writes |
+| Region | Depth × width | Implementation (tape-out candidate) | Who writes |
 |---|---|---|---|
-| PMEM | 1024 × 32 | FF array (simulation / area-safe fallback: 128 words) **or** IHP `1024x32` 1-port SRAM macro | host only |
-| DMEM | 64 × 16 | FF array, 1 CPU read + 1 CPU write + 1 wave-player read port (capture would alias this buffer — hence revision B) | host, threads, wave player |
-| TX/RX FIFOs | 8 × 8 per thread | FF, fall-through read | host ⇄ threads |
+| PMEM | **1024 × 32** | IHP `RM_IHPSG13_1P_1024x32_c2_bm_bist` 1-port SRAM macro (140 183 µm²) at `u_mem.u_pmem.sram`; FF array (128 words) only in the simulation/regression build | host only, threads halted |
+| DMEM | **32 × 16** (area build; 64 in the regression build) | FF array, 1 CPU read + 1 CPU write + 1 wave-player read port (capture would alias this buffer — hence revision B) | host, threads, wave player |
+| TX/RX FIFOs | 8 × 8 per thread (4 in the area build) | FF, fall-through read | host ⇄ threads |
+
+### 8.1 SRAM program memory
+
+The tape-out candidate's instruction memory is **one `RM_IHPSG13_1P_1024x32` macro** (416.64 ×
+336.46 µm = 140 183 µm², ports `A_CLK/A_MEN/A_WEN/A_REN/A_ADDR[9:0]/A_DIN[31:0]/A_DLY/A_DOUT[31:0]/
+A_BM[31:0]`) instead of a 4 096-flop array plus a 128:1 32-bit read mux — that swap is worth roughly
+−180 k µm² net and is what makes the design fit 8×4 at all (the flop-array build measured 1 147 604 µm²
+and failed placement; see [`FLOW_STATUS.md`](FLOW_STATUS.md)).
+
+* **1024 instruction words**, read in **one cycle** (`A_DLY=1` pipeline) — architecturally invisible:
+  the core sees a 1-cycle synchronous read, exactly as before.
+* **Host-writable only, and only while the owning threads are halted/disabled.** The host loads a
+  program through `SET_ADDR`/`WRITE_MEM` (the same protocol as a program in RAM); a `WRITE_MEM` into
+  PMEM while that thread is fetching is not a supported operation. `RUN`/`STOP` and `SET_PC` are the
+  synchronisation points, and `TPC` writes invalidate the prefetch.
+* **512-word reserve build:** swapping to `RM_IHPSG13_1P_512x32` (79 720 µm²) buys ~60 k µm² more
+  headroom (`tools/select_build.sh sram512`) at the cost of a documented firmware limit: four
+  128-word thread slots at `0x000`/`0x080`/`0x100`/`0x180`, highest usable word 509.
+* The macro needs the official Tiny Tapeout CMOS5L SRAM flow setup (`pdn_cfg.tcl` power grid and the
+  `Project.ExtendPowerStripes` LibreLane plugin); the FF build keeps working without any of that,
+  which is why it survives as the fast-regression configuration.
 
 ---
 
@@ -348,22 +369,22 @@ protocol waveform: firmware arms its schedule after the last `RUN` bit.
 
 ## 10. Area strategy for 8×4 tiles
 
-8×4 = 32 tiles ≈ 32 × (202 × 155) µm ≈ **1.00 mm²** of nominal area, with a rule of thumb of about
-1K logic cells per tile (~32K cells). The budget is dominated by **PMEM**: 1024 × 32 flops is far
-too big for the die, so the flagship build uses the IHP `RM_IHPSG13_1P_1024x32` 1-port SRAM macro
-(416.64 × 336.46 µm = 140 183 µm², **~14 % of the die**) with the `pdn_cfg.tcl` power-grid setup and
-`Project.ExtendPowerStripes` LibreLane plugin from the Tiny Tapeout CMOS5L SRAM example. The
-`PMEM_IMPL="ff", PMEM_WORDS=128` build is the zero-risk fallback (also the simulation build), so both
-are always buildable and exercised in CI. Per-thread state (4 × registers, PC, flags, queue, timing
-registers, 8-byte FIFOs) is a few thousand flops; the ALU and scheduler are combinational. If the
-flow complains, drop in this order: capture/record-replay, wave player, `EQ_DEPTH`/thread count
-(parameters). Measured numbers: [`results.md`](results.md) and the attempt log
-[`FLOW_STATUS.md`](FLOW_STATUS.md); the measurement script lives in `tools/`. Reality check: the
-first hardening attempt measured **1 147 604 µm²** for the FF build against a pre-ABC estimate of
-~0.5 M µm² — ABC inserted 35 510 buffers (305 304 µm², 27 % of the design) under the PDK fanout
-constraint, so the SRAM-PMEM + relaxed-fanout build is not an optimisation but the path to fitting.
+8×4 = 32 tiles ≈ 32 × (202 × 155) µm ≈ **1.00 mm²** nominal; the core the flow lays out is
+1 208 172 µm². **Budget: ≤ ~700–750 k µm² post-synthesis mapped cell area (~60 % utilisation).**
 
----
+The first hardening attempt (FF 128-word PMEM) measured **1 147 604 µm²** and failed detailed
+placement: 8 042 flip-flops (394 k µm²), **35 510 buffer cells = 305 304 µm² (27 % of the design)**,
+and ≈ 220 k µm² of `mux2_1`/`mux4_1` from the flop-array PMEM read mux. Two cheap hypotheses —
+relaxing `MAX_FANOUT_CONSTRAINT` and dropping the clock to 25 MHz — both made the area *worse*
+(1.190 M / 1.224 M µm²), which localised the buffers to ABC's SCL sequential-mapping pass rather than
+fanout/timing constraints: **constraint knobs are a dead end, structural area is the only lever.**
+
+The answer is the SRAM configuration: one `RM_IHPSG13_1P_1024x32` (140 183 µm²) replaces the flop
+array + read mux (~−180 k µm² net) and 32-word DMEM / 4-deep FIFOs (`LOOM_DMEM_SMALL`) trim the rest,
+for a local estimate of 608 415 µm² logic + 140 183 µm² macro = **748 598 µm² (62 %)** — inside the
+`vc32_cpu`-proven 73 % density envelope. Reserve levers, in order: `sram512` macro (~−60 k µm², 59 %,
+512-word firmware limit), DMEM 32→16, then a smaller thread count. Measured numbers per attempt:
+[`FLOW_STATUS.md`](FLOW_STATUS.md) and [`results.md`](results.md) §3.
 
 ## 11. Extensibility after fabrication
 

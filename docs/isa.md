@@ -221,9 +221,9 @@ timed events already queued.
 
 ```asm
     setp  0x208D            ; 115200 Bd at 60 MHz
-    setm  0x2000            ; own P[13] (UART_TX in the example pin map)
-    li    r0, 0x2000
-    emit  r0                ; drive P13 high, PERIOD cycles from the last event
+    setm  0x0400            ; own P[10] (UART_TX in the info.yaml pin map)
+    li    r0, 0x0400
+    emit  r0                ; drive P10 high, PERIOD cycles from the last event
     emitd r0, 200           ; ... or 200 cycles from now
     emita r0, 1234          ; ... or exactly when TMR == 1234
     emite r0                ; ... or as soon as the EMASK/ECOND pattern appears
@@ -397,9 +397,9 @@ The whole point of LOOM is that the *program* never has to be cycle-counted. Her
 `MIDBIT`-style constants. Everything else is logic.
 
 ```asm
-; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[13] = uo[5].
+; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[10] = uo[2].
 .equ BITPER, 0x208D          ; 520.8125 cycles/bit (12.4 fixed) -> 115205 Bd
-.equ TX,     0x2000          ; P[13] in the pins_out vector
+.equ TX,     0x0400          ; P[10] in the pins_out vector
 
 start:
     setm   TX                ; this thread only ever drives the TX pin

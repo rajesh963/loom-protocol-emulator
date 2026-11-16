@@ -13,6 +13,8 @@ Observability rules used here:
 
 from __future__ import annotations
 
+import os
+
 import cocotb
 
 from host import (
@@ -99,8 +101,12 @@ async def test_pmem_rw(dut):
     await host.write_mem_block(0x10, words)
     got = await host.read_pmem_block(0x10, len(words))
     assert got == words, f"PMEM block {[hex(x) for x in got]}"
-    await host.write_mem(0x3BF, 0xCAFEBABE)
-    assert await host.read_mem(0x3BF) == 0xCAFEBABE
+    # the 512-word SRAM build only maps 0x000..0x1FF; probe the last word of
+    # whichever PMEM depth this build uses
+    pmem_words = 512 if os.environ.get("SRAM_SIM") == "512" else 1024
+    last = min(0x3BF, pmem_words - 1)
+    await host.write_mem(last, 0xCAFEBABE)
+    assert await host.read_mem(last) == 0xCAFEBABE
     # the pointer auto-increments across consecutive WRITE_MEM commands
     await host.set_addr(0x00)
     await host.frame("WRITE_MEM", [0xA5, 0xA5, 0xA5, 0xA5])
@@ -108,7 +114,9 @@ async def test_pmem_rw(dut):
     await host.set_addr(0x00)
     got = await host.read_mem_block(0x00, 2)
     assert got == [0xA5A5A5A5, 0x5A5A5A5A], f"auto-increment {[hex(x) for x in got]}"
-    host.log.info("PMEM block 0x10..0x16, 0x3BF, auto-increment across commands OK")
+    host.log.info(
+        "PMEM block 0x10..0x16, top word 0x%03X (%d words), "
+        "auto-increment across commands OK", last, pmem_words)
 
 
 @cocotb.test(skip=DMEM_ISSUE)

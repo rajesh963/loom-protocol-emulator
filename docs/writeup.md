@@ -216,77 +216,86 @@ pin is exercised at least once with four threads running concurrently.
 
 ## 7. Results
 
-> **Status: hardening in progress, and honestly reported.** The first LibreLane run failed —
-> **the design is ~2× over the 8×4 area budget** — and that is the most useful result in this
-> document, because it arrived before tape-out, from the build we deliberately chose to be the
-> least risky, and it says precisely where the area went. RTL simulation is green
-> (57/59 tests, §7.5); the flow numbers below are from CI commit `5ff6c6c` / `33012d5`, and no row
-> is marked passing unless the step actually passed. Full log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
+> **Status: hardening, reported as measured.** Three FF-build attempts failed on area; the fourth —
+> the SRAM build that is the actual tape-out candidate — **is running now**, with a local area
+> estimate of 748 598 µm² (62 % of the 1 208 172 µm² core) and a **fully green simulation matrix
+> (59/59, 0 skip) on its exact RTL configuration**. Nothing in §7.1–§7.3 is marked passing until the
+> flow step passed; the canonical log is [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
-### 7.1 Attempt 1 — FF 128-word build: failed at placement, with a precise diagnosis
+### 7.1 What the flow told us, and why it was worth four attempts
 
-The first hardening run was intentionally the *smallest-risk* build: instruction memory as a
-flip-flop array, no SRAM macro, no power-grid plugin, no `pdn_cfg.tcl`. Its job was to walk the whole
-LibreLane chain with zero macro risk. It walked it as far as placement, where it correctly refused to
-place a design that does not fit:
+The first hardening run was intentionally the *smallest-risk* build — instruction memory as a flop
+array, no SRAM macro, no power-grid plugin, no `pdn_cfg.tcl` — to walk the whole LibreLane chain
+with zero macro risk. It walked as far as detailed placement, where it correctly refused to place a
+design that does not fit:
 
-| Metric | Attempt 1 (`5ff6c6c`) |
-|---|---|
-| die / core | 1724.16 × 710.64 µm / **1 208 172 µm²** |
-| mapped cell area after synthesis + ABC | **1 147 604 µm²** — ~2× the ≤ ~750 k µm² budget |
-| utilisation at floorplan / post-resizer | **95.0 % / 98.4 %** |
-| global-placement routing overflow | 2 125.6 (8 917 tiles = **38.1 %**) |
-| failing step | `OpenRoad.RepairDesignPostGPL` → `[DPL-0036] Detailed placement failed` (451 instances) |
-| cell histogram | 8 042 FFs (394 k µm²); **35 510 buffers = 305 304 µm² (27 % of the design)**; 5 658 `mux2_1` + 3 063 `mux4_1` ≈ 220 k µm² |
+| Attempt | Build | Result | Mapped area | Util. |
+|---|---|---|---|---|
+| 1 `5ff6c6c` | FF 128-word, defaults | **FAILED** `[DPL-0036]` | 1 147 604 µm² | 95.0 → 98.4 % |
+| 2 `33012d5` | FF, relaxed `MAX_FANOUT_CONSTRAINT` (40) | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
+| 2b | FF, 25 MHz probe (`CLOCK_PERIOD` 40 ns) | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
+| 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | **running**; local estimate 608 415 µm² logic + 140 183 µm² macro = **748 598 µm² = 62 %** | — |
 
-The two dominant, fixable costs are exactly the two we had modelled as risks:
+Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
+305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
+5 658 `mux2_1` + 3 063 `mux4_1` ≈ 220 k µm² against a ≤ ~750 k µm² budget.
 
-1. **ABC's synthesis-time fanout buffering** — 305 k µm², 27 % of the design, inserted because the
-   PDK's `MAX_FANOUT_CONSTRAINT` is aggressive for 130 nm at 60 MHz. Fix: raise the constraint to 40
-   at pdk+scl scope (commit `33012d5`) and let OpenROAD repair real violations *after* placement,
-   where it can see the real geometry. A 60 MHz clock on this node has ample slack for that.
-2. **PMEM as a flop array + 128:1 32-bit read mux** — ~320 k µm². Fix: one `RM_IHPSG13_1P_1024x32`
-   macro (140 183 µm²), which also turns 128 instruction words into **1024**.
+Two hypotheses were then tested cheaply, and **both failed in an informative direction**:
 
-Held in reserve if those two are not enough: DMEM 64→32 words and FIFOs 8→4 (~−110 k µm² combined),
-then 4→2 threads or a 24-bit instruction width. The pre-flow estimate in §7.2 predicted 55–65 %
-utilisation; the measured 1.148 M µm² showed it was ~2× optimistic — ABC's buffering and the PMEM
-read mux were the miss. Recording that miss is more valuable than hiding it: it is the calibration
-data for attempt 3.
+* *"the buffers are fanout buffering under the PDK's `MAX_FANOUT_CONSTRAINT`"* → relax it to 40:
+  mapped area **rose** to 1 190 170 µm² (100.96 %).
+* *"they are a timing-constraint artefact"* → drop to 25 MHz: mapped area **rose again** to
+  1 223 970 µm² (101.3 %).
 
-### 7.2 Pre-flow area model (kept for calibration)
+So the ~30 k buffer cells come from **ABC's SCL sequential-mapping pass**, not from fanout or timing
+constraints. **Constraint knobs are a dead end; structural area is the only lever.** That is a real
+methodology finding from leaning on an automated flow, and it changed the plan: the SRAM instruction
+memory is not an optimisation, it is the path to fitting at all.
 
-| Build | Flip-flops | FF area | Model vs measured |
+### 7.2 The budget lesson
+
+The pre-flow estimate in the table below predicted 55–65 % utilisation. Attempt 1 measured
+**1 147 604 µm²**, ~2× the model. The reason is specific: **pre-ABC cell counts cannot predict ABC's
+fanout buffering under a process fanout constraint**, so only *post-synthesis mapped area* is a
+usable budget number. That is the number attempt 1 produced, and it is now the tracker every attempt
+is judged against — including attempt 3's 748 598 µm² estimate from the same estimator that predicted
+attempt 1 within 3.4 %.
+
+| Build | Flip-flops | Modelled area | Reality |
 |---|---|---|---|
-| FF fallback (`PMEM_IMPL=ff`, 128 words) | 8 038 | ≈ 394 k µm² | modelled ~0.5 M µm² total; **measured 1.148 M** — fanout buffering + read mux under-counted |
-| SRAM flagship (one `RM_IHPSG13_1P_1024x32`) | 3 942 | macro 140 183 µm²; −200 k µm² FFs, −~70 k µm² read mux | not yet hardened |
+| FF (`PMEM_IMPL=ff`, 128 words) | 8 038 | ~0.5 M µm² pre-ABC | **1.148 M µm² measured** — buffering + read mux under-counted |
+| SRAM 1024×32 + 32-word DMEM (**candidate**) | 3 942 | 608 415 µm² logic + 140 183 µm² macro = **748 598 µm²** | attempt 3 running; 62 % is inside the `vc32_cpu`-proven 73 % density envelope |
+| SRAM 512×32 (reserve) | — | ~710 k µm² (59 %) | `tools/select_build.sh sram512`; documented 512-word firmware limit |
 
-The model was calibrated against three public Tiny Tapeout CMOS5L designs (`vc32_cpu` 6×2: 392 k µm²
-core / 285.7 k µm² stdcells / 18 638 cells / 0.73 util; `kianv_bare_metal` 4×2: 160.5 k µm² / 0.62;
-`tinyQV` 2×2: 114.5 k µm² / 0.89 — ≈ 15 µm² per placed cell). Where it failed is that a *pre*-ABC
-cell count cannot predict ABC buffer insertion under a process-level fanout constraint; the
-post-synthesis mapped area can, and that is the number attempt 1 produced.
+### 7.3 Timed simulation: the tape-out candidate is fully green
 
-### 7.3 Timing, gate level and sign-off
+The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz — passes
+**59 of 59 tests, 0 fail, 0 skip** (`make SRAM_SIM=1024`), including 100/100 differential co-sim
+seeds (the harness backdoor was made SRAM-aware). This is the first build configuration where *the
+artifact we intend to fabricate* has the full green matrix; the FF build used for most regression
+runs is 57 PASS / 2 SKIP, the two I²C VIP gates.
+
+### 7.4 Timing, gate level and sign-off
 
 | Check | Result |
 |---|---|
-| WNS / TNS @ 60 MHz, hold | **TBD** — no attempt has reached routing yet |
-| `gds` action | **not reached** (attempt 1 failed at placement; attempt 2 running) |
+| WNS / TNS @ 60 MHz, hold | **TBD** — no attempt has reached routing |
+| `gds` action | **not passed** — attempt 3 running |
 | `precheck` | not reached |
 | `gl_test` (gate-level protocol suite) | not reached |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
-| `test` / `docs` CI workflows | **green** (matrix reproduced on GitHub every push) |
+| `test` / `docs` CI workflows | **green** |
 
-None of the TBD rows are estimated here. The submission build is whichever attempt is green at
-submission time; the FF build remains the guaranteed fallback, so a macro or power-grid problem
-cannot block the tapeout — and attempt 1 is the evidence that this fallback strategy is doing its
-job.
+None of the TBD rows are estimated. The tape-out candidate is the SRAM build; the FF build is a
+fast-regression configuration and can no longer serve as a tape-out fallback (it cannot fit 8×4 —
+1.15 M µm² measured), which is why the fallback strategy is now a *third* attempt (the SRAM build)
+plus the documented `sram512` macro swap rather than the FF build.
 
-### 7.4 What is already proven by simulation
+### 7.5 What is already proven by simulation
 
-The landed RTL passes **57 of 59 tests (0 fail, 2 skip, 147 s wall)** via `make` from `test/`, and the
-`test` GitHub Actions workflow reproduces the matrix on every push:
+The SRAM candidate configuration passes **59/59 (0 fail, 0 skip)**; the FF regression configuration
+passes **57/59 (0 fail, 2 skip, 147 s wall)**; the `test` GitHub Actions workflow reproduces the
+matrix on every push:
 
 | Suite | Result |
 |---|---|

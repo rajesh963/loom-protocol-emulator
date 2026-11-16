@@ -1,6 +1,6 @@
-; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[13] = uo[5].
+; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[10] = uo[2].
 .equ BITPER, 0x208D          ; 520.8125 cycles/bit (12.4 fixed) -> 115205 Bd
-.equ TX,     0x2000          ; P[13] in the pins_out vector
+.equ TX,     0x0400          ; P[10] in the pins_out vector
 
 start:
     setm   TX                ; this thread only ever drives the TX pin

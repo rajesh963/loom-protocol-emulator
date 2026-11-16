@@ -8,6 +8,8 @@ project:
   clock_hz: 60000000
   tiles: 8x4
   top_module: tt_um_rajesh963_loom
+  # `loom_sram_model.v` is SIM-only (behavioural SRAM for iverilog/cocotb) and is deliberately NOT
+  # listed here; `pdn_cfg.tcl` is referenced by the flow's PDN_CFG, not compiled as a Verilog source.
   source_files:
   - loom_bus.vh
   - loom_mem.v

@@ -98,16 +98,16 @@ pin by software**.
 |---|---|---|---|
 | `ui[0]` | `H_CS_N` — host SPI select | `uo[0]` | `H_MISO` — host SPI out |
 | `ui[1]` | `H_SCK` — host SPI clock | `uo[1]` | `H_IRQ` — interrupt (level) |
-| `ui[2]` | `H_MOSI` — host SPI in | `uo[2]` | `SPI_SCK` |
-| `ui[3]` | `UART_RX` | `uo[3]` | `SPI_MOSI` |
-| `ui[4]` | `SPI_MISO` | `uo[4]` | `SPI_CS_N` |
-| `ui[5]` | `TRIG_IN` (spare input) | `uo[5]` | `UART_TX` |
-| `ui[6]` | `WAVE_IN0` (10BASE-T RX+) | `uo[6]` | `WS2812_DATA` |
-| `ui[7]` | `WAVE_IN1` (10BASE-T RX-) | `uo[7]` | `WAVE_OUT0` |
+| `ui[2]` | `H_MOSI` — host SPI in | `uo[2]` | `UART_TX` |
+| `ui[3]` | `UART_RX` | `uo[3]` | `SPI_CS_N` |
+| `ui[4]` | `SPI_CS_IN` (SPI target select) | `uo[4]` | `WS2812_DATA` |
+| `ui[5]` | `TRIG_IN` (spare input) | `uo[5]` | `SPARE_OUT` |
+| `ui[6]` | `WAVE_IN0` (10BASE-T RX+) | `uo[6]` | `WAVE_OUT0` |
+| `ui[7]` | `WAVE_IN1` (10BASE-T RX-) | `uo[7]` | `WAVE_OUT1` |
 | `uio[0]` | `I2C_SCL` (open drain) | `uio[4]` | `ONEWIRE` (open drain) |
-| `uio[1]` | `I2C_SDA` (open drain) | `uio[5]` | spare / SPI-target SCK |
-| `uio[2]` | `PS2_CLK` (open drain) | `uio[6]` | spare / SPI-target MOSI |
-| `uio[3]` | `PS2_DAT` (open drain) | `uio[7]` | spare / SPI-target CS |
+| `uio[1]` | `I2C_SDA` (open drain) | `uio[5]` | `SPI_SCK` |
+| `uio[2]` | `PS2_CLK` (open drain) | `uio[6]` | `SPI_MOSI` |
+| `uio[3]` | `PS2_DAT` (open drain) | `uio[7]` | `SPI_MISO` |
 
 `clk` = 60 MHz target (10–66 MHz accepted), `rst_n` asynchronous active low, `ena` ignored. The full
 pad map, the instruction-level pin vector and the in/out overlap are in
@@ -197,13 +197,17 @@ truncation (VER-013) and peripheral event-chain pollution (VER-014) — all clos
 Detail, plus the two skips stated plainly, in
 [`docs/verification.md` §9](docs/verification.md#9-results).
 
-**Flow status, reported as measured:** the first LibreLane attempt (FF 128-word build, no SRAM macro)
-**failed at detailed placement** — mapped cell area **1 147 604 µm²** against an 8×4 budget of
-≤ ~750 k µm², i.e. ~2× over, with 305 304 µm² (27 %) of it ABC-inserted fanout buffers and a
-flop-array PMEM + 128:1 read mux as the other big cost. Corrective actions are in flight (relaxed
-`MAX_FANOUT_CONSTRAINT`, SRAM instruction memory, DMEM/FIFO shrink levers); nothing is marked passing
-until GDS + precheck + gate-level all pass on one commit. Canonical log:
-[`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in [`docs/results.md`](docs/results.md).
+**Flow status, reported as measured.** Three hardening attempts on the FF (flop-array) build
+**failed on area** — 1 147 604 / 1 190 170 / 1 223 970 µm² against an 8×4 budget of ≤ ~750 k µm² —
+and the experiments were informative: relaxing `MAX_FANOUT_CONSTRAINT` and dropping the clock to
+25 MHz both made it *worse*, localising the 305 304 µm² of buffers (27 % of the design) to ABC's SCL
+sequential-mapping pass rather than timing constraints. **Attempt 3, the SRAM build that is the
+tape-out candidate, is running now** (1024×32 macro + 32-word DMEM, 60 MHz; local estimate
+608 415 µm² logic + 140 183 µm² macro = **748 598 µm² = 62 %**), and its exact RTL configuration
+passes the **full 59/59 simulation matrix with 0 skips**. The FF build is now a fast-regression
+configuration only — it cannot fit 8×4. Nothing is marked passing until GDS + precheck + gate-level
+all pass on one commit. Canonical log: [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in
+[`docs/results.md`](docs/results.md).
 
 ## Documentation
 

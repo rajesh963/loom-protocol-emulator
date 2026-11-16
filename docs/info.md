@@ -46,6 +46,19 @@ Timing vocabulary: a 12.4 period register is `int[15:4].frac[3:0]`, unit 1/16 cy
 look-ahead must stay below 546 µs. An event that is already due fires on the next cycle — an armed
 edge is never dropped.
 
+## Program memory (SRAM build)
+
+The tape-out candidate's instruction memory is one **IHP `RM_IHPSG13_1P_1024x32` SRAM macro**
+(416.64 × 336.46 µm = 140 183 µm²) holding **1024 instruction words**, read in **one cycle**
+(`A_DLY=1`). The host writes it through the normal `SET_ADDR`/`WRITE_MEM` command stream — but
+**only while the owning threads are halted/disabled**; loading a program into an address range a
+running thread is fetching from is not supported. `STOP`/`SET_PC`/`RUN` are the synchronisation
+points, and a `TPC` write invalidates the thread's prefetched instruction. The **512-word reserve
+build** (`tools/select_build.sh sram512`) trades 60 k µm² for a documented firmware limit: four
+128-word slots at `0x000`/`0x080`/`0x100`/`0x180`, highest usable word 509. The flip-flop program
+memory build exists for simulation and regression only — it measured 1 147 604 µm² and does not fit
+8×4.
+
 ![Pinout](images/pinout.svg)
 
 ## Pinout
@@ -62,24 +75,26 @@ are the example assignment used by the documented example programs (`docs/exampl
 | `ui[1]` | `H_SCK` | host SPI clock (sampled, 2-FF sync) |
 | `ui[2]` | `H_MOSI` | host SPI data in |
 | `ui[3]` | `UART_RX` | protocol input P11 |
-| `ui[4]` | `SPI_MISO` | SPI controller data in, P12 |
+| `ui[4]` | `SPI_CS_IN` | SPI-target chip select in, P12 |
 | `ui[5]` | `TRIG_IN` | spare input / edge-event trigger, P13 |
 | `ui[6]` | `WAVE_IN0` | 10BASE-T RX+ / generic, P14 |
 | `ui[7]` | `WAVE_IN1` | 10BASE-T RX- / generic, P15 |
 | `uo[0]` | `H_MISO` | host SPI data out |
 | `uo[1]` | `H_IRQ` | interrupt to host, level |
-| `uo[2]` | `SPI_SCK` | P10 |
-| `uo[3]` | `SPI_MOSI` | P11 |
-| `uo[4]` | `SPI_CS_N` | P12 |
-| `uo[5]` | `UART_TX` | P13 |
-| `uo[6]` | `WS2812_DATA` | P14 |
-| `uo[7]` | `WAVE_OUT0` | P15 / generic |
+| `uo[2]` | `UART_TX` | P10 |
+| `uo[3]` | `SPI_CS_N` | SPI-controller chip select, P11 |
+| `uo[4]` | `WS2812_DATA` | P12 |
+| `uo[5]` | `SPARE_OUT` | P13 / generic output |
+| `uo[6]` | `WAVE_OUT0` | 10BASE-T TX+ / generic, P14 |
+| `uo[7]` | `WAVE_OUT1` | 10BASE-T TX- / generic, P15 |
 | `uio[0]` | `I2C_SCL` | open drain, P0 |
 | `uio[1]` | `I2C_SDA` | open drain, P1 |
 | `uio[2]` | `PS2_CLK` | open drain, P2 |
 | `uio[3]` | `PS2_DAT` | open drain, P3 |
 | `uio[4]` | `ONEWIRE` | open drain, P4 |
-| `uio[5..7]` | spare | P5–P7; the usual re-mux target for SPI-target SCK/MOSI/CS |
+| `uio[5]` | `SPI_SCK` | P5 (controller out / target in) |
+| `uio[6]` | `SPI_MOSI` | P6 (controller out / target in) |
+| `uio[7]` | `SPI_MISO` | P7 (controller in / target out) |
 
 The instruction-level pin vector is 16 bits and overlaps input and output halves:
 `pins_out[15:10] = uo_out[7:2]`, `pins_out[9:8]` = host outputs (writes ignored),

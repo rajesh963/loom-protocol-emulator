@@ -215,37 +215,39 @@ meta-test.
 
 ## 9. Results
 
-> **Landed RTL, simulation only.** `make` from `test/` (Icarus Verilog 12 + cocotb):
-> **59 tests, 57 PASS, 0 FAIL, 2 SKIP, 147 s wall** (`TESTS=59 PASS=57 FAIL=0 SKIP=2`). Every number
-> in this section is **reproduced by the `test` GitHub Actions workflow on each push** — these are
-> CI-verifiable claims, not local ones. No LibreLane/gate-level/silicon rows yet — those are marked
-> TBD and are not estimated. Git revision: CI currently on `5ff6c6c29cc7`; the final pushed SHA is
-> recorded in [`results.md`](results.md).
+> **Landed RTL, simulation only — and the tape-out candidate is the configuration that is green.**
+> On the exact RTL configuration being hardened (`LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz,
+> `make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP in 154 s wall**. The FF build used for
+> fast regression is 57 PASS / 2 SKIP (the two I²C VIP gates, which the SRAM run now passes).
+> `docs` and `test` GitHub Actions workflows are green and reproduce the matrix on each push.
+> No LibreLane/gate-level/silicon rows are claimed: see [`FLOW_STATUS.md`](FLOW_STATUS.md) and
+> [`results.md`](results.md) §3.
 
-### 9.1 Final verification matrix
+### 9.1 Final verification matrix (SRAM candidate configuration)
 
 | Suite | Result | What it proves |
 |---|---|---|
 | host link | **PASS** | all 13 commands; global-CSR read matrix; FIFO occupancy; IRQ/ACK; CS-abort; STATUS bytes (guard test `test_host.test_status_command` passes with `decoded OK: ['0x24','0x90','0x94','0x94']`; the single-line alarm it raises is documented in `test/README.md`) |
 | ISA | **22/22 PASS** | every mnemonic executes with the documented architectural state; all 59 tests are covered by the coverage meta-test |
 | timing | **7/7 PASS** | fractional drift-free event stream; UART 115200 @ 60 MHz; `waitu` jitter-free; `inat` exact-cycle sample; `emite` latency; four concurrent periods; queue back-pressure (`max_eq = 4`) |
-| differential co-sim | **PASS** | **100/100 random programs** cycle-exact on the full `(pins_out, DIR)` transition trace *and* full architectural state; **12/12** pull/reactive seeds; **6/6** hand-written programs; 0 artefacts (no unexplained divergence) |
-| protocol VIPs | **6/8 PASS** | UART TX/RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz + clock stretching; **I2C 400 kHz and I2C target SKIP** (§9.2) |
+| differential co-sim | **PASS** | **100/100 random programs** cycle-exact on the full `(pins_out, DIR)` transition trace *and* full architectural state; **12/12** pull/reactive seeds; **6/6** hand-written programs; 0 artefacts (harness backdoor made SRAM-aware) |
+| protocol VIPs | **8/8 PASS** | UART TX/RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz, **I2C 400 kHz**, **I2C target**, clock stretching — including the two tests gated during bring-up |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
-| **total** | **57 PASS / 0 FAIL / 2 SKIP** | 59 tests, **147 s wall** |
+| **total** | **59 PASS / 0 FAIL / 0 SKIP** | 59 tests, 154 s wall |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
 Python golden model written from the spec) agree on the exact cycle of every pin transition and on
 every architectural register for 100 random programs. A one-cycle scheduling error, a wrong priority
 resolution or a lost queue event would fail it.
 
-### 9.2 The two skips, stated plainly
+### 9.2 The two I²C gates that closed late
 
-The two SKIPs are **I2C 400 kHz** and **I2C target**. They are *gated pending firmware-timing triage*
-(VER-006/007): the failures are in the timing budget of the example I2C firmware, not in the core
-architecture — which is why I2C **100 kHz and clock stretching pass**. Triage is a firmware/constant
-exercise, not an RTL change, and is tracked in [`SUBMISSION_CHECKLIST.md`](SUBMISSION_CHECKLIST.md)
-rather than hidden. Everything else in the protocol suite is green.
+During bring-up, **I2C 400 kHz** and **I2C target** were SKIPped pending firmware-timing triage
+(VER-006/007). Both are now PASS: VER-007 turned out to be a real firmware bug (the SCL-first byte
+boundary rule — the target now ACKs the data byte correctly) and VER-006 was a verification-VIP
+artifact (illegal clock-stretch injection, patched in the VIP). Recording both outcomes matters:
+one was a design bug caught by the suite, the other a test bug caught by the same suite, and the
+matrix only returns to green when both are fixed.
 
 ### 9.3 Sixteen deviations, all closed — the differential methodology working
 
@@ -256,30 +258,32 @@ document that the layering does real work, so the most instructive ones are item
 | ID | Deviation | Found by | Fix / regression |
 |---|---|---|---|
 | **VER-000** | *(model-found, pre-triage)* a `csrw TPC` computed jump fetched from `pc+1`, so the fall-through instruction was buffered and executed after the jump | spec-derived golden model, first directed test | same-cycle fetch redirect to the new PC; `JUMP_TB` regression |
-| VER-001 | `pins_out[9:8]` (the host link's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | directed pin-vector test against the spec mask | every write masked with `PINS_OUT_DRIVABLE = 0xFCFF`; `test/integration` checks `csrr POUT` = `0xFCFF` after `out 0xFFFF` |
+| VER-001 | `pins_out[9:8]` (the host link's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | directed pin-vector test against the spec mask | every write masked with `PINS_OUT_DRIVABLE = 0xFCFF`; `csrr POUT` after `out 0xFFFF` reads `0xFCFF` |
 | VER-002 | `TFIFO`'s bit layout differed between spec, RTL and golden model | CSR table generated from `sw/isa.py` cross-checked against the RTL read path | frozen to `[11:8]` rx_count, `[7:4]` tx_count, bit1 tx_full, bit0 rx_empty in all three; ISA table regenerated |
 | VER-003 | host reads of **global** CSRs returned stale thread-bank data — the host path decoded from the thread `CSRR` address register | cocotb host suite read `POUT`/`TMR` after `RUN` | split thread and host CSR read paths (`bank_read()`/`global_read()`); global-CSR read matrix regression; rule in [`host-protocol.md` §3.2](host-protocol.md) |
-| VER-004 | an **undriven DMEM address** — a data-memory read path was not selected, so a load could return a stale/undefined word | differential co-simulation | read port driven explicitly; co-sim seed that exposed it kept as a regression |
-| VER-009/010/012 | CSR read staleness, three separate manifestations, all root-caused to an `always @*` block whose sensitivity list did not include the registers touched inside a function call — so a read could return the previous value when only a function input changed | global-CSR read matrix, expanding as each manifestation was fixed | function reads hoisted out of the process; explicit sensitivity; the matrix test is the regression |
+| VER-004 | an **undriven DMEM address** — a data-memory read path was not selected, so a load could return a stale/undefined word | differential co-simulation | read port driven explicitly; co-sim seed kept as a regression |
+| VER-006 | I²C target test SKIP: the VIP injected an illegal clock-stretch | protocol VIP triage | VIP patched; I²C target + 400 kHz now PASS |
+| VER-007 | I²C target did not ACK the data byte (SCL-first byte-boundary rule) | protocol VIP | firmware fixed; I²C target now PASS |
+| VER-009/010/012 | CSR read staleness, three separate manifestations, all root-caused to an `always @*` block whose sensitivity list did not include the registers touched inside a function call | global-CSR read matrix, expanding as each was fixed | function reads hoisted out of the process; explicit sensitivity; the matrix test is the regression |
 | VER-013 | **INAT register-bank truncation** — the `inat` write-back register index was truncated, so a latch could target the wrong thread register bank | co-simulation / timing suite | write-back index fixed; `inat` exact-cycle sample test is the regression |
-| VER-014 | **peripheral event chain pollution** — a peripheral (wave-player) event could pollute the thread event chain | four-concurrent-periods timing test | merge path fixed so peripheral events no longer enter the thread chain; timing suite regression |
+| VER-014 | **peripheral event chain pollution** — a peripheral (wave-player) event could pollute the thread event chain | four-concurrent-periods timing test | merge path fixed; timing suite regression |
 | VER-015 | **host STATUS pipeline** — the STATUS payload was misaligned by one transfer | cocotb host suite | pipeline fixed; STATUS test is the regression |
 
 Three meta-lessons from the list: (1) a **machine-generated contract** (the CSR/opcode tables from
 `sw/isa.py`) caught contract drift that prose review missed (VER-002); (2) writing the golden model
 from the **spec**, not the RTL, is what turned the computed-jump bug from "it mostly works" into a
-falsifiable bug report; (3) most of the late bugs (VER-009/010/012/013/014/015) were **integration
-and state-sharing** faults — exactly the class that a cycle-exact differential trace with a full
-architectural-state comparison is built to catch, and which a per-module unit test cannot see.
+falsifiable bug report; (3) most late bugs (VER-009/010/012/013/014/015) were **integration and
+state-sharing** faults — exactly the class a cycle-exact differential trace over full architectural
+state is built to catch, and which per-module unit tests cannot see.
 
 ### 9.4 Coverage
 
 | Dimension | Status |
 |---|---|
-| opcode | **PASS** — every mnemonic exercised; the coverage meta-test asserts each of the 59 tests' opcodes are covered |
+| opcode | **PASS** — every mnemonic exercised; coverage meta-test over all 59 tests |
 | CSR | **PASS** — global-CSR read matrix test |
 | thread concurrency | **covered** by the differential sweep (4 threads active) |
-| protocol pins | covered by the protocol VIP suite |
+| protocol pins | covered by the protocol VIP suite (all 19 exercised across the examples) |
 | event kinds | time (`emit`/`emitd`/`emita`) and edge (`emite`) both fired in the timing suite |
 | host commands | all 13 (host suite) |
 | TMR wrap | exercised by the timing suite |

@@ -17,7 +17,8 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 |---|---|---|---|---|
 | 1 | Public repository with RTL | this repo, Apache-2.0 (`LICENSE`) | lead | TBD (make public at submission) |
 | 2 | `info.yaml` complete and valid: 8×4, 60 MHz, `tt_um_rajesh963_loom`, source_files, full 24-pin pinout, `yaml_version: 6` | [`info.yaml`](../info.yaml) | docs | **done** |
-| 3 | `src/` contains exactly the build sources (`rtl/` mirrored) | `tools/sync_src.sh` | lead | **done** (re-run before submit) |
+| 3 | `src/` contains exactly the build sources (`rtl/` mirrored + the SRAM macro blackbox) | `tools/sync_src.sh`; `info.yaml source_files` = `loom_bus.vh, loom_mem.v, loom_core.v, loom_host.v, loom_wave.v, loom_pmem_sram.v, sram_bb.v, tt_um_rajesh963_loom.v` (`loom_sram_model.v` is SIM-only; `pdn_cfg.tcl` is referenced by `PDN_CFG`, not a Verilog source) | lead | **done** (re-run before submit) |
+| 3b | SRAM flow setup present (`pdn_cfg.tcl` + `Project.ExtendPowerStripes` plugin) and the 512-word reserve path (`tools/select_build.sh sram512`) works | file present, script run | lead | in progress |
 | 4 | RTL lint clean (`iverilog -g2012 -I rtl -o /dev/null rtl/*.v`) | CI / local | lead | TBD |
 | 5 | `gds` GitHub Action green (LibreLane, `tt-gds-action@ttihp27a`, `ihp-sg13cmos5l`) | Actions run | lead | TBD |
 | 6 | `precheck` green | Actions run | lead | TBD |
@@ -26,7 +27,7 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
 | 9b | `test` workflow reproduces the full cocotb matrix on GitHub (57 PASS / 2 SKIP) | Actions run | verify | **done** (green on `5ff6c6c29cc7`) |
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
-| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempt 1 failed at placement (area ~2× budget); attempt 2 running |
+| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempts 1/2/2b failed on area (1.148 M / 1.190 M / 1.224 M µm²); attempt 3 (SRAM candidate, est. 748 598 µm² = 62 %) running |
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
 
 ## 2. Documentation (the write-up is weighted heavily)
@@ -126,9 +127,11 @@ echo "REMEMBER: docs/results.md filled with the final git revision and CI number
    [`verification.md`](verification.md) §9 with the final revision and CI links.
 4. Make the repository public (or flip it public at the moment of submission), verify from a logged-
    out browser that the README, docs and images render.
-5. Record in `results.md` which build was submitted — **SRAM flagship if its CI is green, otherwise
-   the FF fallback** — and the exact git SHA; both are built from the same RTL (`PMEM_IMPL`/
-   `PMEM_WORDS` only).
+5. Record in `results.md` which build was submitted and the exact git SHA. The submitted candidate is
+   the **SRAM 1024×32 + 32-word DMEM build at 60 MHz** (the only one that fits 8×4 and whose exact RTL
+   passes the full 59/59 matrix); the FF build is a *simulation/regression* configuration only (it
+   measured 1.15 M µm² and cannot fit), and `tools/select_build.sh sram512` is the documented area
+   reserve (−60 k µm², 512-word firmware limit).
 6. Submit the repository link through the competition form (added to the announcement page before
    the deadline), with `spec/ARCHITECTURE.md`, `docs/writeup.md` and `docs/verification.md` called
    out as the entry points.

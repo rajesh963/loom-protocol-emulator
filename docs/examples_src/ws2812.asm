@@ -1,6 +1,6 @@
 ; WS2812 / SK6812 stream at 800 kHz (75 cycles/bit @ 60 MHz).
-; LED data on P[14] = WS2812_DATA = uo[6] (0x4000). T0H = 24, T1H = 48 cycles.
-.equ LED,   0x4000
+; LED data on P[12] = WS2812_DATA = uo[4] (0x1000). T0H = 24, T1H = 48 cycles.
+.equ LED,   0x1000
 .equ SPIN,  0x0410            ; waitd 65 cycles; loop body = 10 cycles -> 75
 .equ RESET, 0xF000            ; 3840 cycles = 64 us low
 

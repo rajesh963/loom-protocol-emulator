@@ -1,8 +1,8 @@
 ; SPI target, mode 0, on the spare bidirectional pins.
-.equ SCK_T,  0x0020          ; uio[5]
-.equ MOSI_T, 0x0040          ; uio[6]
-.equ CS_T,   0x0080          ; uio[7]
-.equ MISO_T, 0x8000          ; uo[7]
+.equ SCK_T,  0x0020          ; P[5]  = uio[5]
+.equ MOSI_T, 0x0040          ; P[6]  = uio[6]
+.equ CS_T,   0x1000          ; P[12] = ui[4] SPI_CS_IN
+.equ MISO_T, 0x2000          ; P[13] = uo[5] SPARE_OUT
 
 target:
     dir    0x00              ; SCK_T/MOSI_T/CS_T are inputs; all uio released
@@ -20,7 +20,7 @@ bit:
 zero:
     li     r2, 0
 armed:
-    waitp  0x0080            ; let SCK return low before re-arming (CS stays low)
+    waitp  0x2000            ; let SCK return low before re-arming (mask=0x20 -> P[5])
     emite  r2                ; drive MISO on the next (CS low & SCK high)
 poll:
     csrr   r4, TEQ

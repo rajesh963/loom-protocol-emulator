@@ -41,7 +41,14 @@ make                # full regression: host + isa + timing + cosim + protocols
 make host           # one layer (or isa | timing | cosim | proto)
 make WAVES=1        # + tb.fst waveform (gtkwave / surfer)
 make COCOTB_TEST_MODULES=test_host TESTCASE=test_ping   # single test
-make GATES=yes      # gate-level netlist (needs gate_level_netlist.v + PDK)
+make GATES=yes      # gate-level: netlist + IHP cell models + SRAM macro models
+# canonical GL invocation (PDK from the tt-gds-action image / PDK_ROOT):
+#   PDK_ROOT=/path/to/pdk make GATES=yes SRAM_SIM=1024
+# test/gate_level_netlist.v is copied in by the GDS action from the LibreLane
+# run (results/final/verilog/gl/tt_um_rajesh963_loom.v).  The GL branch compiles
+# that netlist INSTEAD of rtl/*.v (plus the PDK io/stdcell/UDP models and the
+# IHP macro behavioural models from flow/sram_model/ with -DGL_TEST -DFUNCTIONAL
+# -DSIM); SRAM_SIM selects the 1024x32 (default) or 512x32 macro wrapper.
 cd .. && ../.venv/bin/python formal/run_formal.py        # bounded formal proofs
 ```
 
@@ -161,14 +168,22 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-16)
 
-`make` from `test/`: **59 tests, 57 PASS, 0 FAIL, 2 SKIP, 147 s wall** (CI budget
+`make` from `test/`: **59 tests, 59 PASS, 0 FAIL, 0 SKIP, ~149 s wall** (CI budget
 < 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
+SRAM build: `make SRAM_SIM=1024` → same 59/59 (RTL behavioural macro model,
+no PDK needed); `make SRAM_SIM=512` also runs (host layer verified incl. the
+PMEM depth guard).  A clean clone (`env -i make` with only an installed cocotb
+on `PATH`) reproduces 59/59, so there is no local-venv or untracked-file
+dependency.
 
-The three requested RTL fixes plus toolchain's model-side S6 pin-merge fix have
-landed, and the differential is fully green: **100/100 seeded random programs
-cycle-exact on the full `(pins_out, DIR)` trace and full architectural state,
-12/12 opt-in pull/reactive seeds, 6/6 hand-written programs**, ISA 22/22,
-timing 7/7, host **19/19**.  The only remaining SKIPs are the two I2C items
-below (firmware-timing suspects).
+Every deviation found during bring-up is fixed and re-tested, and the
+differential is fully green: **100/100 seeded random programs cycle-exact on the
+full `(pins_out, DIR)` trace and full architectural state, 12/12 opt-in
+pull/reactive seeds, 6/6 hand-written programs**, ISA 22/22, timing 7/7, host
+19/19, protocols 8/8.  The last two I2C items were: a **VIP clock-stretch
+model bug** (the test target pulled SCL low during the master's high phase;
+fixed in `test/vip/i2c.py` to start the stretch from the ACK low phase) and a
+**firmware byte-boundary classifier bug** in `i2c_target.asm` (polled SDA
+before SCL; fixed by firmware, now ACKs the data byte).
 
 

@@ -16,16 +16,22 @@ another pin is a constants change. Bit values: `uo[2..7]` → `P[10..15]`, `ui[3
 
 | Signal | Pin | Vector bit | Signal | Pin | Vector bit |
 |---|---|---|---|---|---|
-| UART_TX | `uo[5]` | `0x2000` (out) | UART_RX | `ui[3]` | `0x0800` (in) |
-| SPI_SCK | `uo[2]` | `0x0400` (out) | SPI_MISO | `ui[4]` | `0x1000` (in, controller) |
-| SPI_MOSI | `uo[3]` | `0x0800` (out) | SPI_CS_N | `uo[4]` | `0x1000` (out, controller) |
+| UART_TX | `uo[2]` | `0x0400` (out) | UART_RX | `ui[3]` | `0x0800` (in) |
+| SPI_SCK | `uio[5]` | `0x0020` | SPI_MISO | `uio[7]` | `0x0080` (in/driven per role) |
+| SPI_MOSI | `uio[6]` | `0x0040` | SPI_CS_N | `uo[3]` | `0x0800` (out, controller) |
+| SPI_CS_IN | `ui[4]` | `0x1000` (in, target) | TRIG_IN | `ui[5]` | `0x2000` (in) |
 | I2C_SCL | `uio[0]` | `0x0001` | I2C_SDA | `uio[1]` | `0x0002` |
 | PS2_CLK | `uio[2]` | `0x0004` | PS2_DAT | `uio[3]` | `0x0008` |
-| ONEWIRE | `uio[4]` | `0x0010` | WS2812_DATA | `uo[6]` | `0x4000` (out) |
-| WAVE_IN0/1 | `ui[6:7]` | `0x4000`/`0x8000` (in) | WAVE_OUT0 | `uo[7]` | `0x8000` (out) |
+| ONEWIRE | `uio[4]` | `0x0010` | WS2812_DATA | `uo[4]` | `0x1000` (out) |
+| WAVE_IN0/1 | `ui[6:7]` | `0x4000`/`0x8000` (in) | WAVE_OUT0/1 | `uo[6:7]` | `0x4000`/`0x8000` (out) |
 
-Remember that `P[10]`'s *output* is `uo[2]` while its *input* is `H_MOSI`, and `P[12]`'s output is
-`SPI_CS_N` while its input is `SPI_MISO` — the pin vector overlaps by design, so a thread that only
+These are the names published in `info.yaml`. Individual sketches below (and the shipped programs in
+`sw/examples/`) declare their own `.equ` pin map in the listing header, exactly as any firmware would
+— the mapping is software, which is the point of the architecture. Where a sketch differs from the
+table above, the header comment in that sketch is authoritative for that sketch.
+
+Remember that `P[10]`'s *output* is `uo[2]` (`UART_TX`) while its *input* is `H_MOSI`, and `P[12]`'s
+output is `WS2812_DATA` while its input is `SPI_CS_IN` — the pin vector overlaps by design, so a thread that only
 writes never reads a host pin by accident and vice versa. `TMASK` (reset value `0xFFFF`) keeps
 threads apart; set it first.
 
@@ -47,9 +53,9 @@ scheduler owns the wire; the loop that builds the frame can branch, stall, and f
 FIFO without touching the timing.
 
 ```asm
-; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[13] = uo[5].
+; UART transmitter, 8N1, 115200 baud @ 60 MHz. TX on P[10] = uo[2].
 .equ BITPER, 0x208D          ; 520.8125 cycles/bit (12.4 fixed) -> 115205 Bd
-.equ TX,     0x2000          ; P[13] in the pins_out vector
+.equ TX,     0x0400          ; P[10] in the pins_out vector
 
 start:
     setm   TX                ; this thread only ever drives the TX pin
@@ -145,14 +151,16 @@ period; mode 2 inverts the SCK bit in the two emitted values. At 10 MHz the queu
 thread to ~4 pending events, which is still two complete bits of look-ahead.
 
 ```asm
-; SPI controller, mode 0, transmit only, 1 MHz SCK @ 60 MHz.
-; SCK=P[10]=uo[2], MOSI=P[11]=uo[3], CS_N=P[12]=uo[4]
-.equ SCK,  0x0400
-.equ MOSI, 0x0800
-.equ CSN,  0x1000
+; SPI controller, mode 0, transmit only, 1 MHz SCK @ 60 MHz (canonical info.yaml map).
+; SCK=P[5]=uio[5], MOSI=P[6]=uio[6], CS_N=P[11]=uo[3]  (MISO would be P[7]=uio[7], input)
+.equ SCK,  0x0020            ; P[5]  = uio[5]
+.equ MOSI, 0x0040            ; P[6]  = uio[6]
+.equ CSN,  0x0800            ; P[11] = uo[3]
+.equ DIRB, 0x0060            ; DIR bits 5:6 -> SCK/MOSI are outputs
 .equ HALF, 0x01E0            ; 30 cycles = half of a 1 MHz SCK period
 
 spi:
+    dir   DIRB               ; uio pins need DIR=1 to drive
     setm  SCK|MOSI|CSN       ; own all three wires
     setp  HALF               ; one event per half SCK period
     li    r2, CSN            ; CS asserted, SCK low, MOSI low
@@ -163,7 +171,7 @@ send:
 bitloop:
     mov   r3, r0
     andi  r3, 0x80           ; MSB first
-    shl   r3, 4              ; -> MOSI bit (0x0800)
+    shr   r3, 1              ; bit 7 -> bit 6 = MOSI
     ori   r3, CSN            ; CS held low, SCK low: data setup
     emit  r3
     ori   r3, SCK            ; rising edge: the target samples MOSI
@@ -196,8 +204,8 @@ For target mode the same three wires must be *inputs*. Re-mux them to the spare 
 |---|---|---|
 | SCK_T | `uio[5]` | `0x0020` (in) |
 | MOSI_T | `uio[6]` | `0x0040` (in) |
-| CS_T_N | `uio[7]` | `0x0080` (in) |
-| MISO_T | `uo[7]` | `0x8000` (out) |
+| CS_T_N | `ui[4]` = `SPI_CS_IN` | `0x1000` (in) |
+| MISO_T | `uo[5]` = `SPARE_OUT` | `0x2000` (out) |
 
 **Strategy.** This is what `emite` is for. Program `EMASK = CS_T | SCK_T` and `ECOND = SCK_T`
 (CS low, SCK high). An edge event fires **on the cycle the pattern appears**, with no polling
@@ -207,10 +215,10 @@ stays hardware-timed.
 
 ```asm
 ; SPI target, mode 0, on the spare bidirectional pins.
-.equ SCK_T,  0x0020          ; uio[5]
-.equ MOSI_T, 0x0040          ; uio[6]
-.equ CS_T,   0x0080          ; uio[7]
-.equ MISO_T, 0x8000          ; uo[7]
+.equ SCK_T,  0x0020          ; P[5]  = uio[5]
+.equ MOSI_T, 0x0040          ; P[6]  = uio[6]
+.equ CS_T,   0x1000          ; P[12] = ui[4] SPI_CS_IN
+.equ MISO_T, 0x2000          ; P[13] = uo[5] SPARE_OUT
 
 target:
     dir    0x00              ; SCK_T/MOSI_T/CS_T are inputs; all uio released
@@ -228,7 +236,7 @@ bit:
 zero:
     li     r2, 0
 armed:
-    waitp  0x0080            ; let SCK return low before re-arming (CS stays low)
+    waitp  0x2000            ; let SCK return low before re-arming (mask=0x20 -> P[5])
     emite  r2                ; drive MISO on the next (CS low & SCK high)
 poll:
     csrr   r4, TEQ
@@ -435,8 +443,8 @@ instruction, not a whole protocol.
 
 ```asm
 ; WS2812 / SK6812 stream at 800 kHz (75 cycles/bit @ 60 MHz).
-; LED data on P[14] = WS2812_DATA = uo[6] (0x4000). T0H = 24, T1H = 48 cycles.
-.equ LED,   0x4000
+; LED data on P[12] = WS2812_DATA = uo[4] (0x1000). T0H = 24, T1H = 48 cycles.
+.equ LED,   0x1000
 .equ SPIN,  0x0410            ; waitd 65 cycles; loop body = 10 cycles -> 75
 .equ RESET, 0xF000            ; 3840 cycles = 64 us low
 
