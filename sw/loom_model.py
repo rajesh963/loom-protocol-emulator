@@ -62,9 +62,9 @@ TMR starts at 0 after reset).  S1..S7:
       marked valid unless the issue consumed it via the bypass.
   S6  **Pins.** `pout_next = pout`; then (1) instruction pin op, (2) host pin
       CSR write, (3) fired events in priority order t3,t2,t1,t0, (4) wave player
-      overrides the visible bus while `wave_valid`.  `pout` is a full 16-bit
-      register: no bit masking (bits 9:8 are the writable-but-unconnected
-      host-link pins; the top-level pin map simply ignores them, per Lead).
+      overrides the visible bus while `wave_valid`.  Every write path to `pout`
+      is masked to `PINS_OUT_DRIVABLE = 0xFCFF`: bits 9:8 are host-link bits
+      that read back 0 (Lead decision, final).
   S7  **Counts/timers.** TMR++, stall decrement (except a thread re-stalled by
       its own retry this cycle), event pop/occupancy (fire+enqueue keeps the
       count), instruction-buffer/fetch updates, inat latch at `TMR==target`.
@@ -425,6 +425,11 @@ class Loom:
     def pins_in16(self) -> int:
         return self.pin_in16
 
+    @staticmethod
+    def _mask_pout(value16: int) -> int:
+        """PINS_OUT_DRIVABLE: bits 9:8 are host-link bits that read back 0."""
+        return value16 & DRIVABLE
+
     def _pin_in(self, driven: int) -> int:
         """Combinational pins_in from a driven output level + ext stimulus."""
         level = driven & 0xFFFF
@@ -519,7 +524,7 @@ class Loom:
     def _global_csr_write(self, addr: int, val: int) -> bool:
         val &= 0xFFFF
         if addr == CSR_POUT:
-            self.pins_reg = val & 0xFFFF          # unmasked (Lead decision)
+            self.pins_reg = self._mask_pout(val)  # bits 9:8 read 0
             return True
         if addr == CSR_PDIR:
             self.dir = val & 0xFF
@@ -857,11 +862,11 @@ class Loom:
         npout = self.pins_reg
         for t in range(n - 1, -1, -1):          # t3..t0, so t0 wins
             if fired[t]:
-                mask = ths[t].tmask            # full 16-bit mask, unmasked (Lead)
+                mask = ths[t].tmask & DRIVABLE  # host-link bits 9:8 never driven
                 npout = (npout & ~mask) | (fire_val[t] & mask)
 
         # ---------------- wave player: visible level during this cycle ------
-        wave_visible = self.w_pins & 0xFFFF if self.w_valid else None
+        wave_visible = self._mask_pout(self.w_pins) if self.w_valid else None
         visible_events = wave_visible if wave_visible is not None else npout
         settled_pins = self._pin_in(visible_events)
 
@@ -1037,13 +1042,13 @@ class Loom:
                         v = self._global_csr_read(addr)
                     wb_en, wb_rd, wb_data = True, rd, v & 0xFFFF
                 elif opc == OUT:
-                    pin_op = imm
+                    pin_op = self._mask_pout(imm)
                 elif opc == SET:
-                    pin_op = (self.pins_reg | imm) & 0xFFFF
+                    pin_op = self._mask_pout(self.pins_reg | imm)
                 elif opc == CLR:
-                    pin_op = (self.pins_reg & ~imm) & 0xFFFF
+                    pin_op = self._mask_pout(self.pins_reg & ~imm)
                 elif opc == TOG:
-                    pin_op = (self.pins_reg ^ imm) & 0xFFFF
+                    pin_op = self._mask_pout(self.pins_reg ^ imm)
                 elif opc == IN:
                     wb_en, wb_rd, wb_data = True, rd, settled_pins
                 elif opc == DIR:
@@ -1185,7 +1190,7 @@ class Loom:
             elif csr_wr is not None and csr_wr[0] == CSR_POUT:
                 npout = csr_wr[1] & 0xFFFF
         visible = wave_visible if wave_visible is not None else npout
-        self.pins_visible = visible & 0xFFFF
+        self.pins_visible = self._mask_pout(visible)
         self.pin_in16 = settled_pins
 
         # ---------------- S5/S7: commits at the end of the cycle ------------
@@ -1280,8 +1285,8 @@ class Loom:
         self._wave_end_of_cycle(k)
 
         # pout register commits (pins are combinational during a cycle, and the
-        # register holds the last driven value)
-        self.pins_reg = npout & 0xFFFF
+        # register holds the last driven value; host-link bits 9:8 read 0)
+        self.pins_reg = self._mask_pout(npout)
 
         # stall countdown (S7): only stalls that existed at the start of the
         # cycle count down; an issue this cycle either re-stalls (retry => 1)

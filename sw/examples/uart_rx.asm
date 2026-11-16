@@ -71,13 +71,12 @@ poll:
 rx_bit:
         waitd   BAUD_DIV
         in      r3
-        and     r3, r6          ; keep RX bit only
-        shr     r3, 11          ; P[11] -> bit 0
+        and     r3, r6          ; keep RX bit only: 0x0000 / 0x0800
+        shr     r3, 4           ; -> 0x0000 / 0x0080 (the new MSB)
+        shr     r5, 1           ; make room, first-received bit ends at bit 0
         or      r5, r3
-        shl     r5, 1           ; open a slot for the next bit
         subi    r4, 1
         jnz     rx_bit
-        shr     r5, 1           ; undo the last slot
         waitd   BAUD_DIV        ; stop cell
         in      r0
         and     r0, r6

@@ -63,3 +63,18 @@
   `.gitignore` covers venv/cache/sim artefacts. `src/config.json` CLOCK_PERIOD = 16.67 ns (60 MHz).
 - Remaining before CI: create public GitHub repo (awaiting Rajesh's go-ahead), then iterate
   gds → precheck → gl_test to green, then fill results tables in docs/results.md + verification.md.
+- **VER-003 (critical) found by the cocotb host suite and FIXED**: host reads of global CSRs
+  (POUT/PDIR/TMR/EVT/IRQ/W*/CAP*/GSTATUS) were decoded from the *thread* CSRR address register,
+  so the host saw the last thread-CSRR target instead of the global register. Fixed by splitting
+  into two read ports (thread bank/global via `csr_rd_addr`, host via `host_csrr_addr`, functions
+  `bank_read(t,a)`/`global_read(a)`). Regression added to `test/integration` (host POUT=0000,
+  TMR=0x04A0 after reset) — ITEST PASS. Also VER-001 (pout host-bit mask) and VER-002 (TFIFO
+  layout) closed the same day; three real deviations found by verification in the first bring-up.
+- **Area calibration** (real ttihp designs, post-place LibreLane metrics in `research/metrics/`):
+  vc32_cpu 6x2 tiles → 392k um^2 core, 285.7k stdcell, 18.6k cells, util 0.73; kianv 4x2 → 160.5k
+  stdcell, util 0.62; tinyQV 2x2 → 114.5k stdcell, util 0.89. Average ~15 um^2 per placed cell.
+  Our mapped estimate: 8038 FFs (~394k um^2) + ~40k gate instances for the FF-small build; the
+  SRAM flagship replaces 4096 PMEM FFs and the 128:1 PMEM read mux (~70k um^2) with one 140k um^2
+  macro → expect ~55-65% utilisation of an 8x4 core (~1.0 mm^2), i.e. it should fit but with no
+  room for extras. Cheap shrink levers if CI says otherwise: DMEM 64→32 words, FIFO depth 8→4,
+  drop the wave player's private DMEM read port (share with CPU).

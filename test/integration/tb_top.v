@@ -66,6 +66,16 @@ module tb_top;
     end
   endtask
 
+  task rd_csr(input [7:0] a, output [15:0] d);
+    begin
+      cs_begin;
+      spi(8'h05, r1); spi(a, r1);
+      spi(8'h00, r2); d[7:0]  = r2;
+      spi(8'h00, r2); d[15:8] = r2;
+      cs_end;
+    end
+  endtask
+
   task wr_csr(input [7:0] a, input [15:0] d);
     begin
       cs_begin;
@@ -118,6 +128,20 @@ module tb_top;
     cs_end;
     if (r2 !== 8'hA5) begin errors = errors + 1; $display("ERROR: PING returned %h", r2); end
     else $display("PING ok (0x%h)", r2);
+
+    // ---- global CSR reads (VER-003 regression) ---------------------------
+    rd_csr(8'h10, rdword[15:0]);          // POUT after reset = 0
+    if (rdword[15:0] !== 16'h0000) begin
+      errors = errors + 1; $display("ERROR: host POUT read %h (want 0000)", rdword[15:0]);
+    end else $display("host global CSR read ok: POUT=0000");
+    rd_csr(8'h12, rdword[15:0]);          // TMR must be nonzero after reset
+    if (rdword[15:0] === 16'h0000) begin
+      errors = errors + 1; $display("ERROR: host TMR read still 0000");
+    end else $display("host TMR read ok: TMR=%h", rdword[15:0]);
+    rd_csr(8'h11, rdword[15:0]);          // PDIR after reset = 0
+    if (rdword[15:0] !== 16'h0000) begin
+      errors = errors + 1; $display("ERROR: host PDIR read %h (want 0000)", rdword[15:0]);
+    end
 
     // ---- program load ----------------------------------------------------
     for (i = 0; i < 7; i = i + 1) wr_mem(i[9:0], prog[i]);

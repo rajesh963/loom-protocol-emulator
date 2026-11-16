@@ -10,6 +10,6 @@ iverilog -g2012 -I ../../rtl -o sim_top tb_top.v \
     ../../rtl/loom_wave.v ../../rtl/tt_um_rajesh963_loom.v 2>&1 \
     | grep -vE "truncated|sensitive to all" || true
 vvp -n sim_top > itest.log 2>&1 || true
-grep -E "PING|readback|edges|ITEST|ERROR" itest.log
+grep -E "PING|host |readback|edges|ITEST|ERROR" itest.log
 grep -q "ITEST: PASS" itest.log
 echo "ITEST: PASS (script)"

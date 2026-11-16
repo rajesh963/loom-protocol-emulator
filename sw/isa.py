@@ -86,11 +86,11 @@ Semantic decisions made where the spec is ambiguous
     register, address register) exactly as printed in spec §4.1, even though
     `ld`/`sti` read "backwards" relative to each other.
   * Bits 9:8 of `pins_out` are the host-link pins (`PINS_OUT_HOST = 0x0300`):
-    they are *writable but not connected* to physical protocol pins in the TT
-    top level (Lead decision 2026-11-16, area saving).  The ISA does **not**
-    mask them; `PINS_OUT_DRIVABLE` is only the set of bits that reach pins in
-    the top-level pin map (14 protocol outputs).  The model mirrors the RTL:
-    all 16 `pout` bits are written, bits 9:8 are simply never used as pins.
+    they are not connected to physical protocol pins and are **masked to 0 on
+    every write path** (`pout &= PINS_OUT_DRIVABLE = 0xFCFF`, Lead decision).
+    `PINS_OUT_DRIVABLE` is the set of bits that reach the pin map (14 protocol
+    outputs).  Out/set/clr/tog, CSR POUT, event merges and the wave player all
+    respect the mask.
   * The IRQ CSR read is **non-destructive** (RTL); the host clears the IRQ
     latch with ACK_IRQ, i.e. writing CSR_IRQ (0x14) = 0.  Spec §4.2's
     "(read clears)" is superseded (Lead decision).
@@ -339,7 +339,7 @@ _INSN_TABLE: tuple[InsnSpec, ...] = (
     InsnSpec("cmpi", 0x14, (("rd", REG), ("imm16", IMM)), "flags from R[rd] - imm16", "Z,C"),
     InsnSpec("csrw", 0x15, (("imm16", CSR), ("rs", REG)), "CSR[imm16[7:0]] = R[rs] (thread bank if < 0x10)"),
     InsnSpec("csrr", 0x16, (("rd", REG), ("imm16", CSR)), "R[rd] = CSR[imm16[7:0]]"),
-    InsnSpec("out", 0x18, (("imm16", IMM),), "pins_out = imm16 (all 16 bits; 9:8 unconnected)"),
+    InsnSpec("out", 0x18, (("imm16", IMM),), "pins_out = imm16 & 0xFCFF (host-link bits 9:8 masked)"),
     InsnSpec("set", 0x19, (("imm16", IMM),), "pins_out |= imm16"),
     InsnSpec("clr", 0x1A, (("imm16", IMM),), "pins_out &= ~imm16"),
     InsnSpec("tog", 0x1B, (("imm16", IMM),), "pins_out ^= imm16"),

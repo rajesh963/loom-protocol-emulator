@@ -83,7 +83,7 @@ __all__ = ["gen", "GenResult", "CLASSES"]
 #: opcode classes the generator always covers at least once
 CLASSES: tuple[str, ...] = (
     "alu", "shift", "cond", "mem", "pins", "emit", "wait",
-    "csr", "rpt", "loop", "fifo", "ev", "irq",
+    "csr", "rpt", "loop", "jmp", "fifo", "ev", "irq", "nop",
 )
 
 _DATA_REGS = (3, 4, 5)
@@ -124,9 +124,16 @@ class _Ctx:
     def add(self, *lines: str) -> None:
         self.lines.extend(lines)
 
+    _TIMED_SPACING = 256
+    _TIMED_LIMIT = 30000
+
+    def timed_available(self) -> bool:
+        nxt = self.timed_base + (self.timed_no + 1) * self._TIMED_SPACING
+        return self.opts["timed"] and nxt < self._TIMED_LIMIT
+
     def next_timed(self) -> int:
         self.timed_no += 1
-        return (self.timed_base + self.timed_no * 32) & 0xFFFF
+        return (self.timed_base + self.timed_no * self._TIMED_SPACING) & 0xFFFF
 
     def data_reg(self) -> int:
         return self.rng.choice(_DATA_REGS)
@@ -136,6 +143,9 @@ class _Ctx:
 
     def reg_operand(self) -> str:
         return f"r{self.rng.choice(_DATA_REGS + _ADDR_REGS)}"
+
+    def reg_operand_num(self) -> int:
+        return self.rng.choice(_DATA_REGS + _ADDR_REGS)
 
     def dmem_addr(self) -> int:
         return self.rng.choice(self.dmem_addrs)
@@ -151,7 +161,7 @@ class _Ctx:
                 return f"inv r{rd}"
             if op.startswith(("addi", "subi", "andi", "ori", "xori")):
                 return f"{op} r{rd}, 0x{self.rng.choice(_IMM8):02X}"
-            return f"{op} r{rd}, r{self.reg_operand()}"
+            return f"{op} r{rd}, {self.reg_operand()}"
         if kind == "shift":
             return f"{self.rng.choice(('shl','shr','rol','ror'))} r{self.data_reg()}, {self.rng.randrange(16)}"
         if kind == "pins":
@@ -165,102 +175,100 @@ class _Ctx:
 
     # -- class generators (return estimate of emitted instructions) ------
     def gen_alu(self) -> int:
-        op = self.rng.choice(("mov", "add", "addi", "sub", "subi", "and", "andi",
-                              "or", "ori", "xor", "xori", "inv", "movi"))
-        rd = self.data_reg()
-        if op == "inv":
-            self.add(f"inv r{rd}")
-        elif op == "movi":
-            self.add(f"movi r{rd}, 0x{self.rng.choice(_IMM16):04X}")
-        elif op in ("addi", "subi", "andi", "ori", "xori"):
-            self.add(f"{op} r{rd}, 0x{self.rng.choice(_IMM8):02X}")
-        else:
-            self.add(f"{op} r{rd}, r{self.reg_operand()}")
-        return 1
+        """Bundle covering every ALU mnemonic."""
+        rd, re, imm = self.data_reg(), self.reg_operand(), self.rng.choice(_IMM8)
+        self.add(f"movi r{rd}, 0x{self.rng.choice(_IMM16):04X}",
+                 f"mov r{rd}, {re}",
+                 f"add r{rd}, {re}",
+                 f"addi r{rd}, 0x{imm:02X}",
+                 f"sub r{rd}, {re}",
+                 f"subi r{rd}, 0x{imm:02X}",
+                 f"and r{rd}, {re}",
+                 f"andi r{rd}, 0x{imm:02X}",
+                 f"or r{rd}, {re}",
+                 f"ori r{rd}, 0x{imm:02X}",
+                 f"xor r{rd}, {re}",
+                 f"xori r{rd}, 0x{imm:02X}",
+                 f"inv r{rd}",
+                 f"cmp r{rd}, {re}",
+                 f"cmpi r{rd}, 0x{self.rng.choice(_IMM16):04X}")
+        return 15
 
     def gen_shift(self) -> int:
-        self.add(f"{self.rng.choice(('shl','shr','rol','ror'))} "
-                 f"r{self.data_reg()}, {self.rng.randrange(16)}")
-        return 1
+        rd = self.data_reg()
+        self.add(f"shl r{rd}, {self.rng.randrange(16)}",
+                 f"shr r{rd}, {self.rng.randrange(16)}",
+                 f"rol r{rd}, {self.rng.randrange(16)}",
+                 f"ror r{rd}, {self.rng.randrange(16)}")
+        return 4
 
     def gen_cond(self) -> int:
-        jump = self.rng.choice(("jz", "jnz", "jc", "jnc"))
-        lbl = self.label("skip")
-        self.add(f"cmp r{self.data_reg()}, r{self.reg_operand()}",
-                 f"{jump} {lbl}",
-                 self.simple_instr(),
-                 f"{lbl}:")
-        return 3
+        """Bundle covering jz/jnz/jc/jnc (each jumps forward over one insn)."""
+        rd, re = self.data_reg(), self.reg_operand()
+        self.add(f"cmp r{rd}, {re}")
+        n = 1
+        for jump in ("jz", "jnz", "jc", "jnc"):
+            lbl = self.label("skip")
+            self.add(f"{jump} {lbl}", self.simple_instr(), f"{lbl}:")
+            n += 2
+        return n
 
     def gen_mem(self) -> int:
-        kind = self.rng.randrange(4)
-        if kind == 0:
-            self.add(f"ld r{self.data_reg()}, 0x{self.dmem_addr():02X}")
-        elif kind == 1:
-            self.add(f"st 0x{self.dmem_addr():02X}, r{self.data_reg()}")
-        elif kind == 2:
-            self.add(f"ldi r{self.data_reg()}, r{self.addr_reg()}")
-        else:
-            self.add(f"sti r{self.data_reg()}, r{self.addr_reg()}")
-        return 1
+        rd, ra = self.data_reg(), self.addr_reg()
+        self.add(f"ld r{rd}, 0x{self.dmem_addr():02X}",
+                 f"st 0x{self.dmem_addr():02X}, r{rd}",
+                 f"ldi r{rd}, r{ra}",
+                 f"sti r{rd}, r{ra}")
+        return 4
 
     def gen_pins(self) -> int:
-        kind = self.rng.randrange(5)
-        if kind == 0:
-            self.add(f"out 0x{self.rng.choice(_PINMASKS):04X}")
-        elif kind == 1:
-            self.add(f"dir 0x{self.rng.choice(_IMM8):02X}")
-        elif kind == 2:
-            self.add(f"{self.rng.choice(('dset','dclr'))} 0x{self.rng.choice(_IMM8):02X}")
-        elif kind == 3:
-            self.add(f"in r{self.data_reg()}")
-        else:
-            self.add(f"{self.rng.choice(('set','clr','tog'))} 0x{self.rng.choice(_PINMASKS):04X}")
-        return 1
+        m = self.rng.choice(_PINMASKS)
+        rd = self.data_reg()
+        self.add(f"out 0x{m:04X}",
+                 f"set 0x{self.rng.choice(_PINMASKS):04X}",
+                 f"clr 0x{self.rng.choice(_PINMASKS):04X}",
+                 f"tog 0x{self.rng.choice(_PINMASKS):04X}",
+                 f"in r{rd}",
+                 f"dir 0x{self.rng.choice(_IMM8):02X}",
+                 f"dset 0x{self.rng.choice(_IMM8):02X}",
+                 f"dclr 0x{self.rng.choice(_IMM8):02X}")
+        return 8
 
     def gen_emit(self) -> int:
-        n = 0
-        self.add(f"setp 0x{self.rng.choice(_PERIODS):04X}")
-        self.add(f"setm 0x{self.rng.choice(_PINMASKS):04X}")
-        n += 2
-        kind = self.rng.randrange(4)
         rd = self.data_reg()
-        if kind == 0:
-            self.add(f"emit r{rd}")
-        elif kind == 1:
-            self.add(f"emitd r{rd}, {self.rng.choice((1, 2, 5, 17, 40))}")
-        elif kind == 2:
+        self.add(f"setp 0x{self.rng.choice(_PERIODS):04X}",
+                 f"setm 0x{self.rng.choice(_PINMASKS):04X}",
+                 f"emit r{rd}",
+                 f"emitd r{rd}, {self.rng.choice((1, 2, 5, 17, 40))}")
+        if self.timed_available():
             self.add(f"emita r{rd}, {self.next_timed()}")
-        else:
-            self.add(f"setem 0x{self.rng.choice(_PINMASKS):04X}",
-                     f"setec 0x{self.rng.choice(_PINMASKS):04X}",
-                     f"emite r{rd}")
-            n += 2
-        return n + 1
+        mask = self.rng.choice((0x00FF, 0x000F, 0x00F0))
+        self.add(f"setem 0x{mask:04X}", f"setec 0x{mask:04X}")
+        if self.opts.get("allow_reactive"):
+            # self-satisfying loopback pattern: DIR=1 makes pins_in read pout
+            self.add(f"out 0x{mask & 0xFF:02X}", f"dir 0x{mask & 0xFF:02X}",
+                     f"emite r{rd}", "dir 0x00")
+        return 6
 
     def gen_wait(self) -> int:
-        if self.opts["timed"] and self.rng.random() < 0.6:
-            tgt = self.next_timed()
-            rd = self.data_reg()
-            if self.rng.random() < 0.5:
-                self.add(f"waitu {tgt}")
-                return 1
-            self.add(f"inat r{rd}, {tgt}")
-            return 1
         self.add(f"waitd 0x{self.rng.choice((0x0010, 0x0018, 0x0020, 0x0028)):04X}")
-        return 1
+        n = 1
+        if self.timed_available():
+            self.add(f"waitu {self.next_timed()}")
+            n += 1
+        if self.timed_available():
+            self.add(f"inat r{self.data_reg()}, {self.next_timed()}")
+            n += 1
+        return n
 
     def gen_csr(self) -> int:
-        kind = self.rng.randrange(3)
-        if kind == 0:
-            self.add(f"csrr r{self.data_reg()}, "
-                     f"{self.rng.choice(('TSTATUS','TFIFO','TMR','TPERIOD','TNEXTT','TEQ','TEMASK','TECOND'))}")
-            return 1
-        if kind == 1:
-            self.add(f"csrw {self.rng.choice(('TPERIOD','TMASK','TEMASK','TECOND'))}, r{self.data_reg()}")
-            return 1
-        self.add(f"csrw {self.rng.choice(('POUT','PDIR'))}, r{self.data_reg()}")
-        return 1
+        rd = self.data_reg()
+        self.add(f"csrr r{rd}, {self.rng.choice(('TSTATUS','TFIFO','TMR','TPERIOD','TNEXTT','TEQ','TEMASK','TECOND'))}",
+                 f"csrr r{rd}, TNEXTT",
+                 f"csrr r{rd}, TEQ",
+                 f"csrw {self.rng.choice(('TPERIOD','TMASK','TEMASK','TECOND'))}, r{rd}",
+                 f"csrw {self.rng.choice(('POUT','PDIR'))}, r{rd}")
+        return 5
 
     def gen_rpt(self) -> int:
         self.add(f"rpt {self.rng.randrange(8)}", self.simple_instr())
@@ -279,14 +287,12 @@ class _Ctx:
 
     def gen_fifo(self) -> int:
         n = 0
-        if self.pushes < _PUSH_BUDGET and self.rng.random() < 0.7:
-            if self.rng.random() < 0.5:
-                self.add(f"push r{self.data_reg()}")
-            else:
-                self.add(f"pushi 0x{self.rng.choice(_IMM8):02X}")
-            self.pushes += 1
-            self.tx_expected += 1
-            n += 1
+        if self.pushes < _PUSH_BUDGET:
+            self.add(f"push r{self.data_reg()}",
+                     f"pushi 0x{self.rng.choice(_IMM8):02X}")
+            self.pushes += 2
+            self.tx_expected += 2
+            n += 2
         if self.opts["allow_pull"] and self.pulls < 4:
             self.add(f"pull r{self.data_reg()}")
             self.pulls += 1
@@ -297,11 +303,30 @@ class _Ctx:
 
     def gen_ev(self) -> int:
         # per-thread private flag bit => evset/evwait can never deadlock
-        if self.rng.random() < 0.5:
-            self.add(f"evset {self.ev_bit}")
-            return 1
-        self.add(f"evset {self.ev_bit}", f"evwait {self.ev_bit}")
+        self.add(f"evset {self.ev_bit}", f"evset {self.ev_bit}",
+                 f"evwait {self.ev_bit}")
+        return 3
+
+    def gen_jmp(self) -> int:
+        lbl = self.label("fjmp")
+        self.add(f"jmp {lbl}", self.simple_instr(), f"{lbl}:")
         return 2
+
+    def gen_nop(self) -> int:
+        self.add("nop")
+        return 1
+
+    def gen_waitp(self) -> int:
+        """Opt-in: waitp watches uio[7:0] only; make it self-satisfying.
+
+        Requires the pins to loop back (model does; a cocotb TB must tie
+        uio_in to uio_out). Never enabled by default.
+        """
+        mask = self.rng.choice((0xF0, 0x0F, 0xFF, 0xAA))
+        value = self.rng.choice((0x00, 0xF0, 0x0F, 0xFF, 0xAA)) & mask
+        self.add(f"out 0x{value:02X}", f"dir 0x{mask if mask else 0xFF:02X}",
+                 f"waitp 0x{(mask << 8) | value:04X}", "dir 0x00")
+        return 4
 
     def gen_irq(self) -> int:
         self.add(f"irq 0x{self.rng.choice(_IMM8):02X}")
@@ -319,6 +344,8 @@ class _Ctx:
             self.add(f"movi r{reg}, 0x{rng.choice(_IMM16):04X}")
         # at least one block of every class, then random extras to the budget
         order = list(CLASSES)
+        if self.opts.get("allow_waitp"):
+            order.append("waitp")
         rng.shuffle(order)
         estimate = 0
         while order or estimate < budget:
@@ -342,7 +369,8 @@ class GenResult:
 
 
 def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
-        timed: bool = True, allow_pull: bool = False,
+        timed: bool = True, allow_pull: bool = False, allow_waitp: bool = False,
+        allow_reactive: bool | None = None,
         rom_words: int | None = None,
         fill: int = isa.DEFAULT_FILL_WORD) -> tuple[list[int], dict[str, Any]]:
     """Generate a terminating random LOOM program.
@@ -358,13 +386,17 @@ def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
         raise ValueError("n_insns must be >= 16")
     rng = random.Random(seed)
     # all absolute timed targets live beyond the program's own execution
-    timed_base = 600 + 8 * n_insns
-    if timed_base + 64 * n_insns >= 32768:
-        raise ValueError("n_insns too large: timed targets would exceed 32767 "
-                         "(lookahead limit)")
+    if n_insns > 400:
+        raise ValueError("n_insns must be <= 400")
+    if allow_reactive is None:
+        allow_reactive = allow_waitp
+    allow_waitp = bool(allow_waitp or allow_reactive)
+    timed_base = 600 + 10 * n_insns
     opts = {
         "timed": bool(timed),
         "allow_pull": bool(allow_pull),
+        "allow_waitp": bool(allow_waitp),
+        "allow_reactive": bool(allow_reactive),
         "timed_base": timed_base,
     }
 
@@ -396,6 +428,10 @@ def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
         preload_rx.append([0x41 + ((i * 7) & 0x3F) for i in range(ctx.pulls)])
 
     opcodes = sorted({isa.decode(w).mnemonic for w in words})
+    last_timed = max([ctx.timed_base + ctx.timed_no * _Ctx._TIMED_SPACING
+                      for ctx in contexts] or [0])
+    cycles_bound = max(last_timed + 512, timed_base + 512 + 16 * n_insns) \
+        if timed else 300 + 16 * n_insns
     meta: dict[str, Any] = {
         "seed": seed,
         "n_insns": n_insns,
@@ -404,7 +440,7 @@ def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
         "threads": threads,
         "preload_rx": preload_rx,
         "tx_expected_min": sum(ctx.tx_expected for ctx in contexts),
-        "cycles_bound": timed_base + 256 + 64 * max(ctx.timed_no for ctx in contexts),
+        "cycles_bound": cycles_bound,
         "instruction_count": result.n_words,
         "word_count": len(words),
         "opcodes_used": opcodes,
@@ -414,8 +450,9 @@ def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
             "run at least cycles_bound cycles (includes absolute timed waits)",
             "no unbounded waits: backward loops are counter-bounded, "
             "waitu/inat/emita targets are absolute and in the future",
-            "waitp/emite-reactive programs need external pins: use allow_pull/"
-            "timed flags or hand-written tests for those",
+            "reactive classes (waitp/emite) need pin stimulus or uio loopback: "
+            "pass allow_reactive=True (or drive the pins) to include them",
+            "pull is only emitted with allow_pull=True (sidecar preload_rx)",
         ],
     }
     return words, meta

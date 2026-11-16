@@ -432,12 +432,15 @@ class LoomHost:
         tx = [cmd, *[a & 0xFF for a in args], *([0] * nresp)]
         rx = await self.spi_xfer(tx)
         self.cmd_log.append((name, tx, rx))
-        status = rx[0]
+        self._check_status(name, rx[0])
+        return rx
+
+    @staticmethod
+    def _check_status(name: str, status: int):
+        """Command status byte must be 0x80 (accepted) or 0x81 (busy)."""
         if status not in (RESP_OK, RESP_BUSY):
             raise AssertionError(
-                f"{name}: bad command status 0x{status:02x} (want 0x80/0x81); "
-                f"tx={_hexlist(tx)} rx={_hexlist(rx)}")
-        return rx
+                f"{name}: bad command status 0x{status:02x} (want 0x80/0x81)")
 
     # ---- host commands (spec §6) ----------------------------------------
     async def ping(self) -> bool:
@@ -471,7 +474,7 @@ class LoomHost:
         rx = await self.spi_xfer(tx)
         self.cmd_log.append(("WRITE_MEM_BLOCK", tx, rx))
         self._check_status("WRITE_MEM", rx[0])
-        for i in range(1, len(words) + 1):
+        for i in range(len(words)):
             self._check_status("WRITE_MEM", rx[4 + 5 * i])
         return rx
 
@@ -625,13 +628,19 @@ def decode_status_byte(b: int) -> dict:
 
 
 def decode_tfifo(word: int) -> dict:
+    """Decode TFIFO.
+
+    Layout frozen in spec §4.2 (2026-11-16, VR-002):
+        {4'b0, rx_count[11:8], tx_count[7:4], 2'b0, tx_full[1], rx_empty[0]}
+    (host STATUS byte additionally reports rx_full; TFIFO does not.)
+    """
     word &= 0xFFFF
     return {
         "raw": word,
         "rx_count": (word >> 8) & 0xF,
         "tx_count": (word >> 4) & 0xF,
-        "rx_full": (word >> 1) & 1,
-        "tx_full": word & 1,
+        "tx_full": (word >> 1) & 1,
+        "rx_empty": word & 1,
     }
 
 

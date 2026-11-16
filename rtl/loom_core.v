@@ -432,6 +432,7 @@ module loom_core #(
   // CSR read mux
   // ==========================================================================
   reg [15:0] csr_rdata;
+  reg [15:0] host_csrr_rdata;
   reg        csr_hbank;
   reg [1:0]  csr_ht;
   reg [7:0]  csr_ha;
@@ -446,52 +447,67 @@ module loom_core #(
     end
   end
 
-  reg [15:0] bank_rdata;
-  reg [1:0]  bt;
-  reg [7:0]  ba;
-  always @* begin
-    bt = csr_hbank ? csr_ht : sel;
-    ba = csr_hbank ? csr_ha : csr_rd_addr;
-    case (ba)
-      `CSR_TPERIOD: bank_rdata = period[bt];
-      `CSR_TMASK:   bank_rdata = tmask[bt];
-      `CSR_TSTATUS: bank_rdata = {14'd0, t_halt[bt], t_en[bt]};
-      `CSR_TFIFO:   bank_rdata = {4'd0, rx_cnt[bt], tx_cnt[bt], 2'd0,
-                                  (tx_cnt[bt]==FIFO_FULL[3:0]), (rx_cnt[bt]==4'd0)};
-      `CSR_TNEXTT:  bank_rdata = nextt[bt];
-      `CSR_TEQ:     bank_rdata = {13'd0, eq_cnt[bt]};
-      `CSR_TEMASK:  bank_rdata = emask[bt];
-      `CSR_TECOND:  bank_rdata = econd[bt];
-      `CSR_TPC:     bank_rdata = {6'd0, pc[bt]};
-      default:      bank_rdata = 16'd0;
-    endcase
-  end
-
-  always @* begin
-    if (csr_hbank) csr_rdata = bank_rdata;
-    else begin
-      case (csr_rd_addr)
-        `CSR_TPERIOD, `CSR_TMASK, `CSR_TSTATUS, `CSR_TFIFO, `CSR_TNEXTT,
-        `CSR_TEQ, `CSR_TEMASK, `CSR_TECOND, `CSR_TPC: csr_rdata = bank_rdata;
-        `CSR_POUT:    csr_rdata = pout;
-        `CSR_PDIR:    csr_rdata = {8'd0, pdir};
-        `CSR_TMR:     csr_rdata = tmr;
-        `CSR_EVT:     csr_rdata = {8'd0, evt};
-        `CSR_IRQ:     csr_rdata = irq_code;
-        `CSR_WCTRL:   csr_rdata = {13'd0, wave_ctl_q};
-        `CSR_WADDR:   csr_rdata = {10'd0, wave_addr};
-        `CSR_WLEN:    csr_rdata = {9'd0, wave_len};
-        `CSR_WPER:    csr_rdata = wave_period;
-        `CSR_WSTATUS: csr_rdata = {14'd0, wave_busy, wave_done};
-        `CSR_CAPCTRL: csr_rdata = cap_ctrl;
-        `CSR_CAPSTAT: csr_rdata = cap_stat;
-        `CSR_GSTATUS: csr_rdata = {7'd0, t_en[3], t_en[2], t_en[1], t_en[0],
-                                    4'd0, (irq_code != 16'd0)};
-        default:      csr_rdata = 16'd0;
+  // Two independent read ports: thread instructions read their OWN bank from
+  // `csr_rd_addr` (0-latency); the host reads `host_csrr_addr` (thread banks at
+  // 0x40+16t+n, globals at 0x10..0x1F).  These used to share one mux, which made
+  // every host global-CSR read return whatever the last thread CSRR addressed
+  // (VER-003, caught by the cocotb host suite).
+  function [15:0] bank_read;
+    input [1:0] t;
+    input [7:0] a;
+    begin
+      case (a)
+        `CSR_TPERIOD: bank_read = period[t];
+        `CSR_TMASK:   bank_read = tmask[t];
+        `CSR_TSTATUS: bank_read = {14'd0, t_halt[t], t_en[t]};
+        `CSR_TFIFO:   bank_read = {4'd0, rx_cnt[t], tx_cnt[t], 2'd0,
+                                   (tx_cnt[t]==FIFO_FULL[3:0]), (rx_cnt[t]==4'd0)};
+        `CSR_TNEXTT:  bank_read = nextt[t];
+        `CSR_TEQ:     bank_read = {13'd0, eq_cnt[t]};
+        `CSR_TEMASK:  bank_read = emask[t];
+        `CSR_TECOND:  bank_read = econd[t];
+        `CSR_TPC:     bank_read = {6'd0, pc[t]};
+        default:      bank_read = 16'd0;
       endcase
     end
+  endfunction
+
+  function [15:0] global_read;
+    input [7:0] a;
+    begin
+      case (a)
+        `CSR_POUT:    global_read = pout;
+        `CSR_PDIR:    global_read = {8'd0, pdir};
+        `CSR_TMR:     global_read = tmr;
+        `CSR_EVT:     global_read = {8'd0, evt};
+        `CSR_IRQ:     global_read = irq_code;
+        `CSR_WCTRL:   global_read = {13'd0, wave_ctl_q};
+        `CSR_WADDR:   global_read = {10'd0, wave_addr};
+        `CSR_WLEN:    global_read = {9'd0, wave_len};
+        `CSR_WPER:    global_read = wave_period;
+        `CSR_WSTATUS: global_read = {14'd0, wave_busy, wave_done};
+        `CSR_CAPCTRL: global_read = cap_ctrl;
+        `CSR_CAPSTAT: global_read = cap_stat;
+        `CSR_GSTATUS: global_read = {7'd0, t_en[3], t_en[2], t_en[1], t_en[0],
+                                     4'd0, (irq_code != 16'd0)};
+        default:      global_read = 16'd0;
+      endcase
+    end
+  endfunction
+
+  // thread-instruction view: own bank below 0x10, globals above
+  always @* begin
+    if (csr_rd_addr < 8'h10) csr_rdata = bank_read(sel, csr_rd_addr);
+    else                     csr_rdata = global_read(csr_rd_addr);
   end
-  assign host_csrr_data = csr_rdata;
+
+  // host view: thread banks 0x40..0x7F, globals 0x10..0x1F, thread-local 0x00..0x0F reads 0
+  always @* begin
+    if (csr_hbank)                   host_csrr_rdata = bank_read(csr_ht, csr_ha);
+    else if (host_csrr_addr < 8'h10) host_csrr_rdata = 16'd0;
+    else                             host_csrr_rdata = global_read(host_csrr_addr);
+  end
+  assign host_csrr_data = host_csrr_rdata;
 
   // ==========================================================================
   // Event firing (every cycle, independent of instruction issue)
