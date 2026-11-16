@@ -1,2 +1,0 @@
-FIFO_TB: PASS
-test/unit_host/tb_fifo.v:208: $finish called at 1955000 (1ps)
