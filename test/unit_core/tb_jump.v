@@ -46,9 +46,9 @@ module tb_jump;
     repeat (3) @(posedge clk);
     csr_write(8'h30, 16'h0001);          // RUN thread 0 (PC 0)
     repeat (20) @(posedge clk);
-    if (pins_out !== 16'h0A00) begin
+    if (pins_out !== 16'h0400) begin
       errors = errors + 1;
-      $display("ERROR: computed jump did not execute target block (pins=%h want 0a00)", pins_out);
+      $display("ERROR: computed jump did not execute target block (pins=%h want 0400)", pins_out);
     end
     if (dut.t_halt[0] !== 1'b1) begin
       errors = errors + 1;

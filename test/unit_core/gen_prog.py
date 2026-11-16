@@ -59,8 +59,8 @@ def main():
         enc('out',  imm=0x000A),             # 3: must be skipped
         enc('halt'),                         # 4
         enc('halt'),                         # 5
-        enc('movi', rd=2, imm=0x0A00),       # 6: executed
-        enc('out',  imm=0x0A00),             # 7: pins out = 0x0A00
+        enc('movi', rd=2, imm=0x0400),       # 6: executed
+        enc('out',  imm=0x0400),             # 7: pins out = 0x0400
         enc('halt'),                         # 8
     ]
     jmem[:len(jprog)] = jprog
