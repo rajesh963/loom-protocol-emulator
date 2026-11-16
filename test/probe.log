@@ -1,0 +1,30 @@
+rm -f results.xml
+rm -f results.xml
+COCOTB_TEST_MODULES=test_probe COCOTB_TESTCASE=  COCOTB_TOPLEVEL=tb TOPLEVEL_LANG=verilog       \
+	 /usr/bin/vvp -m /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb/libs/libcocotbvpi_icarus.so   sim_build/rtl/sim.vvp   
+     -.--ns INFO     gpi                                ../gpi/GpiCommon.cpp:242  in gpi_load_users                  Loaded entry library: '/usr/lib/x86_64-linux-gnu/libpython3.14.so.1.0'
+     -.--ns INFO     gpi                                ../gpi/GpiCommon.cpp:233  in gpi_load_users                  Running entry func 'initialize' from loaded library '/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb/simulator.cpython-314-x86_64-linux-gnu.so'
+     -.--ns INFO     pygpi                              ..ib/pygpi/embed.cpp:114  in initialize                      Using Python 3.14.0 interpreter at /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/bin/python3
+     -.--ns INFO     gpi                                ../gpi/GpiCommon.cpp:74   in gpi_print_registered_impl       GPI: VPI support registered
+     0.00ns INFO     cocotb.initialize                  Seeding Python random module with 1794837201
+     0.00ns INFO     cocotb.initialize                  Initialized cocotb v2.1.0 from /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb
+     0.00ns INFO     cocotb.initialize                  Running on Icarus Verilog version 12.0 (stable)
+     0.00ns INFO     cocotb.regression                  Running tests
+     0.00ns INFO     cocotb.regression                  running test_probe.probe (1/1)
+  3150.00ns INFO     cocotb.tb                          PING             tx=0d 5a 00  rx=80 a5 80
+  8030.00ns INFO     cocotb.tb                          READ_CSR POUT    tx=05 10 00 00 00  rx=80 00 10 00 80
+ 12910.00ns INFO     cocotb.tb                          READ_CSR TSTATUS0 tx=05 42 00 00 00  rx=80 00 02 00 80
+ 17790.00ns INFO     cocotb.tb                          SET_ADDR 40      tx=01 40 00 00 00  rx=80 00 00 00 80
+ 23630.00ns INFO     cocotb.tb                          WRITE 40         tx=02 ef be ad de 00  rx=80 00 00 00 00 80
+ 29470.00ns INFO     cocotb.tb                          READ_MEM         tx=03 00 00 00 00 00  rx=80 00 00 00 02 80
+ 34350.00ns INFO     cocotb.tb                          READ_CSR TMR     tx=05 12 00 00 00  rx=80 00 10 00 80
+ 40190.00ns INFO     cocotb.tb                          STATUS           tx=0b 00 00 00 00 00  rx=80 54 54 54 54 80
+ 40190.00ns INFO     cocotb.tb                          pout=0000 status=0
+ 40190.00ns INFO     cocotb.regression                  test_probe.probe passed
+ 40190.00ns INFO     cocotb.regression                  **************************************************************************************
+                                                        ** TEST                          STATUS  SIM TIME (ns)  REAL TIME (s)  RATIO (ns/s) **
+                                                        **************************************************************************************
+                                                        ** test_probe.probe               PASS       40190.00           0.24     166208.59  **
+                                                        **************************************************************************************
+                                                        ** TESTS=1 PASS=1 FAIL=0 SKIP=0              40190.00           0.24     165994.25  **
+                                                        **************************************************************************************

@@ -1,0 +1,182 @@
+make sim COCOTB_TEST_MODULES=test_host
+make[1]: Entering directory '/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test'
+rm -f results.xml
+rm -f results.xml
+COCOTB_TEST_MODULES=test_host COCOTB_TESTCASE=  COCOTB_TOPLEVEL=tb TOPLEVEL_LANG=verilog       \
+	 /usr/bin/vvp -m /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb/libs/libcocotbvpi_icarus.so   sim_build/rtl/sim.vvp   
+     -.--ns INFO     gpi                                ../gpi/GpiCommon.cpp:242  in gpi_load_users                  Loaded entry library: '/usr/lib/x86_64-linux-gnu/libpython3.14.so.1.0'
+     -.--ns INFO     gpi                                ../gpi/GpiCommon.cpp:233  in gpi_load_users                  Running entry func 'initialize' from loaded library '/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb/simulator.cpython-314-x86_64-linux-gnu.so'
+     -.--ns INFO     pygpi                              ..ib/pygpi/embed.cpp:114  in initialize                      Using Python 3.14.0 interpreter at /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/bin/python3
+     -.--ns INFO     gpi                                ../gpi/GpiCommon.cpp:74   in gpi_print_registered_impl       GPI: VPI support registered
+     0.00ns INFO     cocotb.initialize                  Seeding Python random module with 1794837180
+     0.00ns INFO     cocotb.initialize                  Initialized cocotb v2.1.0 from /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb
+     0.00ns INFO     cocotb.initialize                  Running on Icarus Verilog version 12.0 (stable)
+     0.00ns INFO     cocotb.regression                  Running tests
+     0.00ns INFO     cocotb.regression                  running test_host.test_reset_state (1/16)
+                                                            spec §7: after reset every visible thing is defined and idle.
+  4110.00ns WARNING  cocotb.regression                  test_host.test_reset_state failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 39, in test_reset_state
+                                                            assert pout == 0, f"CSR POUT=0x{pout:04x} after reset"
+                                                        AssertionError: CSR POUT=0x0010 after reset
+                                                        assert 16 == 0
+  4110.00ns INFO     cocotb.regression                  running test_host.test_ping (2/16)
+                                                            CMD 0x0D: argument transfer returns 0xA5, command transfer 0x80.
+ 14310.00ns INFO     cocotb.tb                          PING: 5/5 transfers returned 0xA5
+ 14310.00ns INFO     cocotb.regression                  test_host.test_ping passed
+ 14310.00ns INFO     cocotb.regression                  running test_host.test_back_to_back_commands (3/16)
+                                                            Many commands in one CS window and across windows must all execute.
+ 41470.00ns WARNING  cocotb.regression                  test_host.test_back_to_back_commands failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 88, in test_back_to_back_commands
+                                                            assert got == [0xEF, 0xBE, 0xAD, 0xDE], f"READ_MEM payload {[hex(b) for b in got]}"
+                                                        AssertionError: READ_MEM payload ['0x0', '0x0', '0x0', '0x2']
+                                                        assert [0, 0, 0, 2] == [239, 190, 173, 222]
+ 41470.00ns INFO     cocotb.regression                  running test_host.test_pmem_rw (4/16)
+                                                            WRITE_MEM/READ_MEM + address auto-increment over the whole PMEM map.
+ 79190.00ns WARNING  cocotb.regression                  test_host.test_pmem_rw failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 99, in test_pmem_rw
+                                                            await host.write_mem_block(0x10, words)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 473, in write_mem_block
+                                                            self._check_status("WRITE_MEM", rx[0])
+                                                            ^^^^^^^^^^^^^^^^^^
+                                                        AttributeError: 'LoomHost' object has no attribute '_check_status'
+ 79190.00ns INFO     cocotb.regression                  running test_host.test_dmem_rw (5/16)
+                                                            DMEM lives at 0x3C0..0x3FF, 16-bit zero-extended over the host port.
+151310.00ns WARNING  cocotb.regression                  test_host.test_dmem_rw failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 120, in test_dmem_rw
+                                                            got = await host.read_dmem(5)
+                                                                  ^^^^^^^^^^^^^^^^^^^^^^^
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 532, in read_dmem
+                                                            return await self.read_mem_block(self.dmem_map_addr(addr), count)
+                                                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 484, in read_mem_block
+                                                            self._check_status("SET_ADDR", rx[0])
+                                                            ^^^^^^^^^^^^^^^^^^
+                                                        AttributeError: 'LoomHost' object has no attribute '_check_status'
+151310.00ns INFO     cocotb.regression                  running test_host.test_csr_rw (6/16)
+                                                            Every readable/writable CSR in spec §4.2.
+284790.01ns WARNING  cocotb.regression                  test_host.test_csr_rw failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 153, in test_csr_rw
+                                                            assert got == val, f"CSR 0x{addr:02x}: 0x{got:04x} != 0x{val:04x}"
+                                                        AssertionError: CSR 0x11: 0x208d != 0x00aa
+                                                        assert 8333 == 170
+284790.01ns INFO     cocotb.regression                  running test_host.test_set_pc_run_stop (7/16)
+                                                            SET_PC / RUN / STOP / TPC / TSTATUS / GSTATUS.
+303310.01ns WARNING  cocotb.regression                  test_host.test_set_pc_run_stop failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 174, in test_set_pc_run_stop
+                                                            await host.load_asm(src, addr=0x20)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 583, in load_asm
+                                                            await self.write_mem_block(addr, res.words)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 473, in write_mem_block
+                                                            self._check_status("WRITE_MEM", rx[0])
+                                                            ^^^^^^^^^^^^^^^^^^
+                                                        AttributeError: 'LoomHost' object has no attribute '_check_status'
+303310.01ns INFO     cocotb.regression                  running test_host.test_tx_push_rx_pop (8/16)
+                                                            Host -> thread RX FIFO -> thread -> TX FIFO -> host, byte-exact.
+303510.01ns WARNING  cocotb.regression                  test_host.test_tx_push_rx_pop failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 212, in test_tx_push_rx_pop
+                                                            await host.load_asm(echo)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 582, in load_asm
+                                                            res = loom_asm.assemble(source, **kw)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/loom_asm.py", line 672, in assemble
+                                                            target = eval_expr(optext, symbols, item.pc, filename, item.lineno)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/loom_asm.py", line 298, in eval_expr
+                                                            return _ExprParser(text, symbols, pc, filename, line).parse()
+                                                                   ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/loom_asm.py", line 212, in parse
+                                                            value = self.expr(0)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/loom_asm.py", line 219, in expr
+                                                            left = self.unary()
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/loom_asm.py", line 253, in unary
+                                                            raise self.err(f"undefined symbol {val!r}") from None
+                                                        sw.loom_asm.AsmError: <input>:4: error: undefined symbol 'echo' in expression 'echo'
+303510.01ns INFO     cocotb.regression                  running test_host.test_fifo_full_empty_flags (9/16)
+                                                            RX full (host->thread) and TX full (thread->host) back-pressure.
+334270.01ns WARNING  cocotb.regression                  test_host.test_fifo_full_empty_flags failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 234, in test_fifo_full_empty_flags
+                                                            assert fifo["rx_full"] == 1, f"TFIFO rx_full not set: 0x{fifo['raw']:04x}"
+                                                        AssertionError: TFIFO rx_full not set: 0x0800
+                                                        assert 0 == 1
+334270.01ns INFO     cocotb.regression                  running test_host.test_cs_abort_mid_command (10/16)
+                                                            Deasserting CS mid-command aborts it cleanly (spec §6 / host header).
+372790.01ns INFO     cocotb.tb                          CS abort mid-arg / mid-read: no side effects, engine idle again
+372790.01ns INFO     cocotb.regression                  test_host.test_cs_abort_mid_command passed
+372790.01ns INFO     cocotb.regression                  running test_host.test_unknown_command_ignored (11/16)
+                                                            Unknown commands are ignored and leave the engine free (header contract).
+380910.01ns INFO     cocotb.tb                          unknown commands ignored, engine stays free
+380910.01ns INFO     cocotb.regression                  test_host.test_unknown_command_ignored passed
+380910.01ns INFO     cocotb.regression                  running test_host.test_reset_mid_frame (12/16)
+                                                            rst_n asserted mid-transfer resets the link and all architecture state.
+399430.01ns WARNING  cocotb.regression                  test_host.test_reset_mid_frame failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 318, in test_reset_mid_frame
+                                                            await host.load_asm("""
+                                                            ...<3 lines>...
+                                                            """, addr=0)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 583, in load_asm
+                                                            await self.write_mem_block(addr, res.words)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 473, in write_mem_block
+                                                            self._check_status("WRITE_MEM", rx[0])
+                                                            ^^^^^^^^^^^^^^^^^^
+                                                        AttributeError: 'LoomHost' object has no attribute '_check_status'
+399430.01ns INFO     cocotb.regression                  running test_host.test_irq_set_ack (13/16)
+                                                            irq imm8 raises H_IRQ; ACK_IRQ clears it; IRQ CSR read clears code.
+413150.01ns WARNING  cocotb.regression                  test_host.test_irq_set_ack failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 347, in test_irq_set_ack
+                                                            await host.load_asm(src)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 583, in load_asm
+                                                            await self.write_mem_block(addr, res.words)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 473, in write_mem_block
+                                                            self._check_status("WRITE_MEM", rx[0])
+                                                            ^^^^^^^^^^^^^^^^^^
+                                                        AttributeError: 'LoomHost' object has no attribute '_check_status'
+413150.01ns INFO     cocotb.regression                  running test_host.test_soft_reset (14/16)
+                                                            CSR SOFTRST (0x20) resets the core but not PMEM or the host bridge.
+431670.01ns WARNING  cocotb.regression                  test_host.test_soft_reset failed
+                                                        Traceback (most recent call last):
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/test_host.py", line 373, in test_soft_reset
+                                                            words = await host.load_asm(src, addr=0)
+                                                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 583, in load_asm
+                                                            await self.write_mem_block(addr, res.words)
+                                                          File "/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test/host.py", line 473, in write_mem_block
+                                                            self._check_status("WRITE_MEM", rx[0])
+                                                            ^^^^^^^^^^^^^^^^^^
+                                                        AttributeError: 'LoomHost' object has no attribute '_check_status'
+431670.01ns INFO     cocotb.regression                  skipping test_host.test_pout_host_bits_ignored (15/16)
+                                                            spec §4.1: `out imm16` — pins_out = imm16 (host bits ignored).
+431670.01ns INFO     cocotb.regression                  skipping test_host.test_tfifo_layout (16/16)
+                                                            spec §4.2: TFIFO = {8'b0, rx_count, tx_count, 2'b0, rx_full, tx_full}.
+431670.01ns INFO     cocotb.regression                  ************************************************************************************************
+                                                        ** TEST                                    STATUS  SIM TIME (ns)  REAL TIME (s)  RATIO (ns/s) **
+                                                        ************************************************************************************************
+                                                        ** test_host.test_reset_state               FAIL        4110.00           0.03     152783.70  **
+                                                        ** test_host.test_ping                      PASS       10200.00           0.06     163979.80  **
+                                                        ** test_host.test_back_to_back_commands     FAIL       27160.00           0.17     161791.44  **
+                                                        ** test_host.test_pmem_rw                   FAIL       37720.00           0.24     157938.92  **
+                                                        ** test_host.test_dmem_rw                   FAIL       72120.00           0.45     159040.77  **
+                                                        ** test_host.test_csr_rw                    FAIL      133480.00           0.84     158164.97  **
+                                                        ** test_host.test_set_pc_run_stop           FAIL       18520.00           0.13     143255.84  **
+                                                        ** test_host.test_tx_push_rx_pop            FAIL         200.00           0.00     126466.70  **
+                                                        ** test_host.test_fifo_full_empty_flags     FAIL       30760.00           0.21     147097.05  **
+                                                        ** test_host.test_cs_abort_mid_command      PASS       38520.00           0.27     143847.20  **
+                                                        ** test_host.test_unknown_command_ignored   PASS        8120.00           0.06     142466.52  **
+                                                        ** test_host.test_reset_mid_frame           FAIL       18520.00           0.12     159682.19  **
+                                                        ** test_host.test_irq_set_ack               FAIL       13720.00           0.09     146234.08  **
+                                                        ** test_host.test_soft_reset                FAIL       18520.00           0.12     150264.29  **
+                                                        ** test_host.test_pout_host_bits_ignored    SKIP           0.00           0.00          -.--  **
+                                                        ** test_host.test_tfifo_layout              SKIP           0.00           0.00          -.--  **
+                                                        ************************************************************************************************
+                                                        ** TESTS=16 PASS=3 FAIL=11 SKIP=2                     431670.01           2.81     153886.63  **
+                                                        ************************************************************************************************
+make[1]: *** [/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/.venv/lib/python3.14/site-packages/cocotb_tools/makefiles/simulators/Makefile.icarus:69: results.xml] Error 11
+make[1]: Leaving directory '/home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/test'
+make: *** [Makefile:74: host] Error 2

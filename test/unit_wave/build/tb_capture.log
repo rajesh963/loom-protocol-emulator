@@ -1,0 +1,3 @@
+  (a) 6 of 10 cycles matched the trigger
+CAPTURE_TB: PASS (209 checks)
+tb_capture.v:405: $finish called at 1920000 (1ps)

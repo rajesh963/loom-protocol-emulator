@@ -1,0 +1,69 @@
+# Tiny Tapeout project information
+# LOOM — Jane Street / Tiny Tapeout "protocol emulator" ASIC competition entry.
+project:
+  title:        "LOOM: a programmable protocol loom"
+  author:       "Rajesh Malladi"
+  discord:      ""      # optional; left blank deliberately
+  description:  "A programmable protocol loom: 4 threads and a hardware event scheduler drive bit-exact UART, SPI, I2C and more; loaded over SPI after fabrication."
+  language:     "Verilog"
+  clock_hz:     60000000
+
+  # How many tiles your design occupies? A single tile is about 202x155 uM.
+  tiles: "8x4"
+
+  # Your top module name must start with "tt_um_". Make it unique by including your github username:
+  top_module:  "tt_um_rajesh963_loom"
+
+  # List your project's source files here.
+  # Source files must be in ./src and you must list each source file separately, one per line.
+  # `rtl/` is the working tree; the submission mirrors it into `src/` with `tools/sync_src.sh`
+  # (see docs/SUBMISSION_CHECKLIST.md). `loom_bus.vh` is the frozen shared header; the remaining
+  # `.vh` files are pulled in with `include and live next to the sources.
+  source_files:
+    - "loom_bus.vh"
+    - "loom_mem.v"
+    - "loom_core.v"
+    - "loom_host.v"
+    - "loom_wave.v"
+    - "tt_um_rajesh963_loom.v"
+
+# The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
+# This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
+#
+# LOOM has no fixed pin functions: ui/uo/uio are all routed into the 16-bit `pins_in` / `pins_out`
+# vectors and any protocol can be assigned to any pin by firmware. The names below are the
+# *suggested default assignment* used by the example programs in `sw/examples/` (see README.md
+# "Pinout" and docs/architecture.md §3 for the full P[] mapping).
+pinout:
+  # Inputs
+  ui[0]: "H_CS_N"        # host SPI chip select, active low
+  ui[1]: "H_SCK"         # host SPI clock, sampled
+  ui[2]: "H_MOSI"        # host SPI data in
+  ui[3]: "UART_RX"
+  ui[4]: "SPI_CS_IN"     # SPI target/slave chip select
+  ui[5]: "TRIG_IN"       # edge-event trigger / generic input
+  ui[6]: "WAVE_IN0"      # 10BASE-T RX+ / generic wave input
+  ui[7]: "WAVE_IN1"      # 10BASE-T RX- / generic wave input
+
+  # Outputs
+  uo[0]: "H_MISO"        # host SPI data out
+  uo[1]: "H_IRQ"         # interrupt to host, level
+  uo[2]: "UART_TX"
+  uo[3]: "SPI_CS_N"      # SPI controller/master chip select
+  uo[4]: "WS2812_DATA"
+  uo[5]: "SPARE_OUT"     # generic output / external trigger
+  uo[6]: "WAVE_OUT0"     # 10BASE-T TX+ / generic wave output
+  uo[7]: "WAVE_OUT1"     # 10BASE-T TX- / generic wave output
+
+  # Bidirectional pins
+  uio[0]: "I2C_SCL"
+  uio[1]: "I2C_SDA"
+  uio[2]: "PS2_CLK"
+  uio[3]: "PS2_DAT"
+  uio[4]: "ONEWIRE"      # 1-Wire DQ, open drain
+  uio[5]: "SPI_SCK"
+  uio[6]: "SPI_MOSI"
+  uio[7]: "SPI_MISO"
+
+# Do not change!
+yaml_version: 6

@@ -1,0 +1,8 @@
+read_verilog -sv rtl/loom_host.v rtl/loom_fifo.v
+hierarchy -top loom_host
+proc
+opt
+check -assert
+select -assert-none t:$dlatch
+select -assert-none t:$adlatch
+stat

@@ -1,0 +1,3 @@
+HOST_TB: SCK period = 10000 ns (100 kHz)
+HOST_TB: PASS
+test/unit_host/tb_host.v:802: $finish called at 10909588599 (1ps)

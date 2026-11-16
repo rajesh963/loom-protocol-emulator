@@ -1,0 +1,4 @@
+  (b) 1000 symbols at period 1.625 -> 1625 cycles (exact 1625)
+  (b2) 100 symbols at period 1.5 -> 150 cycles (exact 150)
+WAVE_TB: PASS (96 checks)
+tb_wave.v:436: $finish called at 19290000 (1ps)
