@@ -2,8 +2,18 @@
 //  loom_host.v -- LOOM host bridge: SPI mode-0 slave + host command engine
 //
 //  Ports: spec/OWNERS.md (verbatim).  Constants: rtl/loom_bus.vh (frozen).
-//  Protocol: spec/ARCHITECTURE.md sec.6 + the canonical framing agreed with the
-//  Lead (host/loom_host.py and the verification suite assume this exactly).
+//  Protocol: spec/ARCHITECTURE.md sec.6 (canonical framing).
+//
+//  AREA NOTE: this module is deliberately written for minimum flip-flops.
+//  The argument bytes live in ONE 32-bit word (`argw`, one byte lane per
+//  argument) which is also the memory write-data port, so mem_wdata/mem_addr/
+//  csr_wr_addr/csr_wr_data/rx_push_*/tx_pop_tid/csr_rd_addr are COMBINATIONAL
+//  outputs derived from it: no shadow copies.  Commands that need the last
+//  argument byte (all writes) fire their one-clk enable pulse in an "issue"
+//  phase (`iph`) one clk later, when the fully latched word is stable.  The
+//  response path is a 24-bit shifter (byte 0 goes straight to the TX shifter),
+//  the STATUS fetch keeps only two assembled bytes (ping-pong) and the command
+//  state is a 4-bit opcode + a 2-bit FSM.  The wire protocol is unchanged.
 //
 // ----------------------------------------------------------------------------
 //  TIMING / SCK SAMPLING (max SCK)
@@ -65,18 +75,12 @@
 //     bit1:0 = 2'b00
 //  STATUS is assembled from four TSTATUS + four TFIFO CSR reads (eight
 //  back-to-back reads issued on consecutive clk starting with the command
-//  byte's last SCK edge; captured 2 clk after each issue, so the host must
-//  answer pipelined reads: csr_rd_data = f(csr_rd_addr) one cycle after
-//  csr_rd_en).  Thread 0's byte has no transfer boundary before it is needed,
-//  so it is launched in two steps: {halted,en} as soon as the first read
-//  returns, then the full byte when the TFIFO read returns -- bit7 never
-//  changes, so MISO is glitch-free.
-//
-//  ADDRESS MAP (core-side decode, see rtl/loom_mem.v): host mem_addr[9:0]
-//    0x000-0x3BF = PMEM word address (1024-word build uses 0x000-0x3BF)
-//    0x3C0-0x3FF = DMEM word address (DMEM_WORDS = 64)
-//  SET_ADDR takes a 24-bit pointer; only the low 10 bits reach mem_addr and the
-//  pointer auto-increments by one word after every WRITE_MEM / READ_MEM.
+//  byte's last SCK edge; the host CSR read port is combinational on
+//  csr_rd_addr, so each read is captured one clk after it is issued).
+//  Thread 0's byte has no transfer boundary before it is needed, so it is
+//  launched in two steps: {halted,en} as soon as the first read returns, then
+//  the full byte when the TFIFO read returns -- bit7 never changes, so MISO is
+//  glitch-free.  Bytes 1..3 are held in a two-entry ping-pong (thread parity).
 //
 //  Core-side CSR addresses (the core MUST implement these):
 //    0x30 RUNMASK   : write {12'b0, mask[3:0]}  "clear halt, en |= mask"
@@ -87,16 +91,29 @@
 //                     (read, for STATUS; also [1]=rx_full,[0]=tx_full)
 //    0x14 CSR_IRQ   : write 0 = clear the core IRQ code (HCMD_ACK_IRQ)
 //
+//  ADDRESS MAP (core-side decode, see rtl/loom_mem.v): host mem_addr[9:0]
+//    0x000-0x3BF = PMEM word address (1024-word build uses 0x000-0x3BF)
+//    0x3C0-0x3FF = DMEM word address (DMEM_WORDS = 64)
+//  SET_ADDR takes a 24-bit pointer; only the low 10 bits reach mem_addr (the
+//  pointer register is 10 bits wide) and it auto-increments by one word after
+//  every completed WRITE_MEM / READ_MEM.
+//
 // ----------------------------------------------------------------------------
 //  HANDSHAKES
 // ----------------------------------------------------------------------------
-//  * mem_re is a one-clk pulse with mem_addr stable in that cycle; answer with
-//    a one-clk mem_rvalid (mem_rdata valid in that cycle), one cycle later.
-//  * csr_rd_en is a one-clk pulse; csr_rd_data is sampled on the second clk
-//    after the issue edge ("valid the cycle after csr_rd_en", registered).
-//  * mem_we / csr_wr_en are one-clk pulses; writes take effect immediately.
-//  * tx_pop is a one-clk pulse, tx_pop_data valid in that same cycle; sampled
-//    on the following edge.  rx_push is a one-clk pulse.
+//  * mem_re is a one-clk registered pulse with mem_addr stable in that cycle;
+//    answer with a one-clk mem_rvalid (mem_rdata valid in that cycle), one
+//    cycle later.
+//  * csr_rd_en is a one-clk registered pulse; the core presents csr_rd_data
+//    combinationally from csr_rd_addr, which is held stable for the whole
+//    handshake (READ_CSR) or driven by the fetch index (STATUS).  The data is
+//    sampled on the second clk after the issue edge.
+//  * mem_we / csr_wr_en / rx_push are one-clk COMBINATIONAL pulses asserted in
+//    the issue phase, one clk after the last argument byte was latched; the
+//    address/data outputs are stable for exactly that cycle.  Writes take
+//    effect immediately.
+//  * tx_pop is a one-clk registered pulse, tx_pop_data valid in that same
+//    cycle; sampled on the following edge.  tx_pop_tid is combinational.
 //  * A 4-clk watchdog on every read handshake: a missing/late response makes
 //    the read return 0 and the command complete, so the SPI slave can never
 //    deadlock the host.
@@ -105,7 +122,7 @@
 //  * irq_out is a registered level: set when irq_code != 0, cleared by
 //    HCMD_ACK_IRQ (which also writes CSR_IRQ=0 so the core drops the code).
 //    It can therefore never glitch low-high-low inside a byte transfer: it is
-//    only cleared at a byte boundary (the ACK command's last SCK edge) and set
+//    only cleared at a byte boundary (the ACK command's issue phase) and set
 //    only by a sticky IRQ event.
 // ============================================================================
 `default_nettype none
@@ -153,12 +170,28 @@ module loom_host (
 );
 
   // --------------------------------------------------------------------------
-  // command engine states
+  // command opcodes (4-bit internal encoding of the 8-bit HCMD_* byte)
   // --------------------------------------------------------------------------
-  localparam [2:0] ST_IDLE = 3'd0;   // waiting for a command byte
-  localparam [2:0] ST_ARG  = 3'd1;   // collecting argument bytes
-  localparam [2:0] ST_WAIT = 3'd2;   // read / pop handshake in flight
-  localparam [2:0] ST_RESP = 3'd3;   // response bytes queued to the TX shifter
+  localparam [3:0] OP_NONE    = 4'd0;
+  localparam [3:0] OP_SETADDR = 4'd1;
+  localparam [3:0] OP_WMEM    = 4'd2;
+  localparam [3:0] OP_RMEM    = 4'd3;
+  localparam [3:0] OP_WCSR    = 4'd4;
+  localparam [3:0] OP_RCSR    = 4'd5;
+  localparam [3:0] OP_TPUSH   = 4'd6;
+  localparam [3:0] OP_RPOP    = 4'd7;
+  localparam [3:0] OP_SETPC   = 4'd8;
+  localparam [3:0] OP_RUN     = 4'd9;
+  localparam [3:0] OP_STOP    = 4'd10;
+  localparam [3:0] OP_STATUS  = 4'd11;
+  localparam [3:0] OP_ACKIRQ  = 4'd12;
+  localparam [3:0] OP_PING    = 4'd13;
+
+  // command engine states
+  localparam [1:0] ST_IDLE = 2'd0;   // waiting for a command byte
+  localparam [1:0] ST_ARG  = 2'd1;   // collecting argument bytes
+  localparam [1:0] ST_WAIT = 2'd2;   // read / pop handshake in flight
+  localparam [1:0] ST_RESP = 2'd3;   // response bytes queued to the TX shifter
 
   localparam [1:0] W_MEM = 2'd0;     // mem_re     .. mem_rvalid
   localparam [1:0] W_CSR = 2'd1;     // csr_rd_en  .. csr_rd_data
@@ -181,7 +214,7 @@ module loom_host (
   // --------------------------------------------------------------------------
   reg  [2:0] bit_cnt;                // MOSI bits captured in this transfer
   reg  [7:0] rx_shift;
-  reg  [7:0] tx_shift;
+  reg  [7:0] tx_shift;               // MISO shifter (MSB out first)
 
   wire [7:0] rx_byte   = {rx_shift[6:0], mosi_s};                // complete byte
   wire       byte_done = cs_act & sck_rise & (bit_cnt == 3'd7);  // end of transfer
@@ -194,104 +227,170 @@ module loom_host (
   // --------------------------------------------------------------------------
   reg        irq_r;
   reg [1:0]  irq_hold;
-  reg        ack_irq;                // one-clk pulse at ACK_IRQ completion
   assign irq_out = irq_r;
 
   // --------------------------------------------------------------------------
-  // command engine state
+  // command engine state (kept as small as possible; see AREA NOTE above)
   // --------------------------------------------------------------------------
-  reg [2:0]  st;
-  reg [7:0]  cmd;
-  reg [2:0]  nargs;                  // argument bytes expected
-  reg [2:0]  argi;                   // argument bytes received
-  reg [7:0]  ab0, ab1, ab2, ab3;     // argument byte latches (LSB first)
-  reg [23:0] addr_ptr;               // word address pointer
-  reg [2:0]  resp_len;
-  reg [2:0]  resp_idx;               // response bytes already launched
-  reg [31:0] resp_sh;                // remaining response bytes, LSB next
+  reg [1:0]  st;
+  reg [3:0]  op;                     // internal opcode of the running command
+  reg [1:0]  argi;                   // argument bytes received (0..3)
+  reg [31:0] argw;                   // argument word, one byte lane per arg
+  reg [9:0]  addr_ptr;               // word address pointer (mem_addr[9:0])
+  reg        iph;                    // issue phase: pulse the write enables
   reg [2:0]  dead;                   // watchdog: clk since handshake issue
   reg [1:0]  wait_kind;
+  reg [1:0]  resp_left;              // response bytes still to launch
+  reg        resp_is_status;
+  reg [23:0] resp_sh;                // remaining response bytes, LSB next
+  // mem_re / csr_rd_en / tx_pop are OUTPUT regs (declared in the port list)
 
   // --------------------------------------------------------------------------
   // STATUS fetch engine (TSTATUS + TFIFO per thread, see header)
   // --------------------------------------------------------------------------
   reg        stat_en;                // fetch in progress
-  reg [3:0]  stat_i;                 // next read index (0..7), 8 = done
-  reg        p1_v;                   // read-issued pipeline
-  reg [3:0]  p1_i;
-  reg        p2_v;                   // capture pipeline (2 clk after issue)
-  reg [3:0]  p2_i;
+  reg [2:0]  stat_i;                 // next read index (0..7)
+  reg        p1_v;                   // read-issued pipeline (capture next clk)
+  reg [2:0]  p1_i;
   reg [7:0]  statb [0:3];            // assembled status byte per thread
-  reg        resp_is_status;
-
-  wire [7:0] stat_rd_addr = 8'h42 + {2'b00, stat_i[2:1], 4'b0000} + {7'b0, stat_i[0]};
+  wire [1:0] stat_slot = 2'd0 - resp_left;   // byte index 4-resp_left: 1,2,3
+  wire [7:0] stat_addr = 8'h42 + {2'b00, p1_i[2:1], 4'b0000} + {7'b0, p1_i[0]};
   wire [3:0] cap_tx_cnt   = csr_rd_data[7:4];
   wire [3:0] cap_rx_cnt   = csr_rd_data[11:8];
   wire       cap_tx_full  = (cap_tx_cnt == 4'd8);
   wire       cap_rx_empty = (cap_rx_cnt == 4'd0);
 
   // --------------------------------------------------------------------------
+  // command decode: HCMD_* byte -> 4-bit internal opcode
+  // --------------------------------------------------------------------------
+  reg [3:0] op_d;
+  always @(*) begin
+    case (rx_byte)
+      `HCMD_SET_ADDR:  op_d = OP_SETADDR;
+      `HCMD_WRITE_MEM: op_d = OP_WMEM;
+      `HCMD_READ_MEM:  op_d = OP_RMEM;
+      `HCMD_WRITE_CSR: op_d = OP_WCSR;
+      `HCMD_READ_CSR:  op_d = OP_RCSR;
+      `HCMD_TX_PUSH:   op_d = OP_TPUSH;
+      `HCMD_RX_POP:    op_d = OP_RPOP;
+      `HCMD_SET_PC:    op_d = OP_SETPC;
+      `HCMD_RUN:       op_d = OP_RUN;
+      `HCMD_STOP:      op_d = OP_STOP;
+      `HCMD_STATUS:    op_d = OP_STATUS;
+      `HCMD_ACK_IRQ:   op_d = OP_ACKIRQ;
+      `HCMD_PING:      op_d = OP_PING;
+      default:         op_d = OP_NONE;
+    endcase
+  end
+
+  // argument-byte count minus one, derived from the opcode (no register)
+  reg [1:0] nm1;
+  always @(*) begin
+    case (op)
+      OP_WMEM:                       nm1 = 2'd3;
+      OP_SETADDR, OP_WCSR, OP_SETPC: nm1 = 2'd2;
+      OP_TPUSH:                      nm1 = 2'd1;
+      default:                       nm1 = 2'd0;
+    endcase
+  end
+
+  // --------------------------------------------------------------------------
+  // command outputs.  Everything derived from `argw` is combinational: the
+  // argument word is the write data, the address is the address pointer, and
+  // the one-clk enables live in the issue phase (`iph`) one clk after the last
+  // argument byte, when the whole word is latched.
+  // --------------------------------------------------------------------------
+  wire ack_irq = iph & (op == OP_ACKIRQ);
+
+  always @(*) begin
+    mem_we       = 1'b0;
+    mem_addr     = addr_ptr;
+    mem_wdata    = argw;
+    csr_wr_en    = 1'b0;
+    csr_wr_addr  = 8'h00;
+    csr_wr_data  = 16'h0000;
+    csr_rd_addr  = p1_v ? stat_addr : argw[7:0];
+    rx_push      = 1'b0;
+    rx_push_tid  = argw[1:0];
+    rx_push_data = argw[15:8];
+    tx_pop_tid   = argw[1:0];
+    if (iph) begin
+      case (op)
+        OP_WMEM:   mem_we = 1'b1;
+        OP_WCSR: begin
+          csr_wr_en   = 1'b1;
+          csr_wr_addr = argw[7:0];
+          csr_wr_data = argw[23:8];
+        end
+        OP_SETPC: begin
+          csr_wr_en   = 1'b1;
+          csr_wr_addr = 8'h48 + {2'b00, argw[1:0], 4'b0000};
+          csr_wr_data = argw[23:8];
+        end
+        OP_RUN: begin
+          csr_wr_en   = 1'b1;
+          csr_wr_addr = 8'h30;                     // host-only RUNMASK
+          csr_wr_data = {12'h000, argw[3:0]};
+        end
+        OP_STOP: begin
+          csr_wr_en   = 1'b1;
+          csr_wr_addr = 8'h31;                     // host-only STOPMASK
+          csr_wr_data = {12'h000, argw[3:0]};
+        end
+        OP_ACKIRQ: begin
+          csr_wr_en   = 1'b1;
+          csr_wr_addr = `CSR_IRQ;                  // 0x14: write 0 = clear
+          csr_wr_data = 16'h0000;
+        end
+        OP_TPUSH: begin
+          if (!rx_full[argw[1:0]])
+            rx_push = 1'b1;
+        end
+        default: ;
+      endcase
+    end
+  end
+
+  // --------------------------------------------------------------------------
   // main sequential process (single clock domain, all state reset)
   // --------------------------------------------------------------------------
   always @(posedge clk) begin
     if (!rst_n) begin
-      sck_s        <= 3'b000;
-      cs_s         <= 3'b111;
-      mosi_s       <= 1'b0;
-      bit_cnt      <= 3'd0;
-      rx_shift     <= 8'h00;
-      tx_shift     <= `HCMD_RESP_OK;   // first command transfer returns 0x80
-      mem_we       <= 1'b0;
-      mem_addr     <= 10'd0;
-      mem_wdata    <= 32'd0;
-      mem_re       <= 1'b0;
-      csr_wr_en    <= 1'b0;
-      csr_wr_addr  <= 8'h00;
-      csr_wr_data  <= 16'h0000;
-      csr_rd_en    <= 1'b0;
-      csr_rd_addr  <= 8'h00;
-      rx_push      <= 1'b0;
-      rx_push_tid  <= 2'd0;
-      rx_push_data <= 8'h00;
-      tx_pop       <= 1'b0;
-      tx_pop_tid   <= 2'd0;
-      ack_irq      <= 1'b0;
-      st           <= ST_IDLE;
-      cmd          <= 8'h00;
-      nargs        <= 3'd0;
-      argi         <= 3'd0;
-      ab0          <= 8'h00;
-      ab1          <= 8'h00;
-      ab2          <= 8'h00;
-      ab3          <= 8'h00;
-      addr_ptr     <= 24'd0;
-      resp_len     <= 3'd0;
-      resp_idx     <= 3'd0;
-      resp_sh      <= 32'h0000_0000;
-      dead         <= 3'd0;
-      wait_kind    <= W_MEM;
-      stat_en      <= 1'b0;
-      stat_i       <= 4'd8;
-      p1_v         <= 1'b0;
-      p1_i         <= 4'd0;
-      p2_v         <= 1'b0;
-      p2_i         <= 4'd0;
+      sck_s          <= 3'b000;
+      cs_s           <= 3'b111;
+      mosi_s         <= 1'b0;
+      bit_cnt        <= 3'd0;
+      rx_shift       <= 8'h00;
+      tx_shift       <= `HCMD_RESP_OK;   // first command transfer returns 0x80
+      mem_re         <= 1'b0;
+      csr_rd_en      <= 1'b0;
+      tx_pop         <= 1'b0;
+      st             <= ST_IDLE;
+      op             <= OP_NONE;
+      argi           <= 2'd0;
+      argw           <= 32'h0000_0000;
+      addr_ptr       <= 10'd0;
+      iph            <= 1'b0;
+      dead           <= 3'd0;
+      wait_kind      <= W_MEM;
+      resp_left      <= 2'd0;
       resp_is_status <= 1'b0;
-      statb[0]     <= 8'h00;
-      statb[1]     <= 8'h00;
-      statb[2]     <= 8'h00;
-      statb[3]     <= 8'h00;
+      resp_sh        <= 24'h00_0000;
+      stat_en        <= 1'b0;
+      stat_i         <= 3'd0;
+      p1_v           <= 1'b0;
+      p1_i           <= 3'd0;
+      statb[0]       <= 8'h00;
+      statb[1]       <= 8'h00;
+      statb[2]       <= 8'h00;
+      statb[3]       <= 8'h00;
     end else begin
       // ----------------------------------------------------------------------
       // pulse defaults (command logic below overrides for one clk)
       // ----------------------------------------------------------------------
-      mem_we    <= 1'b0;
       mem_re    <= 1'b0;
-      csr_wr_en <= 1'b0;
       csr_rd_en <= 1'b0;
-      rx_push   <= 1'b0;
       tx_pop    <= 1'b0;
-      ack_irq   <= 1'b0;
 
       // ----------------------------------------------------------------------
       // SPI pin pipeline
@@ -314,6 +413,16 @@ module loom_host (
       end
 
       // ----------------------------------------------------------------------
+      // issue phase: the write enables were combinational last clk; close it
+      // out and bump the address pointer after a WRITE_MEM
+      // ----------------------------------------------------------------------
+      if (iph) begin
+        iph <= 1'b0;
+        if (op == OP_WMEM)
+          addr_ptr <= addr_ptr + 10'd1;
+      end
+
+      // ----------------------------------------------------------------------
       // handshake watchdog: counts clk cycles since the request was issued
       // ----------------------------------------------------------------------
       if ((st == ST_WAIT) && (dead != 3'd7))
@@ -326,79 +435,73 @@ module loom_host (
         case (wait_kind)
           W_MEM: begin
             if (mem_rvalid) begin
-              tx_shift <= mem_rdata[7:0];
-              resp_sh  <= {8'h00, mem_rdata[31:8]};
-              resp_len <= 3'd4;
-              resp_idx <= 3'd1;
-              st       <= ST_RESP;
+              tx_shift  <= mem_rdata[7:0];
+              resp_sh   <= {8'h00, mem_rdata[31:8]};
+              resp_left <= 2'd3;
+              st        <= ST_RESP;
+              addr_ptr  <= addr_ptr + 10'd1;
             end else if (dead >= 3'd4) begin      // stalled read -> 0
-              tx_shift <= 8'h00;
-              resp_sh  <= 32'h0000_0000;
-              resp_len <= 3'd4;
-              resp_idx <= 3'd1;
-              st       <= ST_RESP;
+              tx_shift  <= 8'h00;
+              resp_sh   <= 24'h00_0000;
+              resp_left <= 2'd3;
+              st        <= ST_RESP;
+              addr_ptr  <= addr_ptr + 10'd1;
             end
           end
           W_CSR: begin
-            if (dead >= 3'd1) begin               // data valid the cycle after
-              tx_shift <= csr_rd_data[7:0];
-              resp_sh  <= {16'h0000, csr_rd_data[15:8]};
-              resp_len <= 3'd2;
-              resp_idx <= 3'd1;
-              st       <= ST_RESP;
+            if (dead >= 3'd1) begin               // combinational host read port
+              tx_shift  <= csr_rd_data[7:0];
+              resp_sh   <= {8'h00, csr_rd_data[15:8]};
+              resp_left <= 2'd1;
+              st        <= ST_RESP;
             end else if (dead >= 3'd4) begin
-              tx_shift <= 8'h00;
-              resp_sh  <= 32'h0000_0000;
-              resp_len <= 3'd2;
-              resp_idx <= 3'd1;
-              st       <= ST_RESP;
+              tx_shift  <= 8'h00;
+              resp_sh   <= 24'h00_0000;
+              resp_left <= 2'd1;
+              st        <= ST_RESP;
             end
           end
           default: begin                          // W_POP: data in the pop cycle
-            tx_shift <= tx_pop_data;
-            resp_len <= 3'd1;
-            resp_idx <= 3'd1;
-            st       <= ST_RESP;
+            tx_shift  <= tx_pop_data;
+            resp_left <= 2'd0;
+            st        <= ST_RESP;
           end
         endcase
       end
 
       // ----------------------------------------------------------------------
-      // STATUS fetch: issue one CSR read per clk, capture 2 clk after issue
+      // STATUS fetch: one CSR read per clk, captured 1 clk after it is issued
       // ----------------------------------------------------------------------
-      if (stat_en && (stat_i < 4'd8)) begin
-        csr_rd_en   <= 1'b1;
-        csr_rd_addr <= stat_rd_addr;
-        p1_v        <= 1'b1;
-        p1_i        <= stat_i;
-        stat_i      <= stat_i + 4'd1;
+      if (stat_en) begin
+        csr_rd_en <= 1'b1;
+        p1_v      <= 1'b1;
+        p1_i      <= stat_i;
+        if (stat_i == 3'd7) begin
+          stat_en <= 1'b0;                        // last read issued
+        end else begin
+          stat_i  <= stat_i + 3'd1;
+        end
       end else begin
         p1_v <= 1'b0;
       end
-      p2_v <= p1_v;
-      p2_i <= p1_i;
 
-      if (p1_v && stat_en) begin
+      if (p1_v) begin
         if (p1_i[0] == 1'b0) begin
           // TSTATUS = {14'b0, halted, en}
           statb[p1_i[2:1]] <= {csr_rd_data[1:0], statb[p1_i[2:1]][5:0]};
         end else begin
           // TFIFO counts: [11:8] = rx_count, [7:4] = tx_count
           statb[p1_i[2:1]] <= {statb[p1_i[2:1]][7:6],
-                               cap_tx_full,
-                               tx_empty[p1_i[2:1]],
-                               rx_full[p1_i[2:1]],
-                               cap_rx_empty,
-                               2'b00};
+                             cap_tx_full,
+                             tx_empty[p1_i[2:1]],
+                             rx_full[p1_i[2:1]],
+                             cap_rx_empty,
+                             2'b00};
         end
-        if (p1_i == 4'd7) begin
-          stat_en    <= 1'b0;                  // last read captured
-          csr_rd_en  <= 1'b0;
-        end
-        // thread 0's byte is needed before its transfer boundary: launch it
+        // thread 0's byte has no transfer boundary before it is needed
         if (resp_is_status && (p1_i[2:1] == 2'd0)) begin
           if (p1_i[0] == 1'b0)
-            tx_shift <= {csr_rd_data[1:0], 6'b000000};      // bit7 = halted
+            tx_shift <= {csr_rd_data[1:0], 6'b000000};   // bit7 = halted
           else
             tx_shift <= {statb[0][7:6], cap_tx_full,
                          tx_empty[0], rx_full[0], cap_rx_empty, 2'b00};
@@ -412,176 +515,105 @@ module loom_host (
         case (st)
           // ---------------- new command byte -------------------------------
           ST_IDLE: begin
-            cmd  <= rx_byte;
-            argi <= 3'd0;
-            case (rx_byte)
-              `HCMD_SET_ADDR: begin
-                nargs <= 3'd3; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_WRITE_MEM: begin
-                nargs <= 3'd4; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_READ_MEM: begin
+            op       <= op_d;
+            argi     <= 2'd0;
+            tx_shift <= `HCMD_RESP_OK;             // free for the next command
+            case (op_d)
+              OP_RMEM: begin
                 mem_re    <= 1'b1;
-                mem_addr  <= addr_ptr[9:0];
-                addr_ptr  <= addr_ptr + 24'd1;
                 dead      <= 3'd0;
                 wait_kind <= W_MEM;
                 st        <= ST_WAIT;
                 tx_shift  <= 8'h00;                // filled when data arrives
               end
-              `HCMD_WRITE_CSR: begin
-                nargs <= 3'd3; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_READ_CSR: begin
-                nargs <= 3'd1; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_TX_PUSH: begin
-                nargs <= 3'd2; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_RX_POP: begin
-                nargs <= 3'd1; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_SET_PC: begin
-                nargs <= 3'd3; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_RUN: begin
-                nargs <= 3'd1; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_STOP: begin
-                nargs <= 3'd1; st <= ST_ARG; tx_shift <= 8'h00;
-              end
-              `HCMD_STATUS: begin
-                // issue the first CSR read immediately, then one per clk
-                stat_en   <= 1'b1;
-                stat_i    <= 4'd1;
+              OP_STATUS: begin
+                stat_en   <= 1'b1;                 // issue TSTATUS thread 0 now
+                stat_i    <= 3'd1;
                 csr_rd_en <= 1'b1;
-                csr_rd_addr <= 8'h42;              // TSTATUS thread 0
                 p1_v      <= 1'b1;
-                p1_i      <= 4'd0;
+                p1_i      <= 3'd0;
                 resp_is_status <= 1'b1;
-                resp_len  <= 3'd4;
-                resp_idx  <= 3'd1;
+                resp_left <= 2'd3;
                 st        <= ST_RESP;
                 tx_shift  <= 8'h00;
               end
-              `HCMD_ACK_IRQ: begin
-                ack_irq     <= 1'b1;
-                csr_wr_en   <= 1'b1;
-                csr_wr_addr <= `CSR_IRQ;           // 0x14: write 0 = clear
-                csr_wr_data <= 16'h0000;
-                st          <= ST_IDLE;
-                tx_shift    <= `HCMD_RESP_OK;
+              OP_ACKIRQ: begin
+                iph       <= 1'b1;                 // csr_wr 0x14 = 0 next clk
               end
-              `HCMD_PING: begin
+              OP_PING: begin
                 // 0x0D returns 0xA5 on the argument transfer itself
-                nargs <= 3'd1; st <= ST_ARG; tx_shift <= 8'hA5;
+                st       <= ST_ARG;
+                tx_shift <= 8'hA5;
               end
-              default: begin                        // unknown command: ignore
+              OP_NONE: begin                       // unknown: ignore
                 st       <= ST_IDLE;
-                tx_shift <= `HCMD_RESP_OK;
+              end
+              default: begin                       // commands with arguments
+                st       <= ST_ARG;
+                tx_shift <= 8'h00;
               end
             endcase
           end
 
           // ---------------- argument bytes ---------------------------------
           ST_ARG: begin
-            if (argi == 3'd0) ab0 <= rx_byte;
-            if (argi == 3'd1) ab1 <= rx_byte;
-            if (argi == 3'd2) ab2 <= rx_byte;
-            if (argi == 3'd3) ab3 <= rx_byte;
-
-            if (argi == (nargs - 3'd1)) begin
-              // ---- last argument: execute the command ---------------------
-              argi     <= 3'd0;
+            case (argi)
+              2'd0:    argw[7:0]   <= rx_byte;
+              2'd1:    argw[15:8]  <= rx_byte;
+              2'd2:    argw[23:16] <= rx_byte;
+              default: argw[31:24] <= rx_byte;
+            endcase
+            if (argi == nm1) begin
+              // ---- last argument: execute (or arm the issue phase) --------
+              argi     <= 2'd0;
               st       <= ST_IDLE;
               tx_shift <= `HCMD_RESP_OK;           // free for the next command
-              case (cmd)
-                `HCMD_SET_ADDR: begin
-                  addr_ptr <= {8'h00, rx_byte, ab1, ab0};
+              case (op)
+                OP_SETADDR: begin
+                  addr_ptr <= {6'b0, argw[9:8], argw[7:0]};
                 end
-                `HCMD_WRITE_MEM: begin
-                  mem_we    <= 1'b1;
-                  mem_addr  <= addr_ptr[9:0];
-                  mem_wdata <= {rx_byte, ab2, ab1, ab0};
-                  addr_ptr  <= addr_ptr + 24'd1;
+                OP_WMEM, OP_WCSR, OP_SETPC,
+                OP_RUN, OP_STOP, OP_TPUSH: begin
+                  iph <= 1'b1;                     // enable pulse next clk
                 end
-                `HCMD_WRITE_CSR: begin
-                  csr_wr_en   <= 1'b1;
-                  csr_wr_addr <= ab0;
-                  csr_wr_data <= {rx_byte, ab1};
+                OP_RCSR: begin
+                  csr_rd_en <= 1'b1;
+                  dead      <= 3'd0;
+                  wait_kind <= W_CSR;
+                  st        <= ST_WAIT;
+                  tx_shift  <= 8'h00;
                 end
-                `HCMD_READ_CSR: begin
-                  csr_rd_en   <= 1'b1;
-                  csr_rd_addr <= rx_byte;
-                  dead        <= 3'd0;
-                  wait_kind   <= W_CSR;
-                  st          <= ST_WAIT;
-                  tx_shift    <= 8'h00;
-                end
-                `HCMD_TX_PUSH: begin
-                  if (!rx_full[ab0[1:0]]) begin
-                    rx_push      <= 1'b1;
-                    rx_push_tid  <= ab0[1:0];
-                    rx_push_data <= rx_byte;
-                  end
-                end
-                `HCMD_RX_POP: begin
+                OP_RPOP: begin
                   if (!tx_empty[rx_byte[1:0]]) begin
-                    tx_pop      <= 1'b1;
-                    tx_pop_tid  <= rx_byte[1:0];
-                    st          <= ST_WAIT;
-                    wait_kind   <= W_POP;
-                    dead        <= 3'd0;
-                    tx_shift    <= 8'h00;
-                  end else begin                    // empty FIFO -> return 0x00
-                    tx_shift <= 8'h00;
-                    resp_len <= 3'd1;
-                    resp_idx <= 3'd1;
-                    st       <= ST_RESP;
+                    tx_pop    <= 1'b1;
+                    dead      <= 3'd0;
+                    wait_kind <= W_POP;
+                    st        <= ST_WAIT;
+                    tx_shift  <= 8'h00;
+                  end else begin                   // empty FIFO -> return 0x00
+                    tx_shift  <= 8'h00;
+                    resp_left <= 2'd0;
+                    st        <= ST_RESP;
                   end
                 end
-                `HCMD_SET_PC: begin
-                  csr_wr_en   <= 1'b1;
-                  csr_wr_addr <= 8'h48 + {2'b00, ab0[1:0], 4'b0000};
-                  csr_wr_data <= {rx_byte, ab1};
-                end
-                `HCMD_RUN: begin
-                  csr_wr_en   <= 1'b1;
-                  csr_wr_addr <= 8'h30;             // host-only RUNMASK
-                  csr_wr_data <= {12'h000, rx_byte[3:0]};
-                end
-                `HCMD_STOP: begin
-                  csr_wr_en   <= 1'b1;
-                  csr_wr_addr <= 8'h31;             // host-only STOPMASK
-                  csr_wr_data <= {12'h000, rx_byte[3:0]};
-                end
-                `HCMD_PING: begin
-                  // already returned 0xA5 on this transfer; argument ignored
-                  st       <= ST_IDLE;
-                  tx_shift <= `HCMD_RESP_OK;
-                end
-                default: begin
-                  st       <= ST_IDLE;
-                  tx_shift <= `HCMD_RESP_OK;
-                end
+                default: ;                         // PING: 0xA5 already sent
               endcase
             end else begin
-              argi     <= argi + 3'd1;
-              tx_shift <= 8'h00;                    // filler during arguments
+              argi     <= argi + 2'd1;
+              tx_shift <= 8'h00;                   // filler during arguments
             end
           end
 
           // ---------------- response bytes --------------------------------
           ST_RESP: begin
-            if (resp_idx < resp_len) begin
+            if (resp_left != 2'd0) begin
               if (resp_is_status)
-                tx_shift <= statb[resp_idx[1:0]];
+                tx_shift <= statb[stat_slot];
               else begin
                 tx_shift <= resp_sh[7:0];
-                resp_sh  <= {8'h00, resp_sh[31:8]};
+                resp_sh  <= {8'h00, resp_sh[23:8]};
               end
-              resp_idx <= resp_idx + 3'd1;
+              resp_left <= resp_left - 2'd1;
             end else begin
               st             <= ST_IDLE;
               resp_is_status <= 1'b0;
@@ -589,10 +621,9 @@ module loom_host (
             end
           end
 
-          // late read handshake: keep the framed 0x00 byte, stay in WAIT
-          default: begin
-            st <= ST_WAIT;
-          end
+          // ST_WAIT: a byte arriving before the handshake completed is kept
+          // framed as 0x00 and ignored (it is a payload transfer).
+          default: ;
         endcase
       end
 
@@ -606,26 +637,18 @@ module loom_host (
         rx_shift       <= 8'h00;
         tx_shift       <= `HCMD_RESP_OK;
         st             <= ST_IDLE;
-        nargs          <= 3'd0;
-        argi           <= 3'd0;
-        ab0            <= 8'h00;
-        ab1            <= 8'h00;
-        ab2            <= 8'h00;
-        ab3            <= 8'h00;
-        resp_len       <= 3'd0;
-        resp_idx       <= 3'd0;
-        resp_sh        <= 32'h0000_0000;
+        op             <= OP_NONE;
+        argi           <= 2'd0;
+        argw           <= 32'h0000_0000;
+        iph            <= 1'b0;
+        resp_left      <= 2'd0;
+        resp_sh        <= 24'h00_0000;
         resp_is_status <= 1'b0;
         dead           <= 3'd0;
         stat_en        <= 1'b0;
-        stat_i         <= 4'd8;
         p1_v           <= 1'b0;
-        p2_v           <= 1'b0;
-        mem_we         <= 1'b0;
         mem_re         <= 1'b0;
-        csr_wr_en      <= 1'b0;
         csr_rd_en      <= 1'b0;
-        rx_push        <= 1'b0;
         tx_pop         <= 1'b0;
       end
     end
