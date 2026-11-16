@@ -186,8 +186,8 @@ gap is in example-firmware timing, not the core architecture.
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts |
 | protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; 2 SKIP (above) |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
-| gate-level | pending | awaits the LibreLane netlist |
-| sign-off (`gds`/`precheck`) | pending | CI running |
+| gate-level | pending | awaits a routing-clean LibreLane netlist |
+| sign-off (`gds`/`precheck`) | **attempt 1 failed at placement** | design is ~2× the 8×4 area budget (1.148 M µm² measured); fixes in flight — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
@@ -195,8 +195,15 @@ a computed-jump/`pc+1` bug where the golden model was right and the RTL wrong (V
 layout disagreement (VER-002), an undriven DMEM address (VER-004), an `INAT` register-bank
 truncation (VER-013) and peripheral event-chain pollution (VER-014) — all closed with regressions.
 Detail, plus the two skips stated plainly, in
-[`docs/verification.md` §9](docs/verification.md#9-results). Measured area/timing/GDS numbers live in
-[`docs/results.md`](docs/results.md) and are marked as pending measurement until CI produces them.
+[`docs/verification.md` §9](docs/verification.md#9-results).
+
+**Flow status, reported as measured:** the first LibreLane attempt (FF 128-word build, no SRAM macro)
+**failed at detailed placement** — mapped cell area **1 147 604 µm²** against an 8×4 budget of
+≤ ~750 k µm², i.e. ~2× over, with 305 304 µm² (27 %) of it ABC-inserted fanout buffers and a
+flop-array PMEM + 128:1 read mux as the other big cost. Corrective actions are in flight (relaxed
+`MAX_FANOUT_CONSTRAINT`, SRAM instruction memory, DMEM/FIFO shrink levers); nothing is marked passing
+until GDS + precheck + gate-level all pass on one commit. Canonical log:
+[`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in [`docs/results.md`](docs/results.md).
 
 ## Documentation
 
@@ -210,6 +217,7 @@ Detail, plus the two skips stated plainly, in
 | [`docs/examples.md`](docs/examples.md) | per-protocol walkthroughs with timing budgets and verified code |
 | [`docs/verification.md`](docs/verification.md) | verification methodology and results tables |
 | [`docs/results.md`](docs/results.md) | area, timing, sign-off |
+| [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md) | canonical LibreLane attempt log (what failed, measured numbers, diagnosis, fix) |
 | [`docs/SUBMISSION_CHECKLIST.md`](docs/SUBMISSION_CHECKLIST.md) | what must be true before submitting |
 | [`spec/ARCHITECTURE.md`](spec/ARCHITECTURE.md) | the frozen architecture and interface specification |
 | [`docs/images/`](docs/images/) | hand-written SVG diagrams (block, pinout, timing, event queue) |

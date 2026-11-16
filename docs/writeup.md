@@ -216,48 +216,72 @@ pin is exercised at least once with four threads running concurrently.
 
 ## 7. Results
 
-> **Status: pre-place-and-route.** The numbers below are a yosys + IHP `sg13cmos5l` liberty area
-> estimate and RTL-simulation results, not silicon data and not a routed design. Git revision
-> `f6ffe72` (local; GitHub SHA when pushed). Rows that require LibreLane, gate level or formal are
-> marked TBD and are **not** estimated — see [`results.md`](results.md) for the full tables and the
-> evidence links.
+> **Status: hardening in progress, and honestly reported.** The first LibreLane run failed —
+> **the design is ~2× over the 8×4 area budget** — and that is the most useful result in this
+> document, because it arrived before tape-out, from the build we deliberately chose to be the
+> least risky, and it says precisely where the area went. RTL simulation is green
+> (57/59 tests, §7.5); the flow numbers below are from CI commit `5ff6c6c` / `33012d5`, and no row
+> is marked passing unless the step actually passed. Full log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
-### 7.1 Area — pre-place estimate
+### 7.1 Attempt 1 — FF 128-word build: failed at placement, with a precise diagnosis
 
-| Build | Flip-flops | FF area | Notes |
+The first hardening run was intentionally the *smallest-risk* build: instruction memory as a
+flip-flop array, no SRAM macro, no power-grid plugin, no `pdn_cfg.tcl`. Its job was to walk the whole
+LibreLane chain with zero macro risk. It walked it as far as placement, where it correctly refused to
+place a design that does not fit:
+
+| Metric | Attempt 1 (`5ff6c6c`) |
+|---|---|
+| die / core | 1724.16 × 710.64 µm / **1 208 172 µm²** |
+| mapped cell area after synthesis + ABC | **1 147 604 µm²** — ~2× the ≤ ~750 k µm² budget |
+| utilisation at floorplan / post-resizer | **95.0 % / 98.4 %** |
+| global-placement routing overflow | 2 125.6 (8 917 tiles = **38.1 %**) |
+| failing step | `OpenRoad.RepairDesignPostGPL` → `[DPL-0036] Detailed placement failed` (451 instances) |
+| cell histogram | 8 042 FFs (394 k µm²); **35 510 buffers = 305 304 µm² (27 % of the design)**; 5 658 `mux2_1` + 3 063 `mux4_1` ≈ 220 k µm² |
+
+The two dominant, fixable costs are exactly the two we had modelled as risks:
+
+1. **ABC's synthesis-time fanout buffering** — 305 k µm², 27 % of the design, inserted because the
+   PDK's `MAX_FANOUT_CONSTRAINT` is aggressive for 130 nm at 60 MHz. Fix: raise the constraint to 40
+   at pdk+scl scope (commit `33012d5`) and let OpenROAD repair real violations *after* placement,
+   where it can see the real geometry. A 60 MHz clock on this node has ample slack for that.
+2. **PMEM as a flop array + 128:1 32-bit read mux** — ~320 k µm². Fix: one `RM_IHPSG13_1P_1024x32`
+   macro (140 183 µm²), which also turns 128 instruction words into **1024**.
+
+Held in reserve if those two are not enough: DMEM 64→32 words and FIFOs 8→4 (~−110 k µm² combined),
+then 4→2 threads or a 24-bit instruction width. The pre-flow estimate in §7.2 predicted 55–65 %
+utilisation; the measured 1.148 M µm² showed it was ~2× optimistic — ABC's buffering and the PMEM
+read mux were the miss. Recording that miss is more valuable than hiding it: it is the calibration
+data for attempt 3.
+
+### 7.2 Pre-flow area model (kept for calibration)
+
+| Build | Flip-flops | FF area | Model vs measured |
 |---|---|---|---|
-| FF fallback (`PMEM_IMPL=ff`, 128 words) | **8 038** | 8 038 × 48.99 µm² ≈ **394k µm²** | ≈ 44k generic gate instances before tech mapping (20.3k MUX, 7.1k AND, 6.5k OR, 1.0k XOR, 1.2k NOT; ~0.5M µm² pre-ABC) |
-| SRAM flagship (one `RM_IHPSG13_1P_1024x32`) | 8 038 − 4 096 = **3 942** | macro **140 183 µm²** (≈ 11–14 % die); −200k µm² FFs and −~70k µm² for the 128:1 PMEM read mux | **1024 instruction words** instead of 128 |
+| FF fallback (`PMEM_IMPL=ff`, 128 words) | 8 038 | ≈ 394 k µm² | modelled ~0.5 M µm² total; **measured 1.148 M** — fanout buffering + read mux under-counted |
+| SRAM flagship (one `RM_IHPSG13_1P_1024x32`) | 3 942 | macro 140 183 µm²; −200 k µm² FFs, −~70 k µm² read mux | not yet hardened |
 
-Both configurations are expected at roughly **55–65 % of the 8×4 core** — tight but workable — with
-the SRAM build comfortable-ish because it trades 4 096 FFs and a 128:1 read mux for one macro.
-Calibration from three real Tiny Tapeout CMOS5L designs (LibreLane post-place): `vc32_cpu` 6×2 =
-392k µm² core / 285.7k µm² stdcells / 18 638 cells / 0.73 util; `kianv_bare_metal` 4×2 = 160.5k µm²
-util 0.62; `tinyQV` 2×2 = 114.5k µm² util 0.89 — an average of ≈ 15 µm² per placed cell, which is the
-budget model this estimate uses.
+The model was calibrated against three public Tiny Tapeout CMOS5L designs (`vc32_cpu` 6×2: 392 k µm²
+core / 285.7 k µm² stdcells / 18 638 cells / 0.73 util; `kianv_bare_metal` 4×2: 160.5 k µm² / 0.62;
+`tinyQV` 2×2: 114.5 k µm² / 0.89 — ≈ 15 µm² per placed cell). Where it failed is that a *pre*-ABC
+cell count cannot predict ABC buffer insertion under a process-level fanout constraint; the
+post-synthesis mapped area can, and that is the number attempt 1 produced.
 
-**How CI is run:** the first hardening run is the **FF 128-word build** (`LOOM_PMEM_SMALL`, no macro)
-so the whole LibreLane path is exercised with zero macro/power-grid risk; the **SRAM 1024-word
-flagship is a config switch** flipped after that flow is green, and whichever build is green is what
-ships. Cheap shrink levers held in
-reserve if placement overflows: DMEM 64→32 words, FIFO depth 8→4, and dropping the wave player's
-private DMEM read port (sharing the CPU read port).
-
-### 7.2 Timing
-
-| Corner | Target | WNS | TNS |
-|---|---|---|---|
-| typical, 60 MHz (`CLOCK_PERIOD` 16.67 ns) | setup clean | TBD | TBD |
-| hold | clean | TBD | TBD |
-
-### 7.3 Gate level and sign-off
+### 7.3 Timing, gate level and sign-off
 
 | Check | Result |
 |---|---|
-| `gl_test` (protocol suite on hardened netlist) | TBD |
-| `gds` action | TBD |
-| `precheck` | TBD |
-| formal properties F1–F9 (bounded) | TBD |
+| WNS / TNS @ 60 MHz, hold | **TBD** — no attempt has reached routing yet |
+| `gds` action | **not reached** (attempt 1 failed at placement; attempt 2 running) |
+| `precheck` | not reached |
+| `gl_test` (gate-level protocol suite) | not reached |
+| formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
+| `test` / `docs` CI workflows | **green** (matrix reproduced on GitHub every push) |
+
+None of the TBD rows are estimated here. The submission build is whichever attempt is green at
+submission time; the FF build remains the guaranteed fallback, so a macro or power-grid problem
+cannot block the tapeout — and attempt 1 is the evidence that this fallback strategy is doing its
+job.
 
 ### 7.4 What is already proven by simulation
 

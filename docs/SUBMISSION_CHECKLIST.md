@@ -26,6 +26,8 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
 | 9b | `test` workflow reproduces the full cocotb matrix on GitHub (57 PASS / 2 SKIP) | Actions run | verify | **done** (green on `5ff6c6c29cc7`) |
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
+| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempt 1 failed at placement (area ~2× budget); attempt 2 running |
+| 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
 
 ## 2. Documentation (the write-up is weighted heavily)
 

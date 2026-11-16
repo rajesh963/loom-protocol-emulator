@@ -42,3 +42,5 @@ test/unit_*/tb_*
 test/_scratch_rtl*/
 formal/build/
 .ci_logs/
+.reference/
+CI_RESULTS*.md

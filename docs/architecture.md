@@ -357,8 +357,11 @@ too big for the die, so the flagship build uses the IHP `RM_IHPSG13_1P_1024x32` 
 are always buildable and exercised in CI. Per-thread state (4 × registers, PC, flags, queue, timing
 registers, 8-byte FIFOs) is a few thousand flops; the ALU and scheduler are combinational. If the
 flow complains, drop in this order: capture/record-replay, wave player, `EQ_DEPTH`/thread count
-(parameters). Measured numbers: [`results.md`](results.md); the measurement script lives in
-`tools/`.
+(parameters). Measured numbers: [`results.md`](results.md) and the attempt log
+[`FLOW_STATUS.md`](FLOW_STATUS.md); the measurement script lives in `tools/`. Reality check: the
+first hardening attempt measured **1 147 604 µm²** for the FF build against a pre-ABC estimate of
+~0.5 M µm² — ABC inserted 35 510 buffers (305 304 µm², 27 % of the design) under the PDK fanout
+constraint, so the SRAM-PMEM + relaxed-fanout build is not an optimisation but the path to fitting.
 
 ---
 
