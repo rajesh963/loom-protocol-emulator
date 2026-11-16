@@ -36,9 +36,23 @@ RTL_SRCS   = $(RTL_DIR)/loom_core.v \
              $(RTL_DIR)/loom_host.v \
              $(RTL_DIR)/loom_wave.v \
              $(RTL_DIR)/loom_capture.v \
+             $(RTL_DIR)/loom_pmem_sram.v \
+             $(RTL_DIR)/loom_sram_model.v \
              $(RTL_DIR)/tt_um_rajesh963_loom.v
 
 SIM_BUILD = sim_build/rtl
+
+# Program-memory flavour in RTL simulation.  Empty (default) = the FF-array
+# PMEM build, unchanged.  The SRAM builds use the behavioural macro model in
+# rtl/loom_sram_model.v, so no IHP PDK is needed:
+#   make SRAM_SIM=1024   IHP RM_IHPSG13_1P_1024x32 (140 183 um^2, 1024 words)
+#   make SRAM_SIM=512    IHP RM_IHPSG13_1P_512x32  ( 79 720 um^2,  512 words)
+SRAM_SIM ?=
+ifeq ($(SRAM_SIM),512)
+  COMPILE_ARGS += -DLOOM_PMEM_SRAM -DLOOM_PMEM_512 -DLOOM_SIM
+else ifeq ($(SRAM_SIM),1024)
+  COMPILE_ARGS += -DLOOM_PMEM_SRAM -DLOOM_SIM
+endif
 
 VERILOG_SOURCES = $(RTL_SRCS) $(TEST_DIR)/tb.v
 COMPILE_ARGS   += -g2012 -I$(RTL_DIR)
@@ -59,6 +73,16 @@ else
   VERILOG_SOURCES += $(wildcard $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_udp.v)
   VERILOG_SOURCES += $(PDK_LIBS_REF)/$(PDK_CELL_PREFIX)_stdcell/verilog/$(PDK_CELL_PREFIX)_stdcell.v
   VERILOG_SOURCES += $(PWD)/gate_level_netlist.v
+  # IHP SRAM macro behavioural model for gate-level simulation (the RTL build
+  # uses rtl/loom_sram_model.v with -DLOOM_SIM instead).  Copied unmodified
+  # from IHP-Open-PDK, Apache-2.0 (flow/sram_model/README.md).
+  SRAM_MODEL_DIR = $(abspath $(CURDIR)/../flow/sram_model)
+  ifeq ($(SRAM_SIM),512)
+    VERILOG_SOURCES += $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_512x32_c2_bm_bist.v
+  else
+    VERILOG_SOURCES += $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_1024x32_c2_bm_bist.v
+  endif
+  VERILOG_SOURCES += $(SRAM_MODEL_DIR)/RM_IHPSG13_1P_core_behavioral_bm_bist.v
 endif
 
 ifdef WAVES
