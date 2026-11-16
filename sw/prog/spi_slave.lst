@@ -1,0 +1,38 @@
+; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/spi_slave.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   3C000001  dset 0x01                dset    MISO_PIN        ; MISO is an output; SCK/MOSI/CS stay inputs
+0001   34000001  clr 0x0001               clr     MISO_PIN
+0002   4A000000  setm 0x0000              setm    0
+0003   05C00000  movi r7, 0x0000          movi    r7, 0           ; previous received byte (response = r7 + 1)
+; --- main = 0x004
+0004   56004000  waitp 0x4000             waitp   WAIT_CS_LOW     ; wait for the master to select us
+0005   06780000  mov r1, r7               mov     r1, r7          ; response byte for this frame = previous + 1
+0006   0A400001  addi r1, 0x0001          addi    r1, 1
+0007   1E400008  shl r1, 8                shl     r1, 8           ; MSB of the byte -> bit 15 for the ADD/C trick
+0008   34000001  clr 0x0001               clr     MISO_PIN        ; present bit 7 while SCK is low
+0009   08480000  add r1, r1               add     r1, r1          ; C = bit 7, r1 <<= 1
+000A   88000002  jnc 0x00D                jnc     miso_lo
+000B   32000001  set 0x0001               set     MISO_PIN
+; --- miso_lo = 0x00C
+000C   05000008  movi r4, 0x0008          movi    r4, 8           ; 8 bits
+000D   05400000  movi r5, 0x0000          movi    r5, 0           ; received byte
+; --- bit_loop = 0x00E
+000E   56001010  waitp 0x1010             waitp   WAIT_SCK_HI     ; rising edge: sample MOSI
+000F   38C00000  in r3                    in      r3
+0010   12C00020  andi r3, 0x0020          andi    r3, MOSI_PIN    ; 0x0000 / 0x0020
+0011   20C00005  shr r3, 5                shr     r3, 5           ; -> bit 0
+0012   1F400001  shl r5, 1                shl     r5, 1
+0013   15580000  or r5, r3                or      r5, r3
+0014   56001000  waitp 0x1000             waitp   WAIT_SCK_LO     ; falling edge: present the next MISO bit
+0015   34000001  clr 0x0001               clr     MISO_PIN
+0016   08480000  add r1, r1               add     r1, r1          ; C = next data bit
+0017   88000002  jnc 0x01A                jnc     next_bit
+0018   32000001  set 0x0001               set     MISO_PIN
+; --- next_bit = 0x019
+0019   0F000001  subi r4, 0x0001          subi    r4, 1
+001A   8400FFF4  jnz 0x00F                jnz     bit_loop
+001B   56004040  waitp 0x4040             waitp   WAIT_CS_HI
+001C   71400000  push r5                  push    r5              ; received byte -> host
+001D   07E80000  mov r7, r5               mov     r7, r5          ; next frame's response = this byte + 1
+001E   8000FFE6  jmp 0x005                jmp     main

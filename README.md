@@ -172,15 +172,20 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 | Layer | What it proves | Status |
 |---|---|---|
-| unit — core | two threads, exact 16- and 8-cycle edge streams through queue back-pressure | **passing** |
+| unit — core | two threads, exact 16- and 8-cycle edge streams through queue back-pressure; computed jump | **passing** |
 | unit — host bridge | all 13 commands, byte framing, CS abort, IRQ latch at 10 MHz / 100 kHz SCK | **passing** |
 | unit — wave player + capture | pattern walk, loop/one-shot, fractional period, `done`; capture engine 209 checks | **passing** |
-| integration | SPI load → run → 25 edges, every interval exactly 16 cycles, 0 errors | **passing** |
+| integration | SPI load → read-back → run → 25 edges, every interval exactly 16 cycles, 0 errors; host global-CSR reads correct | **passing** |
 | differential co-simulation | RTL vs golden ISA model on random programs, cycle-exact pin transitions | in progress |
 | protocol VIPs | UART/SPI/I2C/PS-2/1-Wire/WS2812 conformance with ASCII waveform dumps | in progress |
 | formal | reset completeness, queue integrity, no out-of-bounds host write, no spurious IRQ | in progress |
 | gate-level | the protocol suite on the hardened LibreLane netlist | awaiting GDS |
 | sign-off | `gds` + `precheck` + `gl_test` GitHub Actions | awaiting CI |
+
+The first cocotb bring-up already caught **four real deviations** — a host CSR read-path bug (VER-003),
+unmasked `pins_out[9:8]` (VER-001), a three-way `TFIFO` layout disagreement (VER-002) and a
+computed-jump fetch bug where the golden model was right and the RTL was wrong (VER-004) — which is
+the methodology doing its job; the detail is in [`docs/verification.md` §9.2](docs/verification.md#92-what-the-methodology-caught-four-real-deviations-in-the-first-bring-up).
 
 The methodology (and the results tables that will be filled from CI) is
 [`docs/verification.md`](docs/verification.md); measured area/timing/GDS numbers live in

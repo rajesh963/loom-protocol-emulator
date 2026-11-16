@@ -122,6 +122,9 @@ echo "REMEMBER: docs/results.md filled with the final git revision and CI number
    [`verification.md`](verification.md) §9 with the final revision and CI links.
 4. Make the repository public (or flip it public at the moment of submission), verify from a logged-
    out browser that the README, docs and images render.
-5. Submit the repository link through the competition form (added to the announcement page before
+5. Record in `results.md` which build was submitted — **SRAM flagship if its CI is green, otherwise
+   the FF fallback** — and the exact git SHA; both are built from the same RTL (`PMEM_IMPL`/
+   `PMEM_WORDS` only).
+6. Submit the repository link through the competition form (added to the announcement page before
    the deadline), with `spec/ARCHITECTURE.md`, `docs/writeup.md` and `docs/verification.md` called
    out as the entry points.

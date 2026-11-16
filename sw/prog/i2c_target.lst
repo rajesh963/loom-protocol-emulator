@@ -1,0 +1,140 @@
+; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/i2c_target.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   340000C0  clr 0x00C0               clr     SCL_PIN | SDA_PIN   ; pin values 0: only visible while driving
+0001   3E0000C0  dclr 0xC0                dclr    SCL_PIN | SDA_PIN   ; release both lines
+0002   4A000000  setm 0x0000              setm    0
+0003   05800000  movi r6, 0x0000          movi    r6, 0               ; DMEM register pointer
+; --- main = 0x004
+0004   5600C040  waitp 0xC040             waitp   WAIT_START          ; START: SDA falls while SCL is high
+0005   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+0006   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0007   04000043  movi r0, 0x0043          movi    r0, sub_rx_byte - . + 1
+0008   08380000  add r0, r7               add     r0, r7
+0009   0BC00005  addi r7, 0x0005          addi    r7, 5
+000A   2A000008  csrw tpc, r0             csrw    TPC, r0
+000B   07080000  mov r4, r1               mov     r4, r1              ; r4 = address byte (addr<<1 | R/W)
+000C   06880000  mov r2, r1               mov     r2, r1
+000D   20800001  shr r2, 1                shr     r2, 1
+000E   28800050  cmpi r2, 0x0050          cmpi    r2, MY_ADDR
+000F   84000032  jnz 0x042                jnz     nak_resync
+0010   3C000080  dset 0x80                dset    SDA_PIN
+0011   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+0012   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+0013   3E000080  dclr 0x80                dclr    SDA_PIN
+0014   13000001  andi r4, 0x0001          andi    r4, 1
+0015   8400001B  jnz 0x031                jnz     read_path
+0016   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0017   04000033  movi r0, 0x0033          movi    r0, sub_rx_byte - . + 1
+0018   08380000  add r0, r7               add     r0, r7
+0019   0BC00005  addi r7, 0x0005          addi    r7, 5
+001A   2A000008  csrw tpc, r0             csrw    TPC, r0
+001B   07880000  mov r6, r1               mov     r6, r1
+001C   13800007  andi r6, 0x0007          andi    r6, 7               ; first byte = register pointer
+001D   3C000080  dset 0x80                dset    SDA_PIN             ; ACK
+001E   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+001F   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+0020   3E000080  dclr 0x80                dclr    SDA_PIN
+; --- write_next = 0x021
+0021   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0022   04000034  movi r0, 0x0034          movi    r0, sub_next_byte - . + 1
+0023   08380000  add r0, r7               add     r0, r7
+0024   0BC00005  addi r7, 0x0005          addi    r7, 5
+0025   2A000008  csrw tpc, r0             csrw    TPC, r0
+0026   29400000  cmpi r5, 0x0000          cmpi    r5, 0               ; 0 = data byte, 2 = STOP, 3 = Sr
+0027   8400FFDD  jnz 0x005                jnz     main
+0028   67880000  sti r1, r6               sti     r1, r6              ; DMEM[reg] = data
+0029   0B800001  addi r6, 0x0001          addi    r6, 1
+002A   13800007  andi r6, 0x0007          andi    r6, 7
+002B   3C000080  dset 0x80                dset    SDA_PIN             ; ACK
+002C   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+002D   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+002E   3E000080  dclr 0x80                dclr    SDA_PIN
+002F   8000FFF2  jmp 0x022                jmp     write_next
+; --- read_path = 0x030
+0030   64700000  ldi r1, r6               ldi     r1, r6              ; r1 = DMEM[reg]
+0031   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0032   0400003B  movi r0, 0x003B          movi    r0, sub_tx_byte - . + 1
+0033   08380000  add r0, r7               add     r0, r7
+0034   0BC00005  addi r7, 0x0005          addi    r7, 5
+0035   2A000008  csrw tpc, r0             csrw    TPC, r0
+0036   3E000080  dclr 0x80                dclr    SDA_PIN
+0037   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+0038   38800000  in r2                    in      r2
+0039   12800080  andi r2, 0x0080          andi    r2, SDA_PIN         ; 0 = ACK -> send the next byte
+003A   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+003B   84000004  jnz SCL_PIN              jnz     read_done
+003C   0B800001  addi r6, 0x0001          addi    r6, 1
+003D   13800007  andi r6, 0x0007          andi    r6, 7
+003E   8000FFF2  jmp 0x031                jmp     read_path
+; --- read_done = 0x03F
+003F   5600C0C0  waitp 0xC0C0             waitp   WAIT_STOP           ; NAK -> wait for the STOP
+0040   8000FFC4  jmp 0x005                jmp     main
+; --- nak_resync = 0x041
+0041   3E000080  dclr 0x80                dclr    SDA_PIN             ; NAK (leave SDA released)
+0042   5600C0C0  waitp 0xC0C0             waitp   WAIT_STOP
+0043   54001400  waitd 0x1400             waitd   0x1400
+0044   38800000  in r2                    in      r2
+0045   128000C0  andi r2, 0x00C0          andi    r2, SCL_PIN | SDA_PIN
+0046   288000C0  cmpi r2, 0x00C0          cmpi    r2, SCL_PIN | SDA_PIN
+0047   8400FFFA  jnz 0x042                jnz     nak_resync
+0048   8000FFBC  jmp 0x005                jmp     main
+; --- sub_rx_byte = 0x049
+0049   04400000  movi r1, 0x0000          movi    r1, 0
+004A   04C00008  movi r3, 0x0008          movi    r3, 8
+; --- rxb_loop = 0x04B
+004B   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+004C   38800000  in r2                    in      r2
+004D   12800080  andi r2, 0x0080          andi    r2, SDA_PIN
+004E   20800007  shr r2, 7                shr     r2, 7
+004F   1E400001  shl r1, 1                shl     r1, 1
+0050   14500000  or r1, r2                or      r1, r2
+0051   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+0052   0EC00001  subi r3, 0x0001          subi    r3, 1
+0053   8400FFF8  jnz 0x04C                jnz     rxb_loop
+0054   2A380008  csrw tpc, r7             csrw    TPC, r7
+; --- sub_next_byte = 0x055
+0055   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+0056   39000000  in r4                    in      r4
+0057   13000080  andi r4, 0x0080          andi    r4, SDA_PIN         ; first-bit sample, in mask form
+; --- nb_poll = 0x058
+0058   38800000  in r2                    in      r2
+0059   12800080  andi r2, 0x0080          andi    r2, SDA_PIN
+005A   26A00000  cmp r2, r4               cmp     r2, r4
+005B   84000006  jnz 0x062                jnz     nb_event            ; SDA moved while SCL high -> START/STOP
+005C   38800000  in r2                    in      r2
+005D   12800040  andi r2, 0x0040          andi    r2, SCL_PIN
+005E   82000009  jz 0x068                 jz      nb_data             ; SCL fell -> this was a normal data bit
+005F   540000A0  waitd 0x00A0             waitd   0x00A0              ; 10 cycles between polls
+0060   8000FFF8  jmp 0x059                jmp     nb_poll
+; --- nb_event = 0x061
+0061   12800080  andi r2, 0x0080          andi    r2, SDA_PIN         ; SDA now low -> repeated START, high -> STOP
+0062   82000003  jz 0x066                 jz      nb_start
+0063   05400002  movi r5, 0x0002          movi    r5, 2               ; STOP
+0064   2A380008  csrw tpc, r7             csrw    TPC, r7
+; --- nb_start = 0x065
+0065   05400003  movi r5, 0x0003          movi    r5, 3               ; repeated START
+0066   2A380008  csrw tpc, r7             csrw    TPC, r7
+; --- nb_data = 0x067
+0067   21000007  shr r4, 7                shr     r4, 7               ; first data bit -> bit 0
+0068   06600000  mov r1, r4               mov     r1, r4
+0069   04C00007  movi r3, 0x0007          movi    r3, 7
+006A   05400000  movi r5, 0x0000          movi    r5, 0
+006B   8000FFE0  jmp 0x04C                jmp     rxb_loop            ; receive the remaining 7 bits, then return
+; --- sub_tx_byte = 0x06C
+006C   1E400008  shl r1, 8                shl     r1, 8               ; MSB of the byte -> bit 15 for ADD/C
+006D   04C00008  movi r3, 0x0008          movi    r3, 8
+; --- txb_loop = 0x06E
+006E   08480000  add r1, r1               add     r1, r1              ; C = next data bit
+006F   88000003  jnc txb_sda              jnc     txb_zero
+0070   3E000080  dclr 0x80                dclr    SDA_PIN             ; 1 -> release
+0071   80000002  jmp 0x074                jmp     txb_sda
+; --- txb_zero = 0x072
+0072   3C000080  dset 0x80                dset    SDA_PIN             ; 0 -> pull low
+; --- txb_sda = 0x073
+0073   56004040  waitp 0x4040             waitp   WAIT_SCL_HI
+0074   56004000  waitp 0x4000             waitp   WAIT_SCL_LO
+0075   0EC00001  subi r3, 0x0001          subi    r3, 1
+0076   8400FFF8  jnz 0x06F                jnz     txb_loop
+0077   3E000080  dclr 0x80                dclr    SDA_PIN             ; release for the master's ACK/NAK clock
+0078   2A380008  csrw tpc, r7             csrw    TPC, r7

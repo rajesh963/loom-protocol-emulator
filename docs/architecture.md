@@ -246,6 +246,11 @@ would give 24, which is wrong — and in the pin vector `P[9:8]` are the host ou
 read back the host inputs, so a bit's *in* and *out* halves can belong to different pads. For
 example `pins_out[10]` is `uo[2]` (protocol) while `pins_in[10]` is `ui[2]` (`H_MOSI`).
 
+Two bits of `pins_out` are special: `P[9:8]` are the host link's `H_IRQ`/`H_MISO` outputs, so the
+pin register is masked with `PINS_OUT_DRIVABLE = 0xFCFF` on every write (immediate op, event fire or
+host CSR write). `out 0xFFFF` followed by `csrr POUT` reads back `0xFCFF` — firmware cannot drive
+the host's own output pins, and reading `POUT` always shows what the protocol side actually holds.
+
 `DIR[i] = 1` makes `uio[i]` an output; `DIR[i] = 0` makes it high-impedance (an input with the
 external pull-up holding it high). Because `DIR` is per pin and writable mid-frame (`dir`, `dset`,
 `dclr`, or CSR `PDIR`), **open-drain I2C, PS/2 and 1-Wire work with no external parts**: drive 0

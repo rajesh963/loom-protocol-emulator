@@ -1,32 +1,39 @@
-; LOOM listing — sw/examples/uart_rx.asm
+; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/uart_rx.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   4A000000  setm 0x0000              setm    0               ; this thread emits no events; never touch pins
 0001   05800800  movi r6, 0x0800          movi    r6, RX_PIN
 ; --- poll = 0x002
-0002   54000100  waitd 0x0100             waitd   POLL_DIV        ; gentle poll (do not starve other threads)
+0002   54000200  waitd 0x0200             waitd   POLL_DIV        ; gentle poll (do not starve other threads)
 0003   38000000  in r0                    in      r0
 0004   10300000  and r0, r6               and     r0, r6          ; RX high -> keep waiting
 0005   8400FFFD  jnz 0x003                jnz     poll
-0006   54001047  waitd 0x1047             waitd   HALF_DIV
+0006   54001047  waitd 0x1047             waitd   HALF_CELL_DIV
 0007   38000000  in r0                    in      r0
 0008   10300000  and r0, r6               and     r0, r6
 0009   8400FFF9  jnz 0x003                jnz     poll            ; false start (line already back high) -> resync
 000A   05400000  movi r5, 0x0000          movi    r5, 0           ; r5 = assembled byte
 000B   05000008  movi r4, 0x0008          movi    r4, 8           ; 8 data cells
 ; --- rx_bit = 0x00C
-000C   5400208D  waitd 0x208D             waitd   BAUD_DIV
-000D   38C00000  in r3                    in      r3
-000E   10F00000  and r3, r6               and     r3, r6          ; keep RX bit only
-000F   20C0000B  shr r3, 11               shr     r3, 11          ; P[11] -> bit 0
-0010   15580000  or r5, r3                or      r5, r3
-0011   1F400001  shl r5, 1                shl     r5, 1           ; open a slot for the next bit
-0012   0F000001  subi r4, 0x0001          subi    r4, 1
-0013   8400FFF9  jnz 0x00D                jnz     rx_bit
-0014   21400001  shr r5, 1                shr     r5, 1           ; undo the last slot
-0015   5400208D  waitd 0x208D             waitd   BAUD_DIV        ; stop cell
-0016   38000000  in r0                    in      r0
-0017   10300000  and r0, r6               and     r0, r6
-0018   8200FFEA  jz 0x003                 jz      poll            ; framing error (stop not high) -> drop byte
-0019   71400000  push r5                  push    r5              ; deliver to host (thread TX FIFO)
-001A   8000FFE8  jmp 0x003                jmp     poll
+000C   04C00001  movi r3, 0x0001          movi    r3, CELLS       ; advance one whole bit
+; --- cell_wait = 0x00D
+000D   5400208D  waitd 0x208D             waitd   BAUD_CELL
+000E   0EC00001  subi r3, 0x0001          subi    r3, 1
+000F   8400FFFE  jnz 0x00E                jnz     cell_wait
+0010   38C00000  in r3                    in      r3
+0011   10F00000  and r3, r6               and     r3, r6          ; keep RX bit only: 0x0000 / 0x0800
+0012   20C00004  shr r3, 4                shr     r3, 4           ; -> 0x0000 / 0x0080 (the new MSB)
+0013   21400001  shr r5, 1                shr     r5, 1           ; first-received bit ends at bit 0
+0014   15580000  or r5, r3                or      r5, r3
+0015   0F000001  subi r4, 0x0001          subi    r4, 1
+0016   8400FFF6  jnz cell_wait            jnz     rx_bit
+0017   04C00001  movi r3, 0x0001          movi    r3, CELLS       ; stop cell
+; --- stop_wait = 0x018
+0018   5400208D  waitd 0x208D             waitd   BAUD_CELL
+0019   0EC00001  subi r3, 0x0001          subi    r3, 1
+001A   8400FFFE  jnz 0x019                jnz     stop_wait
+001B   38000000  in r0                    in      r0
+001C   10300000  and r0, r6               and     r0, r6
+001D   8200FFE5  jz 0x003                 jz      poll            ; framing error (stop not high) -> drop byte
+001E   71400000  push r5                  push    r5              ; deliver to host (thread TX FIFO)
+001F   8000FFE3  jmp 0x003                jmp     poll

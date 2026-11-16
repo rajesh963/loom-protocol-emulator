@@ -32,7 +32,7 @@ module loom_core #(
     output wire [9:0]  imem_addr,
     input  wire [31:0] imem_data,
     // data memory (combinational read, synchronous write)
-    output reg  [5:0]  dmem_addr,
+    output wire [5:0]  dmem_addr,
     output wire        dmem_we,
     output wire [15:0] dmem_wdata,
     input  wire [15:0] dmem_rdata,
@@ -114,7 +114,7 @@ module loom_core #(
   reg        rep_arm  [0:3];
   reg        inat_arm [0:3];
   reg [15:0] inat_tgt [0:3];
-  reg [1:0]  inat_rd  [0:3];
+  reg [2:0]  inat_rd  [0:3];
 
   // ==========================================================================
   // Event queues (per-thread FIFO, depth EQ_DEPTH)
@@ -357,11 +357,14 @@ module loom_core #(
         `OPC_SETEC: begin csr_wr=1'b1; csr_wr_addr=`CSR_TECOND;  csr_wr_val=imm; end
         `OPC_INAT: begin
           inat_delta = imm - tmr;
-          if (inat_delta == 16'd0) begin wb_en=1'b1; wb_data=pins_in; end
-          else begin inat_do=1'b1; stall_set=inat_delta; end
+          if ((inat_delta == 16'd0) || (inat_delta >= 16'h8000)) begin
+            wb_en=1'b1; wb_data=pins_in;      // target is now or already past
+          end else begin
+            inat_do=1'b1; stall_set=inat_delta;
+          end
         end
         `OPC_WAITU: begin
-          if (imm == tmr) stall_set = 16'd0;
+          if ((imm == tmr) || ((imm - tmr) >= 16'h8000)) stall_set = 16'd0;
           else stall_set = (imm - tmr) - 16'd1;
         end
         `OPC_WAITD: begin
@@ -433,6 +436,8 @@ module loom_core #(
   // ==========================================================================
   reg [15:0] csr_rdata;
   reg [15:0] host_csrr_rdata;
+  reg [15:0] csr_case_t;
+  reg [15:0] csr_case_h;
   reg        csr_hbank;
   reg [1:0]  csr_ht;
   reg [7:0]  csr_ha;
@@ -447,65 +452,88 @@ module loom_core #(
     end
   end
 
-  // Two independent read ports: thread instructions read their OWN bank from
-  // `csr_rd_addr` (0-latency); the host reads `host_csrr_addr` (thread banks at
-  // 0x40+16t+n, globals at 0x10..0x1F).  These used to share one mux, which made
-  // every host global-CSR read return whatever the last thread CSRR addressed
-  // (VER-003, caught by the cocotb host suite).
-  function [15:0] bank_read;
-    input [1:0] t;
-    input [7:0] a;
-    begin
-      case (a)
-        `CSR_TPERIOD: bank_read = period[t];
-        `CSR_TMASK:   bank_read = tmask[t];
-        `CSR_TSTATUS: bank_read = {14'd0, t_halt[t], t_en[t]};
-        `CSR_TFIFO:   bank_read = {4'd0, rx_cnt[t], tx_cnt[t], 2'd0,
-                                   (tx_cnt[t]==FIFO_FULL[3:0]), (rx_cnt[t]==4'd0)};
-        `CSR_TNEXTT:  bank_read = nextt[t];
-        `CSR_TEQ:     bank_read = {13'd0, eq_cnt[t]};
-        `CSR_TEMASK:  bank_read = emask[t];
-        `CSR_TECOND:  bank_read = econd[t];
-        `CSR_TPC:     bank_read = {6'd0, pc[t]};
-        default:      bank_read = 16'd0;
-      endcase
-    end
-  endfunction
-
-  function [15:0] global_read;
-    input [7:0] a;
-    begin
-      case (a)
-        `CSR_POUT:    global_read = pout;
-        `CSR_PDIR:    global_read = {8'd0, pdir};
-        `CSR_TMR:     global_read = tmr;
-        `CSR_EVT:     global_read = {8'd0, evt};
-        `CSR_IRQ:     global_read = irq_code;
-        `CSR_WCTRL:   global_read = {13'd0, wave_ctl_q};
-        `CSR_WADDR:   global_read = {10'd0, wave_addr};
-        `CSR_WLEN:    global_read = {9'd0, wave_len};
-        `CSR_WPER:    global_read = wave_period;
-        `CSR_WSTATUS: global_read = {14'd0, wave_busy, wave_done};
-        `CSR_CAPCTRL: global_read = cap_ctrl;
-        `CSR_CAPSTAT: global_read = cap_stat;
-        `CSR_GSTATUS: global_read = {7'd0, t_en[3], t_en[2], t_en[1], t_en[0],
-                                     4'd0, (irq_code != 16'd0)};
-        default:      global_read = 16'd0;
-      endcase
-    end
-  endfunction
-
-  // thread-instruction view: own bank below 0x10, globals above
+  // Two independent read ports.  NOTE: these are explicit case statements, not
+  // functions -- `always @*` does not reliably infer sensitivity through a
+  // function call in all simulators, which made thread CSRR reads of TPERIOD and
+  // host reads of TMR/TEQ return stale values (VER-010, VER-012, VER-009).
+  // thread-instruction view: own bank below 0x10, globals above.
   always @* begin
-    if (csr_rd_addr < 8'h10) csr_rdata = bank_read(sel, csr_rd_addr);
-    else                     csr_rdata = global_read(csr_rd_addr);
+    csr_case_t = 16'd0;
+    if (csr_rd_addr < 8'h10) begin
+      case (csr_rd_addr)
+        `CSR_TPERIOD: csr_case_t = period[sel];
+        `CSR_TMASK:   csr_case_t = tmask[sel];
+        `CSR_TSTATUS: csr_case_t = {14'd0, t_halt[sel], t_en[sel]};
+        `CSR_TFIFO:   csr_case_t = {4'd0, rx_cnt[sel], tx_cnt[sel], 2'd0,
+                                 (tx_cnt[sel]==FIFO_FULL[3:0]), (rx_cnt[sel]==4'd0)};
+        `CSR_TNEXTT:  csr_case_t = nextt[sel];
+        `CSR_TEQ:     csr_case_t = {13'd0, eq_cnt[sel]};
+        `CSR_TEMASK:  csr_case_t = emask[sel];
+        `CSR_TECOND:  csr_case_t = econd[sel];
+        `CSR_TPC:     csr_case_t = {6'd0, pc[sel]};
+        default:      csr_case_t = 16'd0;
+      endcase
+    end else begin
+      case (csr_rd_addr)
+        `CSR_POUT:    csr_case_t = pout;
+        `CSR_PDIR:    csr_case_t = {8'd0, pdir};
+        `CSR_TMR:     csr_case_t = tmr;
+        `CSR_EVT:     csr_case_t = {8'd0, evt};
+        `CSR_IRQ:     csr_case_t = irq_code;
+        `CSR_WCTRL:   csr_case_t = {13'd0, wave_ctl_q};
+        `CSR_WADDR:   csr_case_t = {10'd0, wave_addr};
+        `CSR_WLEN:    csr_case_t = {9'd0, wave_len};
+        `CSR_WPER:    csr_case_t = wave_period;
+        `CSR_WSTATUS: csr_case_t = {14'd0, wave_busy, wave_done};
+        `CSR_CAPCTRL: csr_case_t = cap_ctrl;
+        `CSR_CAPSTAT: csr_case_t = cap_stat;
+        `CSR_GSTATUS: csr_case_t = {7'd0, t_en[3], t_en[2], t_en[1], t_en[0],
+                                4'd0, (irq_code != 16'd0)};
+        default:      csr_case_t = 16'd0;
+      endcase
+    end
+    csr_rdata = csr_case_t;
   end
 
   // host view: thread banks 0x40..0x7F, globals 0x10..0x1F, thread-local 0x00..0x0F reads 0
   always @* begin
-    if (csr_hbank)                   host_csrr_rdata = bank_read(csr_ht, csr_ha);
-    else if (host_csrr_addr < 8'h10) host_csrr_rdata = 16'd0;
-    else                             host_csrr_rdata = global_read(host_csrr_addr);
+    csr_case_h = 16'd0;
+    if (csr_hbank) begin
+      case (csr_ha)
+        `CSR_TPERIOD: csr_case_h = period[csr_ht];
+        `CSR_TMASK:   csr_case_h = tmask[csr_ht];
+        `CSR_TSTATUS: csr_case_h = {14'd0, t_halt[csr_ht], t_en[csr_ht]};
+        `CSR_TFIFO:   csr_case_h = {4'd0, rx_cnt[csr_ht], tx_cnt[csr_ht], 2'd0,
+                                 (tx_cnt[csr_ht]==FIFO_FULL[3:0]), (rx_cnt[csr_ht]==4'd0)};
+        `CSR_TNEXTT:  csr_case_h = nextt[csr_ht];
+        `CSR_TEQ:     csr_case_h = {13'd0, eq_cnt[csr_ht]};
+        `CSR_TEMASK:  csr_case_h = emask[csr_ht];
+        `CSR_TECOND:  csr_case_h = econd[csr_ht];
+        `CSR_TPC:     csr_case_h = {6'd0, pc[csr_ht]};
+        default:      csr_case_h = 16'd0;
+      endcase
+    end else if (host_csrr_addr < 8'h10) begin
+      csr_case_h = 16'd0;
+    end else begin
+      case (host_csrr_addr)
+        `CSR_POUT:    csr_case_h = pout;
+        `CSR_PDIR:    csr_case_h = {8'd0, pdir};
+        `CSR_TMR:     csr_case_h = tmr;
+        `CSR_EVT:     csr_case_h = {8'd0, evt};
+        `CSR_IRQ:     csr_case_h = irq_code;
+        `CSR_WCTRL:   csr_case_h = {13'd0, wave_ctl_q};
+        `CSR_WADDR:   csr_case_h = {10'd0, wave_addr};
+        `CSR_WLEN:    csr_case_h = {9'd0, wave_len};
+        `CSR_WPER:    csr_case_h = wave_period;
+        `CSR_WSTATUS: csr_case_h = {14'd0, wave_busy, wave_done};
+        `CSR_CAPCTRL: csr_case_h = cap_ctrl;
+        `CSR_CAPSTAT: csr_case_h = cap_stat;
+        `CSR_GSTATUS: csr_case_h = {7'd0, t_en[3], t_en[2], t_en[1], t_en[0],
+                                4'd0, (irq_code != 16'd0)};
+        default:      csr_case_h = 16'd0;
+      endcase
+    end
+    host_csrr_rdata = csr_case_h;
   end
   assign host_csrr_data = host_csrr_rdata;
 
@@ -591,7 +619,6 @@ module loom_core #(
       fetch_ptr    <= 2'd0;
       fetch_tid    <= 2'd0;
       fetch_pend   <= 1'b0;
-      dmem_addr    <= 6'd0;
       for (t = 0; t < 4; t = t + 1) begin
         pc[t]       <= 10'd0;
         fz[t]       <= 1'b0;
@@ -612,7 +639,7 @@ module loom_core #(
         rep_arm[t]  <= 1'b0;
         inat_arm[t] <= 1'b0;
         inat_tgt[t] <= 16'd0;
-        inat_rd[t]  <= 2'd0;
+        inat_rd[t]  <= 3'd0;
         eq_head[t]  <= 3'd0;
         eq_cnt[t]   <= 3'd0;
         rx_head[t]  <= 3'd0;
@@ -680,12 +707,14 @@ module loom_core #(
           if (inat_do) begin
             inat_arm[sel] <= 1'b1;
             inat_tgt[sel] <= tmr + inat_delta;
-            inat_rd[sel]  <= rd[1:0];
+            inat_rd[sel]  <= rd;
           end
 
           // periodic enqueue: advance NEXTT + fractional accumulator
           if (ev_enq_t || ev_enq_edge) begin
-            if (ev_enq_t) begin
+            // spec 3.1 S5: only the periodic `emit` advances the chain; emita
+            // and emitd are one-shot and must not disturb NEXTT/PFRAC (VER-014)
+            if (ev_enq_t && (opc == `OPC_EMIT)) begin
               nextt[sel] <= ev_enq_time;
               pfrac[sel] <= per_frac[3:0];
             end
@@ -932,6 +961,7 @@ module loom_core #(
   // ==========================================================================
   // Outputs
   // ==========================================================================
+  assign dmem_addr  = (do_issue && !stall_issue) ? dmem_addr_i : 6'd0;
   assign dmem_we    = do_issue && !stall_issue && dmem_we_i;
   assign dmem_wdata = dmem_wdata_i;
 

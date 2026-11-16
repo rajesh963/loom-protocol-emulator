@@ -788,7 +788,8 @@ def _fmt_operand(insn: Insn, operand_index: int, kind: str, value: int,
         return f"0x{value:02X}"
     if kind == REL16:
         if pc is not None:
-            target = (pc + 1 + value) & 0x3FF
+            # hardware: PC += sext(rel16) from the jump instruction's own address
+            target = (pc + value) & 0x3FF
             if targets and target in targets:
                 return targets[target]
             return f"0x{target:03X}"

@@ -1,10 +1,15 @@
 ; LOOM symbol table
 start                    = 0x0000  ; label
+CELLS                    = 0x0001  ; equ
+HALF_CELLS               = 0x0001  ; equ
 poll                     = 0x0002  ; label
 rx_bit                   = 0x000C  ; label
-POLL_DIV                 = 0x0100  ; equ
+cell_wait                = 0x000D  ; label
+stop_wait                = 0x0018  ; label
+POLL_DIV                 = 0x0200  ; equ
 RX_PIN                   = 0x0800  ; equ
-HALF_DIV                 = 0x1047  ; equ
+HALF_CELL_DIV            = 0x1047  ; equ
+BAUD_CELL                = 0x208D  ; equ
 BAUD_DIV                 = 0x208D  ; equ
 BAUD                     = 0x1C200  ; equ
 CLOCK_HZ                 = 0x3938700  ; equ

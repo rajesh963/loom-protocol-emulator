@@ -1,0 +1,15 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+main                     = 0x0003  ; label
+data_loop                = 0x0010  ; label
+par_one                  = 0x001F  ; label
+par_send                 = 0x0020  ; label
+sub_bit                  = 0x002F  ; label
+bit_zero                 = 0x0033  ; label
+bit_clk                  = 0x0034  ; label
+IDLE_DIV                 = 0x1000  ; equ
+SETUP_DIV                = 0x12C0  ; equ
+CLK_PIN                  = 0x2000  ; equ
+DATA_PIN                 = 0x4000  ; equ
+HALF_DIV                 = 0x8340  ; equ
+GAP_DIV                  = 0xBB80  ; equ

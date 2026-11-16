@@ -1,0 +1,21 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+main                     = 0x0015  ; label
+reset_loop               = 0x0017  ; label
+read_loop                = 0x0032  ; label
+not_reset                = 0x003C  ; label
+sub_rx_byte              = 0x003E  ; label
+rxb_loop                 = 0x0040  ; label
+sub_tx_byte              = 0x004B  ; label
+txb_loop                 = 0x004C  ; label
+txb_one                  = 0x0054  ; label
+txb_hold                 = 0x0055  ; label
+DQ_PIN                   = 0x0080  ; equ
+RECOVERY                 = 0x12C0  ; equ
+SAMPLE_DELAY             = 0x3840  ; equ
+RESET_STEP               = 0x4B00  ; equ
+PRESENCE_DELAY           = 0x7080  ; equ
+WAIT_DQ_LOW              = 0x8000  ; equ
+WAIT_DQ_HIGH             = 0x8080  ; equ
+SLOT_HOLD                = 0x9600  ; equ
+PRESENCE_HALF            = 0xE100  ; equ

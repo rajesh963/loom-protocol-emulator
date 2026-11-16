@@ -84,7 +84,9 @@ are the example assignment used by the documented example programs (`docs/exampl
 The instruction-level pin vector is 16 bits and overlaps input and output halves:
 `pins_out[15:10] = uo_out[7:2]`, `pins_out[9:8]` = host outputs (writes ignored),
 `pins_out[7:0] = uio_out[7:0]`; `pins_in[15:8] = ui_in[7:0]`, `pins_in[7:0] = uio_in[7:0]`;
-`DIR[7:0] = uio_oe`. `ena` is ignored; `rst_n` is asynchronous and resets everything.
+`DIR[7:0] = uio_oe`. Every write to the pin register is masked with `0xFCFF`, so `P[9:8]` (the host
+link's own outputs) can never be driven by firmware — `csrr POUT` after `out 0xFFFF` reads `0xFCFF`.
+`ena` is ignored; `rst_n` is asynchronous and resets everything.
 
 ## How to test
 
@@ -115,7 +117,7 @@ because `H_MISO` is on `uo[0]` = GPIO33. A full byte-level protocol reference is
 ## Register / CSR summary
 
 Per-thread bank: `0x00 TPERIOD` (12.4 period), `0x01 TMASK`, `0x02 TSTATUS` (`[1]=halt`,
-`[0]=en`), `0x03 TFIFO` (`[9:6]=tx_count`, `[5:2]=rx_count`, `[1]=tx_full`, `[0]=rx_empty`),
+`[0]=en`), `0x03 TFIFO` (`[11:8]=rx_count`, `[7:4]=tx_count`, `[1]=tx_full`, `[0]=rx_empty`),
 `0x04 TNEXTT`, `0x05 TEQ`, `0x06 TEMASK`, `0x07 TECOND`, `0x08 TPC`. Thread code addresses its own
 bank as `0x00`–`0x0F`; the host addresses thread *t* at `0x40 + 16t + n`.
 

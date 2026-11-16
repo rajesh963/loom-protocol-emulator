@@ -1,2 +1,8 @@
-pytest==8.4.2
-cocotb==2.0.1
+# LOOM verification-suite Python dependencies (test/ + formal/).
+# The repository venv is `chipchallenge/.venv`; install with:
+#   ../.venv/bin/pip install -r test/requirements.txt
+cocotb==2.1.0
+pytest==9.2.0
+# formal: SMT solver for `formal/run_formal.py` (yosys itself ships with the
+# venv as the `yowasp-yosys` / `yowasp-yosys-smtbmc` wasm packages).
+z3-solver>=4.13

@@ -1,0 +1,22 @@
+; LOOM symbol table
+CPHA                     = 0x0000  ; equ
+CPOL                     = 0x0000  ; equ
+MODE                     = 0x0000  ; equ
+start                    = 0x0000  ; label
+SCK_PIN                  = 0x0001  ; equ
+MOSI_PIN                 = 0x0002  ; equ
+MISO_PIN                 = 0x0004  ; equ
+CS_PIN                   = 0x0008  ; equ
+QUARTER_CYCLES           = 0x0008  ; equ
+main                     = 0x0008  ; label
+drain                    = 0x0009  ; label
+OUT_DIR                  = 0x000B  ; equ
+bit_loop                 = 0x0012  ; label
+mosi_low                 = 0x0016  ; label
+mosi_done                = 0x0017  ; label
+phase1                   = 0x001E  ; label
+phase2                   = 0x0028  ; label
+QUARTER_DIV              = 0x0080  ; equ
+HALF_DIV                 = 0x0100  ; equ
+IDLE_DIV                 = 0x1000  ; equ
+CLOCK_HZ                 = 0x3938700  ; equ

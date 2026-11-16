@@ -68,9 +68,11 @@ results table in §9 and the seed of everything above them.
 | Bench | Command | What it proves |
 |---|---|---|
 | `CORE_TB` | `test/unit_core/run.sh` | two threads running concurrently produce **exact 16-cycle and 8-cycle edge streams** through event-queue back-pressure — i.e. the periodic scheduler keeps its promise while the queue fills and drains |
+| `JUMP_TB` | `test/unit_core/run.sh` | a computed jump (`csrw TPC` + `jmp`) takes the new target with no bubble (VER-004 regression) |
 | `ITEST` | `test/integration/run.sh` | a bit-banged SPI host loads **7 instructions** into PMEM, reads them back, sets `PC` and starts a thread; the event scheduler then emits a square wave on `uo_out[2]` with **25 edges, every interval exactly 16 cycles, 0 errors** |
 | `HOST_TB` | `test/unit_host/run.sh` | all 13 commands at 10 MHz and at 100 kHz SCK: byte framing, MISO per transfer, CS-abort, IRQ latch; the trace in [`host-protocol.md`](host-protocol.md) §5 is its output |
-| `WAVE_TB` / `CAPTURE_TB` | `test/unit_wave/run.sh` | wave player pattern walk, loop/one-shot, fractional period, `done`; capture engine (stretch) with 209 checks |
+| `WAVE_TB` / `CAPTURE_TB` | `test/unit_wave/run.sh` | 1000 symbols at 1.625 cycles each = **1625 cycles exact**, loop/one-shot/`done`; capture engine (stretch), 209 checks |
+| `FIFO_TB` | `test/unit_host/run.sh` | full/empty/count, simultaneous read+write, fall-through read |
 
 Reproduce:
 
@@ -207,25 +209,47 @@ Coverage is reported as (hits / bins) per dimension and as a cross-coverage perc
 
 ## 9. Results
 
-> Filled in from CI and the hardened build before submission; every cell is a link to the artefact
-> that produced it. Git revision: `TBD`.
+> **Pre-place-and-route.** These are RTL-simulation and synthesis-estimate results, not silicon data.
+> Git revision: `f6ffe72` (local; the GitHub SHA follows when the repository is pushed). Rows that
+> need LibreLane, gate-level or formal runs are marked TBD — they are not estimated.
 
 ### 9.1 Layer status
 
-| Layer | Suite | Cases | Pass | Fail | Artefact |
-|---|---|---|---|---|---|
-| L1 unit | ISA + assembler | TBD | TBD | TBD | `test/unit_sw/` |
-| L1 unit | core: two concurrent periodic streams + queue back-pressure | PASS | PASS | 0 | `test/unit_core/run.sh` |
-| L1 unit | FIFO + host FSM (13 commands, 10 MHz & 100 kHz SCK) | PASS | PASS | 0 | `test/unit_host/build/tb_host.log` |
-| L1 unit | wave player + capture | PASS | PASS | 0 | `test/unit_wave/` |
-| L1 integration | host loads PMEM, sets PC, runs thread → 25-edge square wave, all intervals 16 cycles | PASS | PASS | 0 | `test/integration/` |
-| L2 differential | random programs × 4 threads | TBD | TBD | TBD | `test/random/` |
-| L3 protocol VIP | UART/SPI/I2C/1-Wire/WS2812/PS-2 | TBD | TBD | TBD | `test/integration/` |
-| L4 formal | F1–F9 bounded proofs | 9 | TBD | TBD | `formal/` |
-| L5 gate-level | protocol suite on hardened netlist | TBD | TBD | TBD | `test/results.xml` |
-| L6 coverage | dimension + cross coverage | TBD | TBD | TBD | `test/coverage.json` |
+| Layer | Suite | Result | Artefact |
+|---|---|---|---|
+| L1 unit | `CORE_TB`: two concurrent threads, exact 16-cycle and 8-cycle edge streams through event-queue back-pressure | **PASS** | `test/unit_core/run.sh` |
+| L1 unit | `JUMP_TB`: computed jump via `csrw TPC` + jump (the no-bubble target-fetch fix, VER-004) | **PASS** | `test/unit_core/run.sh` |
+| L1 unit | `HOST_TB`: all 13 host commands at **10 MHz and 100 kHz** SCK; byte framing, MISO per transfer, CS-abort, long-CS windows | **PASS** | `test/unit_host/build/tb_host.log` |
+| L1 unit | `FIFO_TB`: full/empty/count, simultaneous rw, fall-through read | **PASS** | `test/unit_host/run.sh` |
+| L1 unit | `WAVE_TB`: 1000 symbols at 1.625 cycles each = **1625 cycles exact**, loop/one-shot/`done` | **PASS** | `test/unit_wave/run.sh` |
+| L1 unit | `CAPTURE_TB`: capture engine (stretch), 209 checks | **PASS** | `test/unit_wave/run.sh` |
+| L1 integration | `ITEST`: SPI loads 7 instructions, read-back exact, host global CSR reads correct (`POUT = 0x0000`, `TMR = 0x04A0`), thread runs, **25 edges all exactly 16 cycles, 0 errors** | **PASS** | `test/integration/` |
+| L1 unit | ISA assembler/disassembler round-trip, all-op smoke program | TBD | `test/unit_sw/` |
+| L2 differential | random programs × 4 threads vs golden model | TBD | `test/random/` |
+| L3 protocol VIP | UART/SPI/I2C/1-Wire/WS2812/PS-2 conformance | TBD | `test/integration/` |
+| L4 formal | F1–F9 bounded proofs | TBD | `formal/` |
+| L5 gate-level | protocol suite on the hardened netlist | TBD | `test/results.xml` |
+| L6 coverage | dimension + cross coverage | TBD | `test/coverage.json` |
 
-### 9.2 Coverage
+### 9.2 What the methodology caught: four real deviations in the first bring-up
+
+This is the part worth reading. Before a single protocol test ran, the layering found four genuine
+bugs — two in the RTL, one in a CSR contract, one in the golden model's own understanding. They are
+listed here as evidence that the test pyramid is doing work, not as a defect list.
+
+| ID | Symptom | Found by | Fix | Regression |
+|---|---|---|---|---|
+| **VER-003** | Host reads of *global* CSRs returned stale thread-bank data: `READ_CSR` decoded from the thread-side `CSRR` address register | `ITEST` reading `POUT`/`TMR` after `RUN` | split thread and host CSR read paths (`bank_read()`/`global_read()`), so host reads of global CSRs cannot be poisoned by a thread's `CSRR` address | `test/integration` asserts `POUT = 0x0000`, `TMR = 0x04A0`; rule documented in [`host-protocol.md` §3.2](host-protocol.md) |
+| **VER-001** | `pins_out` host-link bits `P[9:8]` were not masked; `out 0xFFFF` left them set, so firmware could drive the host's own output pins | directed pin-vector test comparing every write against the spec | mask every write with `PINS_OUT_DRIVABLE = 0xFCFF`; `csrr POUT` after `out 0xFFFF` now reads `0xFCFF` | `test/integration` |
+| **VER-002** | `TFIFO` CSR layout disagreed between spec, RTL and golden model (three different bit positions) | CSR-table cross-check generated from `sw/isa.py` against the RTL read path | frozen to `{4'b0, rx_count[3:0], tx_count[3:0], 2'b0, tx_full, rx_empty}` = `[11:8]` rx_count, `[7:4]` tx_count, bit1 `tx_full`, bit0 `rx_empty`, now identical in spec + RTL + model (`sw/isa.py` regenerates the docs table) | `test/unit_host`, ISA table regeneration |
+| **VER-004** | A computed jump (`csrw TPC` then `jmp`) fetched from `pc+1` — the *model* was right and the RTL was wrong | differential co-simulation seed program vs golden model | no-bubble target fetch on a taken branch | `JUMP_TB` |
+
+Two lessons, both structural: (a) a *generated* contract (the CSR table from `sw/isa.py`) catches
+contract drift that prose review misses; (b) the golden model must be written from the spec, because
+when model and RTL disagree, that disagreement is the bug report — VER-004 would have been invisible
+to a test that only checked "does the program terminate".
+
+### 9.3 Coverage
 
 | Dimension | Bins | Hit | % |
 |---|---|---|---|
@@ -238,8 +262,10 @@ Coverage is reported as (hits / bins) per dimension and as a cross-coverage perc
 | TMR wrap | 1 | TBD | TBD |
 | **cross coverage** | TBD | TBD | TBD |
 
-### 9.3 Open issues at submission
+### 9.4 Open issues at submission
 
-| # | Issue | Severity | Owner |
+| # | Issue | Severity | Status |
 |---|---|---|---|
-| 1 | TBD | TBD | TBD |
+| 1 | Differential co-simulation, protocol VIPs, formal F1–F9, gate-level and coverage not yet green | must close before submission | in progress (verify) |
+| 2 | `waitp` observes `P[7:0]` only — `ui`-pin protocols use a poll loop / `inat` / `emite` | documented limitation | closed as documented |
+| 3 | Capture/record-replay: RTL complete + unit-verified, silicon integration deferred to revision B (DMEM aliasing) | stretch, not in build | closed as deferred |

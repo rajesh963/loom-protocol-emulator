@@ -188,6 +188,21 @@ determinism; **gate-level simulation** of the hardened netlist; **coverage** as 
 cross-product (opcodes × CSRs × 4 concurrent threads × 19 pins × both event kinds × 13 host commands
 × the TMR wrap); and the Tiny Tapeout **`gds`/`precheck`/`gl_test`** gates.
 
+The methodology has already earned its keep in the first cocotb bring-up: **four real deviations
+were found before any protocol test ran**, three of them by looking at generated contracts rather
+than at waveforms.
+
+| ID | What was wrong | How it surfaced | Fix |
+|---|---|---|---|
+| VER-003 | host reads of *global* CSRs returned stale thread-bank data (the host path decoded from the thread `CSRR` address register) | integration test read `POUT`/`TMR` after `RUN` and got nonsense | split thread and host CSR read paths; `ITEST` now asserts `POUT = 0x0000`, `TMR = 0x04A0` |
+| VER-001 | `pins_out` bits `[9:8]` (the host's own `H_IRQ`/`H_MISO`) were not masked, so `out 0xFFFF` could drive them | pin-vector test compared every write against the spec's mask | all pin writes masked with `PINS_OUT_DRIVABLE = 0xFCFF` |
+| VER-002 | `TFIFO`'s bit layout differed between spec, RTL and golden model | CSR table generated from `sw/isa.py` cross-checked against the RTL read path | frozen to `[11:8]` rx_count, `[7:4]` tx_count, bit1 tx_full, bit0 rx_empty, in all three |
+| VER-004 | a computed jump (`csrw TPC` + `jmp`) fetched from `pc+1` — the **model was right, the RTL was wrong** | differential co-simulation seed program | no-bubble target fetch on a taken branch; `JUMP_TB` regression |
+
+Two structural lessons came out of that list: a machine-generated contract (the CSR/opcode tables)
+catches drift that prose review cannot, and writing the golden model from the *spec* rather than from
+the RTL is what turned VER-004 from an unfalsifiable "it mostly works" into a bug report.
+
 The headline claims we expect to defend with artefacts, not adjectives: every pin transition in a
 random-program corpus matches the golden model cycle-for-cycle; every protocol suite passes through
 the gate-level netlist; all nine formal properties hold to their bounds; and every opcode, CSR and
@@ -195,32 +210,54 @@ pin is exercised at least once with four threads running concurrently.
 
 ## 7. Results
 
-> Numbers are filled from the hardened build and CI before submission; the git revision and links
-> to the artefacts live in [`results.md`](results.md). **Cells marked TBD are not yet measured** —
-> this write-up does not invent them.
+> **Status: pre-place-and-route.** The numbers below are a yosys + IHP `sg13cmos5l` liberty area
+> estimate and RTL-simulation results, not silicon data and not a routed design. Git revision
+> `f6ffe72` (local; GitHub SHA when pushed). Rows that require LibreLane, gate level or formal are
+> marked TBD and are **not** estimated — see [`results.md`](results.md) for the full tables and the
+> evidence links.
 
-### 7.1 Area
+### 7.1 Area — pre-place estimate
 
-| Build | Synthesis cells | Cell area | Die util. | Note |
-|---|---|---|---|---|
-| FF fallback (`PMEM_IMPL=ff`, 128 words) | TBD | TBD | TBD | zero-flow-risk build, also the sim build |
-| SRAM flagship (`1024x32` macro) | TBD | TBD | TBD | SRAM = 140 183 µm² ≈ 14 % of die |
+| Build | Flip-flops | FF area | Notes |
+|---|---|---|---|
+| FF fallback (`PMEM_IMPL=ff`, 128 words) | **8 038** | 8 038 × 48.99 µm² ≈ **394k µm²** | ≈ 44k generic gate instances before tech mapping (20.3k MUX, 7.1k AND, 6.5k OR, 1.0k XOR, 1.2k NOT; ~0.5M µm² pre-ABC) |
+| SRAM flagship (one `RM_IHPSG13_1P_1024x32`) | 8 038 − 4 096 = **3 942** | macro **140 183 µm²** (≈ 11–14 % die); −200k µm² FFs and −~70k µm² for the 128:1 PMEM read mux | **1024 instruction words** instead of 128 |
+
+Both configurations are expected at roughly **55–65 % of the 8×4 core** — tight but workable — with
+the SRAM build comfortable-ish because it trades 4 096 FFs and a 128:1 read mux for one macro.
+Calibration from three real Tiny Tapeout CMOS5L designs (LibreLane post-place): `vc32_cpu` 6×2 =
+392k µm² core / 285.7k µm² stdcells / 18 638 cells / 0.73 util; `kianv_bare_metal` 4×2 = 160.5k µm²
+util 0.62; `tinyQV` 2×2 = 114.5k µm² util 0.89 — an average of ≈ 15 µm² per placed cell, which is the
+budget model this estimate uses.
+
+**Submission plan:** SRAM flagship if CI is green; FF fallback if not. Cheap shrink levers held in
+reserve if placement overflows: DMEM 64→32 words, FIFO depth 8→4, and dropping the wave player's
+private DMEM read port (sharing the CPU read port).
 
 ### 7.2 Timing
 
-| Corner | Target | WNS | TNS | Note |
-|---|---|---|---|---|
-| typical, 60 MHz (`CLOCK_PERIOD` 16.67 ns) | setup clean | TBD | TBD | TT confirmed 60 MHz is OK |
-| hold | clean | TBD | TBD | |
+| Corner | Target | WNS | TNS |
+|---|---|---|---|
+| typical, 60 MHz (`CLOCK_PERIOD` 16.67 ns) | setup clean | TBD | TBD |
+| hold | clean | TBD | TBD |
 
-### 7.3 Sign-off
+### 7.3 Gate level and sign-off
 
 | Check | Result |
 |---|---|
+| `gl_test` (protocol suite on hardened netlist) | TBD |
 | `gds` action | TBD |
 | `precheck` | TBD |
-| `gl_test` (gate-level protocol suite) | TBD |
-| formal properties F1–F9 | TBD |
+| formal properties F1–F9 (bounded) | TBD |
+
+### 7.4 What is already proven by simulation
+
+`CORE_TB` (two concurrent threads produce exact 16-cycle and 8-cycle edge streams through
+event-queue back-pressure), `JUMP_TB` (computed jump), `HOST_TB` (all 13 host commands at 10 MHz and
+100 kHz SCK, CS-abort and long-CS windows), `FIFO_TB`, `WAVE_TB` (1000 symbols at 1.625 cycles each =
+1625 cycles exact), `CAPTURE_TB` (209 checks) and `ITEST` (SPI loads 7 instructions, read-back exact,
+host global CSR reads correct, a thread runs, 25 edges all exactly 16 cycles, 0 errors). All on
+Icarus Verilog 12; see [`verification.md` §9](verification.md) for the artefact per row.
 
 ## 8. Extensibility after fabrication
 

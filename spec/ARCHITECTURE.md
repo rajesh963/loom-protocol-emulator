@@ -237,7 +237,9 @@ Global registers:
 | `0x1B` | `CAPSTAT` | R | capture status/count (stretch) |
 | `0x1C` | `GSTATUS` | R | `{7'b0, en[3:0], 4'b0, irq}` (bit0 = host IRQ pending) |
 
-Host-only CSR `0x20` = soft reset (write 1) — resets threads/memories but not the host bridge.
+Host-only CSR `0x20` = soft reset (write 1) — resets thread state, queues, FIFOs and pin
+registers, but **not** the host bridge, PMEM/DMEM contents, the wave player's internals or `TMR`
+(`TMR` is a free-running global counter; `RUN` re-seeds each thread's `NEXTT` from `TMR`).
 
 ---
 
@@ -456,8 +458,8 @@ instruction buffer.
 | op | effect |
 |---|---|
 | `waitd D` (12.4) | `f = WFRAC + D[3:0]`; `carry = f>=16`; `total = D[15:4]+carry`; `WFRAC = f & 15`; `stall_set = (total==0) ? 0 : total-1`; next issue at `k+total` |
-| `waitu t` | `delta = t-k`; `stall_set = (delta==0) ? 0 : delta-1`; next issue at `max(k+1,t)` |
-| `inat t` | latch `pins_in` during cycle `t`; `if t==k: R[rd]=pins_in` immediately; else arm and `stall_set = delta`; `R[rd]` written end of cycle `t`, next issue at `t+1` |
+| `waitu t` | `delta = t-k` mod 65536; if `delta==0` or `delta>=0x8000` (target now or already past) `stall_set=0`, else `stall_set=delta-1`; next issue at `max(k+1,t)` |
+| `inat t` | `delta = t-k` mod 65536; if `delta==0` or `delta>=0x8000` (target now/past): `R[rd]=pins_in` immediately; else arm, latch `pins_in` during cycle `t`, `stall_set = delta`, `R[rd]` written end of cycle `t`, next issue at `t+1` |
 | `emit rd` | `f = PFRAC + PERIOD[3:0]`; `carry=f>=16`; `target = NEXTT + PERIOD[15:4] + carry`; `PFRAC = f&15`; `NEXTT = target` (then clamp) |
 | `emita rd,t` | `target = t` |
 | `emitd rd,d` | `target = TMR + d` |

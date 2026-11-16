@@ -1,0 +1,14 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+main                     = 0x0004  ; label
+sub_send8                = 0x001F  ; label
+ws_loop                  = 0x0021  ; label
+ws_one                   = 0x0028  ; label
+ws_next                  = 0x002C  ; label
+T0H                      = 0x0180  ; equ
+T1L                      = 0x01B0  ; equ
+T1H                      = 0x0300  ; equ
+T0L                      = 0x0330  ; equ
+DATA_PIN                 = 0x1000  ; equ
+IDLE_DIV                 = 0x1000  ; equ
+RESET_DIV                = 0xBB80  ; equ

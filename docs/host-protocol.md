@@ -145,6 +145,20 @@ last assignment is what makes the first `emit` of a freshly-run thread land exac
 after the `RUN` byte. `STOP` clears `en` and freezes the thread with its state intact. A `STATUS`
 byte `sn` is `[7]=halt, [6]=en, [5]=tx_full, [4]=tx_empty, [3]=rx_full, [2]=rx_empty, [1:0]=00`.
 
+### 3.2 CSR addressing pitfall (VER-003)
+
+Thread-local CSR addresses `0x00`–`0x0F` are only meaningful *inside* a thread. A **host** read or
+write of `0x00`–`0x0F` addresses no thread bank: reads return `0x0000` and writes are ignored. To
+reach thread *t*'s bank the host must use `0x40 + 16*t + n` (`t` = 0..3, `n` = 0..0x0F), e.g.
+thread 2's `TPERIOD` is CSR `0x60`.
+
+The RTL has separate thread and host CSR read paths, so a host read of a *global* CSR (`POUT`,
+`PDIR`, `TMR`, `EVT`, `IRQ`, `W*`, `GSTATUS`) cannot be poisoned by a thread's `CSRR` address
+register. That was not true in the first cocotb bring-up: global reads decoded from the thread-side
+address latch and returned stale thread-bank data (`test/integration` now asserts the host reads
+`POUT = 0x0000` and `TMR = 0x04A0` at the documented point in its script). Keep the rule in mind
+when writing a host driver: pass the *host* CSR number, never a thread-local one.
+
 ## 4. IRQ behaviour
 
 `H_IRQ` is a **sticky, registered level**: it asserts when the core's IRQ register (CSR `0x14`) is
@@ -298,3 +312,4 @@ loader works for the FF build and for the SRAM build.
 | `READ_MEM`/`STATUS` payload has no dummy phase | the first payload byte rides in the transfer right after the command byte |
 | `0x81 busy` never observable | treat any non-`0x80` T1 response as a link fault |
 | 8-byte FIFOs | the host must drain `RX_POP` before a thread's 8-byte TX FIFO fills, or firmware `push` stalls (timing on the wire is unaffected — that is the point of the FIFOs) |
+| thread-local CSRs from the host | `0x00`–`0x0F` read as 0 from the host side; use `0x40 + 16*t + n` |

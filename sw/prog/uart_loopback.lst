@@ -1,0 +1,47 @@
+; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/uart_loopback.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   32000400  set 0x0400               set     TX_PIN          ; idle line = mark
+0001   4A000400  setm 0x0400              setm    TX_PIN          ; the event scheduler owns P[10] only
+0002   4800208D  setp 0x208D              setp    BAUD_DIV
+0003   05800800  movi r6, 0x0800          movi    r6, RX_PIN
+; --- poll = 0x004
+0004   54000100  waitd 0x0100             waitd   POLL_DIV
+0005   38000000  in r0                    in      r0
+0006   10300000  and r0, r6               and     r0, r6
+0007   8400FFFD  jnz 0x005                jnz     poll
+0008   54001047  waitd 0x1047             waitd   HALF_DIV        ; mid-start
+0009   38000000  in r0                    in      r0
+000A   10300000  and r0, r6               and     r0, r6
+000B   8400FFF9  jnz 0x005                jnz     poll            ; false start
+000C   05400000  movi r5, 0x0000          movi    r5, 0
+000D   05000008  movi r4, 0x0008          movi    r4, 8
+; --- rx_bit = 0x00E
+000E   5400208D  waitd 0x208D             waitd   BAUD_DIV
+000F   38C00000  in r3                    in      r3
+0010   10F00000  and r3, r6               and     r3, r6
+0011   20C00004  shr r3, 4                shr     r3, 4           ; RX bit -> 0x0080 (the new MSB)
+0012   21400001  shr r5, 1                shr     r5, 1
+0013   15580000  or r5, r3                or      r5, r3
+0014   0F000001  subi r4, 0x0001          subi    r4, 1
+0015   8400FFF9  jnz 0x00F                jnz     rx_bit
+0016   5400208D  waitd 0x208D             waitd   BAUD_DIV        ; stop cell
+0017   38000000  in r0                    in      r0
+0018   10300000  and r0, r6               and     r0, r6
+0019   8200FFEB  jz 0x005                 jz      poll            ; framing error -> drop
+001A   71400000  push r5                  push    r5              ; host can observe the echo via RX_POP
+001B   04000000  movi r0, 0x0000          movi    r0, 0
+001C   40000000  emit r0                  emit    r0              ; start bit
+001D   05000008  movi r4, 0x0008          movi    r4, 8
+001E   06680000  mov r1, r5               mov     r1, r5
+; --- tx_bit = 0x01F
+001F   06880000  mov r2, r1               mov     r2, r1
+0020   12800001  andi r2, 0x0001          andi    r2, 1
+0021   1E80000A  shl r2, 10               shl     r2, 10          ; 0/1 -> 0x0000/0x0400
+0022   40800000  emit r2                  emit    r2
+0023   20400001  shr r1, 1                shr     r1, 1
+0024   0F000001  subi r4, 0x0001          subi    r4, 1
+0025   8400FFFA  jnz 0x020                jnz     tx_bit
+0026   04800400  movi r2, 0x0400          movi    r2, TX_PIN
+0027   40800000  emit r2                  emit    r2              ; stop bit = 1
+0028   8000FFDC  jmp 0x005                jmp     poll

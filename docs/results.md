@@ -5,8 +5,10 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-Git revision of the last results update: `TBD` · flow: LibreLane via
+Git revision: `f6ffe72` (local; GitHub SHA when the repo is pushed) · flow: LibreLane via
 `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz (`CLOCK_PERIOD` 16.67 ns).
+**Status: pre-place-and-route.** §2 is a yosys/IHP-liberty *estimate*; §3–§4 stay TBD until the
+LibreLane run and precheck exist — they are not estimated here.
 
 ---
 
@@ -42,15 +44,39 @@ because enabling it aliases the 64-word DMEM used by the wave player. It is ther
 enable (one parameter, one DMEM budget decision) and the reason the record-and-replay story in
 [`writeup.md` §8](writeup.md) is credible rather than hypothetical.
 
-## 2. Area (synthesis)
+## 2. Area — pre-place estimate
 
-Measured with yosys + the IHP liberty file (`tools/area_synth.sh`, in progress); "cells" excludes
-the macro.
+yosys + IHP `sg13cmos5l` liberty (`CLOCK_PERIOD` 16.67 ns), **before place and route**. This is a
+budget estimate, not a flow result: it counts mapped flip-flops at 48.99 µm² each
+(`sg13cmos5l_dfrbpq_1`) and generic gate instances before tech mapping/ABC optimisation.
 
-| Build | Cells | Cell area (µm²) | Macro area (µm²) | Total logic+macro (µm²) | % of 8×4 die |
+| Build | Flip-flops | FF area (µm²) | Macro (µm²) | Pre-ABC logic (µm²) | Expected util. of 8×4 core |
 |---|---|---|---|---|---|
-| FF fallback (128-word PMEM) | TBD | TBD | 0 | TBD | TBD |
-| SRAM flagship (1024-word PMEM) | TBD | TBD | 140 183 | TBD | TBD |
+| FF fallback (`PMEM_IMPL="ff"`, 128 words) | 8 038 | 8 038 × 48.99 ≈ **393 800** | 0 | ~0.5 M (≈ 44 k generic instances: 20.3 k MUX, 7.1 k AND, 6.5 k OR, 1.0 k XOR, 1.2 k NOT) | **~55–65 %** (tight) |
+| SRAM flagship (one `RM_IHPSG13_1P_1024x32`) | 3 942 | 3 942 × 48.99 ≈ **193 100** | **140 183** (416.64 × 336.46 µm) | as above minus PMEM logic | **~55–65 %** (comfortable-ish), and **1024 instruction words** instead of 128 |
+
+The SRAM build removes 4 096 PMEM flops (−~200 k µm²) and the 128:1 32-bit PMEM read mux
+(−~70 k µm²) at the cost of one 140 k µm² macro: it is both smaller *and* eight times the program
+memory, which is why it is the flagship configuration.
+
+### 2.1 Calibration against real Tiny Tapeout CMOS5L designs
+
+The utilisation model used above is not invented; it is fitted from three public designs' LibreLane
+post-place metrics (average ≈ 15 µm² per placed cell):
+
+| Design | Tiles | Core area (µm²) | Stdcell area (µm²) | Cells | Utilisation |
+|---|---|---|---|---|---|
+| `vc32_cpu` | 6×2 | 392 000 | 285 700 | 18 638 | 0.73 |
+| `kianv_bare_metal` | 4×2 | — | 160 500 | — | 0.62 |
+| `tinyQV` | 2×2 | — | 114 500 | — | 0.89 |
+
+Measured LibreLane results for LOOM replace these rows in §3 when CI is green.
+
+### 2.2 Shrink levers held in reserve
+
+If placement reports an overflow, in order of least harm: DMEM 64→32 words, FIFO depth 8→4, drop the
+wave player's private DMEM read port (share the CPU read port). None of these touch the programming
+model.
 
 ## 3. Area and timing (hardened LibreLane run)
 
@@ -77,21 +103,27 @@ for the submitted build. Both are flow configuration, owned by the Lead; the RTL
 | formal F1–F9 (bounded, yosys SMT2 + z3) | TBD | `formal/` log |
 | `docs` action | TBD | Actions run |
 
-## 5. Verification results (current)
+## 5. Verification results (current, RTL simulation)
 
-| Layer | Result |
+All below are Lead-verified on Icarus Verilog 12 at `f6ffe72`; the full layer table with artefact
+paths is [`verification.md` §9](verification.md), including the **four deviations the methodology
+caught in the first bring-up** (VER-001..004).
+
+| Bench | Result |
 |---|---|
-| `CORE_TB` — two concurrent periodic streams, exact 16-cycle and 8-cycle intervals, through event-queue back-pressure | **PASS** (Icarus Verilog 12) |
-| `ITEST` — SPI host load/readback/run; 25 edges on `uo_out[2]`, every interval exactly 16 cycles, 0 errors | **PASS** |
-| `HOST_TB` — all 13 host commands at 10 MHz and 100 kHz SCK, CS-abort, IRQ latch | **PASS** |
-| `WAVE_TB` / `CAPTURE_TB` — wave player pattern walk / loop / done; capture engine 209 checks | **PASS** |
+| `CORE_TB` — two concurrent threads, exact 16-cycle and 8-cycle edge streams through queue back-pressure | **PASS** |
+| `JUMP_TB` — computed jump via `csrw TPC` + jump (VER-004 regression) | **PASS** |
+| `HOST_TB` — all 13 host commands at 10 MHz and 100 kHz SCK; CS-abort, long-CS windows | **PASS** |
+| `FIFO_TB` — full/empty/count, simultaneous rw, fall-through read | **PASS** |
+| `WAVE_TB` — 1000 symbols at 1.625 cycles each = 1625 cycles exact | **PASS** |
+| `CAPTURE_TB` — capture engine, 209 checks (stretch; not in the build) | **PASS** |
+| `ITEST` — SPI loads 7 instructions, read-back exact, host global CSR reads correct (`POUT=0x0000`, `TMR=0x04A0`), 25 edges all exactly 16 cycles, 0 errors | **PASS** |
 | ISA assembler/disassembler round-trip, all-op smoke program | TBD |
 | Differential co-simulation vs golden model | TBD |
-| Protocol VIP conformance | TBD |
+| Protocol VIP conformance (UART/SPI/I2C/1-Wire/WS2812/PS-2) | TBD |
+| Formal F1–F9 | TBD |
 | Gate-level protocol suite | TBD |
 | Coverage matrix | TBD |
-
-Full methodology and the tables to be filled: [`verification.md`](verification.md).
 
 ## 6. Errata and known gaps
 

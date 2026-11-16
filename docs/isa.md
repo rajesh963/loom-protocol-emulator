@@ -81,7 +81,7 @@ and `.` (the current word address). No character or string literals; **`%` is mo
 | `0x14` | `cmpi` | `rd, imm16` | flags from R[rd] - imm16 | Z,C |
 | `0x15` | `csrw` | `csr, rs` | CSR[imm16[7:0]] = R[rs] (thread bank if < 0x10) | — |
 | `0x16` | `csrr` | `rd, csr` | R[rd] = CSR[imm16[7:0]] | — |
-| `0x18` | `out` | `imm16` | pins_out = imm16 (all 16 bits; 9:8 unconnected) | — |
+| `0x18` | `out` | `imm16` | pins_out = imm16 & 0xFCFF (host-link bits 9:8 masked) | — |
 | `0x19` | `set` | `imm16` | pins_out \|= imm16 | — |
 | `0x1A` | `clr` | `imm16` | pins_out &= ~imm16 | — |
 | `0x1B` | `tog` | `imm16` | pins_out ^= imm16 | — |
@@ -100,7 +100,7 @@ and `.` (the current word address). No character or string literals; **`%` is mo
 | `0x28` | `inat` | `rd, t16` | stall until TMR==imm16, latch pins_in that cycle, R[rd]=latch | — |
 | `0x29` | `waitu` | `t16` | stall until TMR==imm16 | — |
 | `0x2A` | `waitd` | `imm16` | stall imm16 (12.4) cycles, drift-free fractional accumulation | — |
-| `0x2B` | `waitp` | `mask\|value` | stall until (pins_in & imm16[15:8]) == imm16[7:0] | — |
+| `0x2B` | `waitp` | `mask\|value` | retry until (pins_in[7:0] & imm16[15:8]) == imm16[7:0] (uio pins only) | — |
 | `0x30` | `ld` | `rd, a6` | R[rd] = DMEM[imm16[5:0]] (single-cycle, combinational read) | — |
 | `0x31` | `st` | `a6, rs` | DMEM[imm16[5:0]] = R[rs] (single-cycle, write commits end of cycle) | — |
 | `0x32` | `ldi` | `rd, rs` | R[rd] = DMEM[R[rs][5:0]] (indirect, single-cycle) | — |
@@ -159,7 +159,7 @@ straight-line code, use `rpt` for repeats and `jmp` for tail loops.
 ```asm
     csrw  TPERIOD, r4       ; CSR[0x00] = r4     (thread bank 0x00-0x0F)
     csrr  r5, TMR           ; r5 = CSR[0x12]     (global)
-    csrw  POUT, r3          ; write pins_out directly
+    csrw  POUT, r3          ; write pins_out directly (still masked with 0xFCFF)
 ```
 
 Thread-code CSR numbers `0x00`–`0x0F` always address **the issuing thread's own bank**. The host
@@ -170,7 +170,7 @@ assembler accepts CSR names (case-insensitive) or raw numbers.
 
 | Instruction | Effect |
 |---|---|
-| `out imm16` | `pins_out = imm16` (host bits `[9:8]` are never driven) |
+| `out imm16` | `pins_out = imm16` **masked with `0xFCFF`**: bits `[9:8]` are the host-link pins and are forced to 0 in the register, so `csrr POUT` after `out 0xFFFF` reads `0xFCFF` |
 | `set imm16` | `pins_out \|= imm16` |
 | `clr imm16` | `pins_out &= ~imm16` |
 | `tog imm16` | `pins_out ^= imm16` |
@@ -275,13 +275,23 @@ dropping data:
 * `pull` stalls while RX is empty — this is how a protocol thread idles waiting for host data.
 
 `push`/`pull` do **not** modify the flags. Test occupancy via CSR `TFIFO`:
-`tx_count = [9:6]`, `rx_count = [5:2]`, `tx_full = [1]`, `rx_empty = [0]`.
+`rx_count = [11:8]`, `tx_count = [7:4]`, `tx_full = [1]`, `rx_empty = [0]`, bits `[3:2]` = 0.
 
 ### 4.8 Control flow, repeat, events, IRQ
 
-`jmp/jz/jnz/jc/jnc rel16` are PC-relative in word units; `.` is the current PC, so `jmp .` is a
-spin. `rpt n` re-issues the following instruction `n+1` times without advancing the PC — a
-1-instruction loop that costs no branch slot, e.g. `rpt 7` + `shl r0, 1` = `shl` by 8.
+`jmp/jz/jnz/jc/jnc rel16` are PC-relative in word units. The **assembler takes an absolute target**
+(a label or expression) and encodes `rel16 = target - pc`, where `pc` is the jump instruction's own
+address, so firmware remains relocatable and `--relocs` records where the fixups are. `.` is the
+current PC, so `jmp .` is a spin.
+
+A jump whose target comes from a register — or from a *newly written* `TPC` — resolves in the same
+cycle: `csrw TPC, r3` immediately followed by `jmp rel16` redirects that cycle's fetch, with no
+bubble and no stale fetch buffer (VER-004 in [`verification.md` §9.2](verification.md); `JUMP_TB`
+regression). That is what makes "computed goto" a supported idiom for thread dispatch, not an
+accident.
+
+`rpt n` re-issues the following instruction `n+1` times without advancing the PC — a 1-instruction
+loop that costs no branch slot, e.g. `rpt 7` + `shl r0, 1` = `shl` by 8.
 
 `evset`/`evwait` are 8 event flags shared between threads and the host (CSR `EVT`). `irq imm8`
 raises `H_IRQ` with a software-defined code in CSR `IRQ` (`0x14`); the CSR read is
@@ -296,7 +306,7 @@ command, which writes CSR `IRQ = 0`.
 | `0x00` | `TPERIOD` | RW | per-thread | 16 | event period, 12.4 fixed point | int[15:4].frac[3:0] |
 | `0x01` | `TMASK` | RW | per-thread | 16 | event output mask | — |
 | `0x02` | `TSTATUS` | R | per-thread | 16 | thread status | bit1=halted, bit0=en, bits15:2=0 |
-| `0x03` | `TFIFO` | R | per-thread | 16 | FIFO occupancy / full flags | [9:6]=tx_count, [5:2]=rx_count, bit1=tx_full, bit0=rx_empty |
+| `0x03` | `TFIFO` | R | per-thread | 16 | FIFO occupancy / full flags | [11:8]=rx_count, [7:4]=tx_count, bit1=tx_full, bit0=rx_empty |
 | `0x04` | `TNEXTT` | R | per-thread | 16 | last scheduled emit time (16-bit wrapping) | — |
 | `0x05` | `TEQ` | R | per-thread | 16 | event-queue occupancy | bits2:0=eq_count (0..4) |
 | `0x06` | `TEMASK` | RW | per-thread | 16 | edge-trigger mask (emite kind only) | — |
@@ -318,12 +328,12 @@ command, which writes CSR `IRQ = 0`.
 | `0x20` | `SOFTRST` | W | host | 1 | host-only soft reset (write 1): core only, not host bridge | — |
 <!-- END GENERATED: csr -->
 
-Bit layouts worth memorising:
+Bit layouts worth memorising (`[x:y]` in the column headers are bit positions):
 
 | CSR | 15..12 | 11..8 | 7..4 | 3 | 2 | 1 | 0 |
 |---|---|---|---|---|---|---|---|
 | `TSTATUS` | 0 | 0 | 0 | 0 | 0 | `halted` | `en` |
-| `TFIFO` | 0 | `tx_count[3:0]` ([9:6]) | `rx_count[3:0]` ([5:2]) | 0 | 0 | `tx_full` | `rx_empty` |
+| `TFIFO` | 0 | `rx_count[3:0]` | `tx_count[3:0]` | 0 | 0 | `tx_full` | `rx_empty` |
 | `TEQ` | 0 | 0 | 0 | 0 | 0 | 0 | `eq_count[2:0]` (0–4) |
 | `GSTATUS` | 0 | `en[3:0]` at [8:5] | 0 | 0 | 0 | 0 | `irq` pending |
 | `WCTRL` | 0 | 0 | 0 | 0 | `oneshot` | `loop` | `start` (write-1 pulse) |

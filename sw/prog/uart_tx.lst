@@ -1,24 +1,43 @@
-; LOOM listing — sw/examples/uart_tx.asm
+; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/uart_tx.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   32000400  set 0x0400               set     TX_PIN          ; idle line = mark (1), OR-only: other pins safe
 0001   4A000400  setm 0x0400              setm    TX_PIN          ; this thread's events drive P[10] only
-0002   4800208D  setp 0x208D              setp    BAUD_DIV        ; hardware bit clock, drift-free 12.4
+0002   4800208D  setp 0x208D              setp    BAUD_CELL       ; hardware cell clock, 12.4 fixed point
 ; --- main = 0x003
-0003   94000000  evwait 0x00              evwait  EVT_BIT         ; sleep until the host has queued a byte
-0004   72400000  pull r1                  pull    r1              ; r1 = data byte (host TX_PUSH)
-0005   04000000  movi r0, 0x0000          movi    r0, 0
-0006   40000000  emit r0                  emit    r0              ; cell 0: start bit = 0
-0007   05000008  movi r4, 0x0008          movi    r4, 8
-0008   05400400  movi r5, 0x0400          movi    r5, TX_PIN
-; --- bit_loop = 0x009
-0009   06880000  mov r2, r1               mov     r2, r1
-000A   12800001  andi r2, 0x0001          andi    r2, 1           ; isolate LSB
-000B   1E80000A  shl r2, 10               shl     r2, 10          ; 0/1 -> 0x0000/0x0400 pin vector value
-000C   40800000  emit r2                  emit    r2              ; data cell, LSB first
-000D   20400001  shr r1, 1                shr     r1, 1
-000E   0F000001  subi r4, 0x0001          subi    r4, 1
-000F   8400FFFA  jnz 0x00A                jnz     bit_loop
-0010   04800400  movi r2, 0x0400          movi    r2, TX_PIN
-0011   40800000  emit r2                  emit    r2              ; cell 9: stop bit = 1
-0012   8000FFF1  jmp 0x004                jmp     main
+0003   54001000  waitd 0x1000             waitd   IDLE_DIV        ; sleep 256 cycles between polls: an idle thread
+0004   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
+0005   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00      ; rx_cnt[3:0] != 0 ?
+0006   8200FFFD  jz 0x004                 jz      main
+; --- drain = 0x007
+0007   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
+0008   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00      ; rx_cnt[3:0] != 0 ?
+0009   8200FFFA  jz 0x004                 jz      main
+000A   72400000  pull r1                  pull    r1              ; r1 = data byte (host TX_PUSH)
+000B   04800000  movi r2, 0x0000          movi    r2, 0
+000C   04C00001  movi r3, 0x0001          movi    r3, CELLS
+; --- start_cells = 0x00D
+000D   40800000  emit r2                  emit    r2
+000E   0EC00001  subi r3, 0x0001          subi    r3, 1
+000F   8400FFFE  jnz 0x00E                jnz     start_cells
+0010   05000008  movi r4, 0x0008          movi    r4, 8
+0011   05400400  movi r5, 0x0400          movi    r5, TX_PIN
+; --- bit_loop = 0x012
+0012   06880000  mov r2, r1               mov     r2, r1
+0013   12800001  andi r2, 0x0001          andi    r2, 1           ; isolate LSB
+0014   1E80000A  shl r2, 10               shl     r2, 10          ; 0/1 -> 0x0000/0x0400 pin vector value
+0015   04C00001  movi r3, 0x0001          movi    r3, CELLS
+; --- bit_cells = 0x016
+0016   40800000  emit r2                  emit    r2              ; one data cell (value masked by TMASK)
+0017   0EC00001  subi r3, 0x0001          subi    r3, 1
+0018   8400FFFE  jnz 0x017                jnz     bit_cells
+0019   20400001  shr r1, 1                shr     r1, 1
+001A   0F000001  subi r4, 0x0001          subi    r4, 1
+001B   8400FFF7  jnz 0x013                jnz     bit_loop
+001C   04800400  movi r2, 0x0400          movi    r2, TX_PIN
+001D   04C00001  movi r3, 0x0001          movi    r3, CELLS
+; --- stop_cells = 0x01E
+001E   40800000  emit r2                  emit    r2
+001F   0EC00001  subi r3, 0x0001          subi    r3, 1
+0020   8400FFFE  jnz 0x01F                jnz     stop_cells
+0021   8000FFE6  jmp 0x008                jmp     drain

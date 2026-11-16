@@ -1,0 +1,213 @@
+{
+  "generated_by": "sw/prog/build_examples.py",
+  "clock_hz": 60000000,
+  "pmem_words": 1024,
+  "ff_fallback_words": 128,
+  "target": "tt_um_rajesh963_loom",
+  "programs": {
+    "i2c_master": {
+      "thread": 3,
+      "evt_bit": 3,
+      "dir_mask": 48,
+      "setm": 0,
+      "pins": {
+        "SCL": 4,
+        "SDA": 5
+      },
+      "fifo": "4-byte job -> RXFIFO, read byte -> TXFIFO",
+      "notes": "open-drain, 100 kHz, clock-stretch tolerant",
+      "source": "sw/examples/i2c_master.asm",
+      "image": "sw/prog/i2c_master.hex",
+      "words": 125,
+      "relocatable": true,
+      "relocs": 8,
+      "symbols": 20,
+      "base": 384
+    },
+    "i2c_target": {
+      "thread": 0,
+      "evt_bit": null,
+      "dir_mask": 192,
+      "setm": 0,
+      "pins": {
+        "SCL": 6,
+        "SDA": 7
+      },
+      "fifo": "none",
+      "notes": "register file = DMEM[0..7], addr 0x50",
+      "source": "sw/examples/i2c_target.asm",
+      "image": "sw/prog/i2c_target.hex",
+      "words": 121,
+      "relocatable": true,
+      "relocs": 18,
+      "symbols": 24,
+      "base": null
+    },
+    "onewire": {
+      "thread": 0,
+      "evt_bit": null,
+      "dir_mask": 128,
+      "setm": 0,
+      "pins": {
+        "DQ": 7
+      },
+      "fifo": "none",
+      "notes": "DS18B20-style, +25.0 C scratchpad in DMEM[0..8]",
+      "source": "sw/examples/onewire.asm",
+      "image": "sw/prog/onewire.hex",
+      "words": 91,
+      "relocatable": true,
+      "relocs": 10,
+      "symbols": 20,
+      "base": null
+    },
+    "ps2_target": {
+      "thread": 0,
+      "evt_bit": null,
+      "dir_mask": 0,
+      "setm": 0,
+      "pins": {
+        "CLK": 13,
+        "DATA": 14
+      },
+      "fifo": "one scancode per RXFIFO byte",
+      "notes": "11-bit device->host frames, ~14.3 kHz clock",
+      "source": "sw/examples/ps2_target.asm",
+      "image": "sw/prog/ps2_target.hex",
+      "words": 58,
+      "relocatable": true,
+      "relocs": 7,
+      "symbols": 14,
+      "base": null
+    },
+    "spi_master": {
+      "thread": 2,
+      "evt_bit": 2,
+      "dir_mask": 11,
+      "setm": 0,
+      "pins": {
+        "SCK": 0,
+        "MOSI": 1,
+        "MISO": 2,
+        "CS_N": 3
+      },
+      "fifo": "host->RXFIFO byte, MISO byte -> TXFIFO",
+      "notes": "mode 0, QUARTER_CYCLES=8 -> ~62 cyc/bit (~0.97 MHz)",
+      "source": "sw/examples/spi_master.asm",
+      "image": "sw/prog/spi_master.hex",
+      "words": 49,
+      "relocatable": true,
+      "relocs": 7,
+      "symbols": 21,
+      "base": 256
+    },
+    "spi_slave": {
+      "thread": 0,
+      "evt_bit": null,
+      "dir_mask": 1,
+      "setm": 0,
+      "pins": {
+        "MISO": 0,
+        "SCK": 4,
+        "MOSI": 5,
+        "CS_N": 6
+      },
+      "fifo": "one byte per CS frame -> TXFIFO",
+      "notes": "mode 0 target, MISO = previous MOSI + 1",
+      "source": "sw/examples/spi_slave.asm",
+      "image": "sw/prog/spi_slave.hex",
+      "words": 31,
+      "relocatable": true,
+      "relocs": 4,
+      "symbols": 13,
+      "base": null
+    },
+    "uart_loopback": {
+      "thread": 0,
+      "evt_bit": null,
+      "dir_mask": 0,
+      "setm": 1024,
+      "pins": {
+        "TX": 10,
+        "RX": 11
+      },
+      "fifo": "echo also PUSHed to TXFIFO",
+      "notes": "half-duplex echo, needs inter-byte gap",
+      "source": "sw/examples/uart_loopback.asm",
+      "image": "sw/prog/uart_loopback.hex",
+      "words": 41,
+      "relocatable": true,
+      "relocs": 6,
+      "symbols": 11,
+      "base": null
+    },
+    "uart_rx": {
+      "thread": 1,
+      "evt_bit": null,
+      "dir_mask": 0,
+      "setm": 0,
+      "pins": {
+        "RX": 11
+      },
+      "fifo": "RXFIFO->host (decoded bytes)",
+      "notes": "8N1 RX, relative WAITD mid-bit sampling",
+      "source": "sw/examples/uart_rx.asm",
+      "image": "sw/prog/uart_rx.hex",
+      "words": 32,
+      "relocatable": true,
+      "relocs": 7,
+      "symbols": 14,
+      "base": 128
+    },
+    "uart_tx": {
+      "thread": 0,
+      "evt_bit": 0,
+      "dir_mask": 0,
+      "setm": 1024,
+      "pins": {
+        "TX": 10
+      },
+      "fifo": "host->RXFIFO, one doorbell per burst",
+      "notes": "8N1 TX, BAUD_DIV 0x208D (520.8125 cyc/bit)",
+      "source": "sw/examples/uart_tx.asm",
+      "image": "sw/prog/uart_tx.hex",
+      "words": 34,
+      "relocatable": true,
+      "relocs": 7,
+      "symbols": 14,
+      "base": 0
+    },
+    "ws2812": {
+      "thread": 0,
+      "evt_bit": null,
+      "dir_mask": 0,
+      "setm": 4096,
+      "pins": {
+        "DATA": 12
+      },
+      "fifo": "3 bytes (G,R,B) per LED -> RXFIFO",
+      "notes": "800 kHz, T0H 24 / T1H 48 cycles, 50 us latch",
+      "source": "sw/examples/ws2812.asm",
+      "image": "sw/prog/ws2812.hex",
+      "words": 47,
+      "relocatable": true,
+      "relocs": 5,
+      "symbols": 13,
+      "base": null
+    }
+  },
+  "demo_all": {
+    "base": {
+      "uart_tx": 0,
+      "uart_rx": 128,
+      "spi_master": 256,
+      "i2c_master": 384
+    },
+    "threads": [
+      "uart_tx",
+      "uart_rx",
+      "spi_master",
+      "i2c_master"
+    ]
+  }
+}

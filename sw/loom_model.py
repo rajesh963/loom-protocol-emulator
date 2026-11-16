@@ -19,6 +19,7 @@ Public API
     loom.pop_tx(tid) -> int | None           # thread TX FIFO -> host
     loom.step()                              # advance exactly one clock cycle
     loom.run(n)                              # n steps
+    loom.cycle = N                           # align absolute model time (co-sim)
     loom.pins_out16, loom.pins_dir8, loom.tmr16, loom.irq_code16
     loom.trace                               # [(cycle, pins_out16, dir8), ...]
     loom.state_snapshot() -> dict
@@ -29,6 +30,35 @@ Host-command equivalents used by `host/loom_host.py::ModelTransport` (spec §6
 commands RUN/STOP/SET_PC/ACK_IRQ have no architectural CSR of their own):
     loom.run_threads(mask), loom.stop_threads(mask), loom.set_pc(tid, pc16),
     loom.ack_irq(), loom.host_write_mem(addr, word), loom.host_read_mem(addr)
+
+Absolute-time co-simulation (important for RTL-vs-model diffs)
+--------------------------------------------------------------
+`TMR` is absolute model time (`cycle & 0xFFFF`), and `RUN` sets each released
+thread's `NEXTT = TMR` (spec §3.1).  An RTL run therefore starts at whatever
+`TMR` the host bridge's RUN CSR-write committed on, while a freshly constructed
+model starts at `cycle == 0`.  Before comparing absolute quantities (`nextt`,
+event queue targets, `TMR`, and TMR-relative timing) a co-simulation harness must
+align the two clocks, e.g.:
+
+    m = Loom()
+    m.cycle = rtl_tmr_at_run        # set BEFORE m.run_threads(...)
+    m.run_threads(mask)             # NEXTT := m.tmr16
+    # or, if the RTL RUN-commit TMR/NEXTT sampling is ambiguous:
+    # m.run_threads(mask, nextt=rtl_nextt_at_run)
+
+After that a constant trace offset may remain only if the RTL monitor started
+earlier/later; subtract it in the comparator.
+
+Pins in co-simulation: two supported contracts.  (1) *Hardware-pad* (default):
+drive the model with the same **external stimulus** as the RTL testbench, and
+model the pads in the TB (`uio_in = DIR ? uio_out : ext`) — the model then
+derives `pins_in` the same way silicon does (including same-cycle events/wave
+and DIR readback).  (2) *Trace replay*: `m.cfg_pins_in_replay(True)` and call
+`set_pins_in()`/`run_with_pins()` with the RTL `pins_in` port value for each
+cycle — `pins_in` then matches by construction, which is the quickest way to
+isolate logic/timing differences from testbench pad-modelling differences.  No model state is invented by
+this alignment: every time value is modular and TMR-relative, so only the
+common offset matters.
 
 Cycle model (spec §3.1, implemented literally)
 ---------------------------------------------
@@ -313,6 +343,7 @@ class Loom:
         self.irq_code: int = 0
         self.cap_ctrl: int = 0
         self.cap_stat: int = 0
+        self._pin_replay = False
         self.trace: list[tuple[int, int, int]] = []
         # fetch / issue pipeline
         self.issue_ptr = 0
@@ -342,6 +373,21 @@ class Loom:
         self.w_shadow: dict[str, Any] | None = None
         self.w_start_pending: tuple[int, dict[str, Any]] | None = None
         self._dmem_writes: list[tuple[int, int]] = []
+        #: optional debug log of retired instructions (None = disabled).  Each
+        #: entry is a dict: cycle, tmr, tid, pc, word, opc, mnemonic, wb_*, ...;
+        #: set ``retire_log = []`` to record (used by tools/model_retire_trace.py
+        #: for RTL-vs-model per-instruction diffs).
+        self.retire_log: list[dict[str, Any]] | None = None
+        #: optional log of event enqueues (None = disabled): dicts
+        #: {cycle, tmr, tid, kind, target, val} for emit/emita/emitd/emite.
+        self.event_enq_log: list[dict[str, Any]] | None = None
+        #: optional log of event fires (None = disabled): dicts
+        #: {cycle, tmr, tid, kind, target, val, pins_out}.
+        self.event_fire_log: list[dict[str, Any]] | None = None
+        #: optional log of asynchronous INAT writebacks (None = disabled):
+        #: dicts {cycle, tmr, tid, rd, data}.  INAT latches at an absolute TMR,
+        #: so this is the right log for aligning clocks with an RTL probe.
+        self.inat_log: list[dict[str, Any]] | None = None
         for th in self.threads:
             th.reset()
         self.dmem = [0] * self.dmem_words
@@ -430,8 +476,24 @@ class Loom:
         """PINS_OUT_DRIVABLE: bits 9:8 are host-link bits that read back 0."""
         return value16 & DRIVABLE
 
+    def cfg_pins_in_replay(self, enabled: bool = True) -> None:
+        """Co-simulation aid: feed the *exact* `pins_in` vector.
+
+        By default (hardware semantics) `pins_in` is computed from the external
+        stimulus plus readback of the pins this chip drives (`DIR=1` uio bits),
+        and same-cycle fired events / wave override are visible.  In trace-replay
+        mode `set_pins_in()`/`run_with_pins()` provide the literal 16-bit
+        `pins_in` sampling of each cycle (e.g. captured from the RTL testbench's
+        `pins_in` port), so `in`/`inat`/`waitp`/edge triggers see exactly what
+        the RTL sees irrespective of the TB's pad model.  Use either
+        hardware-pad co-sim (default) *or* replay — not both.  Default: off.
+        """
+        self._pin_replay = bool(enabled)
+
     def _pin_in(self, driven: int) -> int:
         """Combinational pins_in from a driven output level + ext stimulus."""
+        if self._pin_replay:
+            return self.ext_in & 0xFFFF
         level = driven & 0xFFFF
         if self._drive_fn is not None:
             level = int(self._drive_fn(level, self.dir)) & 0xFFFF
@@ -595,14 +657,40 @@ class Loom:
     # ------------------------------------------------------------------
     # Host command equivalents (spec §6)
     # ------------------------------------------------------------------
-    def run_threads(self, mask: int = 0xF) -> None:
-        """HCMD_RUN -> CSR 0x30: clear halt/enable/stall, nextt=TMR, drop buffer."""
+    def run_threads(self, mask: int = 0xF, nextt: int | None = None,
+                    stall: int | Sequence[int] = 0) -> None:
+        """HCMD_RUN -> CSR 0x30: clear halt/enable/stall, nextt=TMR, drop buffer.
+
+        `NEXTT` is set to the *current* `TMR` (`self.tmr16`), or to `nextt` if
+        given.  For absolute-time co-simulation against the RTL, set
+        `self.cycle` to the RTL `TMR` sampled at the RUN CSR-write cycle before
+        calling this (see the module docstring section "Absolute-time
+        co-simulation").  If the RTL-side sampling of `TMR`/`NEXTT` at the RUN
+        commit edge is ambiguous, pass `nextt=<RTL nextt at RUN>` explicitly:
+        that removes the enqueue-time reference from all subsequent `emit`
+        targets without touching the clock alignment.
+
+        `stall` (int or per-thread sequence) pre-loads the issue-stall counter
+        of the released threads.  For lock-step co-simulation, seed
+        `self.cycle` with the **first cycle in which the RTL threads are
+        enabled** (the cycle after the RUN CSR-write commits) and leave
+        `stall=0`: RTL needs cycle `W+1` for its first fetch and issues its
+        first instruction in `W+2`, which is exactly what the model does from
+        `cycle = W+1` with no artificial stall.  Starting one cycle earlier and
+        faking `stall=2` compensates the *issue* timing but still gives the
+        model a one-cycle fetch head start, shifting some thread's first slot.
+        """
+        nt = self.tmr16 if nextt is None else int(nextt) & 0xFFFF
+        if isinstance(stall, int):
+            stalls = [stall] * self.num_threads
+        else:
+            stalls = [int(x) for x in stall]
         for th in self.threads:
             if (mask >> th.tid) & 1:
                 th.en = True
                 th.halt = False
-                th.stall = 0
-                th.nextt = self.tmr16
+                th.stall = stalls[th.tid]
+                th.nextt = nt
                 th.inat_arm = False
                 th.insn_valid = False
 
@@ -858,16 +946,27 @@ class Loom:
                     fired[t] = True
                     fire_val[t] = val
 
-        # ---------------- S6 (partial): event pin merge ---------------------
-        npout = self.pins_reg
+        if self.event_fire_log is not None:
+            for t in range(n):
+                if fired[t]:
+                    kind_t, target_t, val_t = ths[t].eq[0] if ths[t].eq else (0, 0, 0)
+                    self.event_fire_log.append({
+                        "cycle": k, "tmr": tmr, "tid": t, "kind": kind_t,
+                        "target": target_t, "val": val_t,
+                    })
+
+        # ---------------- S6 (partial): event-only pin vector -----------------
+        # Used for this cycle's input sample (an issuing `in`/`waitp`/`inat` is
+        # never itself a pin op, so no instruction term is missing here).
+        npout_events = self.pins_reg
         for t in range(n - 1, -1, -1):          # t3..t0, so t0 wins
             if fired[t]:
                 mask = ths[t].tmask & DRIVABLE  # host-link bits 9:8 never driven
-                npout = (npout & ~mask) | (fire_val[t] & mask)
+                npout_events = (npout_events & ~mask) | (fire_val[t] & mask)
 
         # ---------------- wave player: visible level during this cycle ------
         wave_visible = self._mask_pout(self.w_pins) if self.w_valid else None
-        visible_events = wave_visible if wave_visible is not None else npout
+        visible_events = wave_visible if wave_visible is not None else npout_events
         settled_pins = self._pin_in(visible_events)
 
         # ---------------- S2: issue selection -------------------------------
@@ -916,6 +1015,8 @@ class Loom:
             use_bypass = (not th.insn_valid) and self.fetch_returning is not None \
                 and self.fetch_returning[0] == sel
             word = self.fetch_returning[1] if use_bypass else th.insn_buf
+            _pc_issued, _word_issued = th.pc, word
+            _mnemonic_issued = isa.decode(word).mnemonic
             opc = (word >> isa.OPCODE_SHIFT) & isa.OPCODE_MASK
             rd = (word >> isa.RD_SHIFT) & 0x7
             rs = (word >> isa.RS_SHIFT) & 0x7
@@ -1184,11 +1285,18 @@ class Loom:
             self._next_fetch = None
 
         # ---------------- S6: final pins for this cycle ---------------------
+        # Order matters (spec §3.1 S6): pout register -> instruction pin op /
+        # CSR POUT -> host pin write -> fired events t3..t0 (t0 wins) -> wave.
+        npout = self.pins_reg
         if issued and not retry:
             if pin_op is not None:
                 npout = pin_op & 0xFFFF
             elif csr_wr is not None and csr_wr[0] == CSR_POUT:
                 npout = csr_wr[1] & 0xFFFF
+        for t in range(n - 1, -1, -1):          # fired events override ops
+            if fired[t]:
+                mask = ths[t].tmask & DRIVABLE
+                npout = (npout & ~mask) | (fire_val[t] & mask)
         visible = wave_visible if wave_visible is not None else npout
         self.pins_visible = self._mask_pout(visible)
         self.pin_in16 = settled_pins
@@ -1232,6 +1340,12 @@ class Loom:
                     th.r[wb_rd] = th.rx.popleft() & 0xFF
                 if ev_enqueue is not None:
                     th.eq.append(ev_enqueue)
+                    if self.event_enq_log is not None:
+                        self.event_enq_log.append({
+                            "cycle": k, "tmr": tmr, "tid": sel,
+                            "kind": ev_enqueue[0], "target": ev_enqueue[1],
+                            "val": ev_enqueue[2],
+                        })
                 if evset_bit is not None:
                     self.evt |= 1 << evset_bit
                 if evclear_bit is not None:
@@ -1256,6 +1370,24 @@ class Loom:
                     else:
                         self._global_csr_write(addr, value)
 
+        # optional retirement log (debugging aid; disabled by default)
+        if self.retire_log is not None and issued and not retry and sel is not None:
+            th = ths[sel]
+            self.retire_log.append({
+                "cycle": k, "tmr": tmr, "tid": sel,
+                "pc": (pc_nxt if tpc_jump is None else tpc_jump),
+                "insn_pc": _pc_issued, "word": _word_issued,
+                "opc": opc, "mnemonic": _mnemonic_issued,
+                "wb_en": wb_en, "wb_rd": wb_rd, "wb_data": wb_data & 0xFFFF,
+                "src_a": src_a & 0xFFFF, "src_b": src_b & 0xFFFF,
+                "pins_in": self.pin_in16, "pins_out": self.pins_visible,
+                "dmem_writes": list(self._dmem_writes),
+                "csr_wr": list(csr_wr) if csr_wr is not None else None,
+                "stall_set": stall_set,
+                "nextt": th.nextt, "pfrac": th.pfrac, "wfrac": th.wfrac,
+                "flag_z": th.z, "flag_c": th.c,
+            })
+
         # capture returned fetch (S5) - order: after issue transitions
         if self.fetch_returning is not None:
             tag, fword = self.fetch_returning
@@ -1272,6 +1404,9 @@ class Loom:
         # inat timed sample: latch pins_in during cycle t, committed at end of t
         for th in ths:
             if th.inat_arm and (tmr == (th.inat_tgt & 0xFFFF)):
+                if self.inat_log is not None:
+                    self.inat_log.append({"cycle": k, "tmr": tmr, "tid": th.tid,
+                                          "rd": th.inat_rd, "data": settled_pins})
                 th.r[th.inat_rd] = settled_pins
                 th.inat_arm = False
 

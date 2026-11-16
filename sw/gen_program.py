@@ -39,7 +39,10 @@ Guarantees (the whole point — a generator bug would silently corrupt co-sim):
     pin ops, `in`, `dir`/`dset`/`dclr`, all four `emit*`, `setp/setm/setem/
     setec`, `waitd` (+ future `waitu`/`inat`), CSR read/write, `rpt`, bounded
     backward loops, `push`/`pushi` (+`pull` when preloaded), `evset/evwait`,
-    `irq`, `nop`, `halt`.
+    `irq`, `nop`, `halt`.  Opt-in reactive classes are generated in
+    "always satisfied" form so they cannot depend on external pins: `emite`
+    with EMASK=0 (condition trivially true) and `waitp 0x0000` (mask 0 matches
+    trivially).  Directed tests/firmware cover real pin-pattern matching.
   * **Determinism.** `random.Random(seed)` only; same seed => identical words on
     any Python 3 interpreter with the same `n_insns/num_threads/flags`.
 
@@ -58,6 +61,10 @@ Semantic decisions
     only; no computed `csrw TPC` jumps (covered by dedicated unit tests).
   * The sidecar's `cycles_bound` is an upper bound for terminating programs,
     including the absolute timed waits; run at least that many cycles.
+  * `meta["words_sha256"]` is the SHA-256 of the little-endian word image.  A
+    co-simulation harness should assert that the RTL PMEM read back after the
+    host load has the same image (a silent image mismatch keeps the PC stream
+    identical while all register values diverge).
   * `preload_rx` is a list (per thread) of bytes; push them before RUN. TX
     bytes produced by the program are left in the thread TX FIFOs for the
     driver to drain (`meta["tx_expected_min"]` is a lower bound).
@@ -66,6 +73,7 @@ Semantic decisions
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import random
@@ -242,12 +250,16 @@ class _Ctx:
                  f"emitd r{rd}, {self.rng.choice((1, 2, 5, 17, 40))}")
         if self.timed_available():
             self.add(f"emita r{rd}, {self.next_timed()}")
-        mask = self.rng.choice((0x00FF, 0x000F, 0x00F0))
-        self.add(f"setem 0x{mask:04X}", f"setec 0x{mask:04X}")
         if self.opts.get("allow_reactive"):
-            # self-satisfying loopback pattern: DIR=1 makes pins_in read pout
-            self.add(f"out 0x{mask & 0xFF:02X}", f"dir 0x{mask & 0xFF:02X}",
-                     f"emite r{rd}", "dir 0x00")
+            # EMASK=0 makes the edge condition trivially true, so a queued edge
+            # event always fires as soon as it reaches the queue head even if a
+            # later instruction rewrites EMASK/ECOND (they are live registers).
+            # Reactive programs otherwise need external pin stimulus.
+            self.add("setem 0x0000", "setec 0x0000",
+                     "out 0x00FF", "dir 0xFF", f"emite r{rd}", "dir 0x00")
+        else:
+            mask = self.rng.choice((0x00FF, 0x000F, 0x00F0))
+            self.add(f"setem 0x{mask:04X}", f"setec 0x{mask:04X}")
         return 6
 
     def gen_wait(self) -> int:
@@ -317,16 +329,18 @@ class _Ctx:
         return 1
 
     def gen_waitp(self) -> int:
-        """Opt-in: waitp watches uio[7:0] only; make it self-satisfying.
+        """Opt-in WAITP, in an always-satisfied form (mask 0 => 0 == 0).
 
-        Requires the pins to loop back (model does; a cocotb TB must tie
-        uio_in to uio_out). Never enabled by default.
+        Random programs must terminate with *no external pin stimulus*, and
+        several threads share the same 8 uio pins: a masked WAITP can be
+        clobbered by another thread's OUT/DIR between the DIR write and the
+        WAITP issue, which can postpone it for a long (but finite) time and
+        break the sidecar's `cycles_bound`.  Real pin-pattern matching semantics
+        are covered by directed model tests and firmware, not by random
+        programs.  Never enabled by default.
         """
-        mask = self.rng.choice((0xF0, 0x0F, 0xFF, 0xAA))
-        value = self.rng.choice((0x00, 0xF0, 0x0F, 0xFF, 0xAA)) & mask
-        self.add(f"out 0x{value:02X}", f"dir 0x{mask if mask else 0xFF:02X}",
-                 f"waitp 0x{(mask << 8) | value:04X}", "dir 0x00")
-        return 4
+        self.add("waitp 0x0000")
+        return 1
 
     def gen_irq(self) -> int:
         self.add(f"irq 0x{self.rng.choice(_IMM8):02X}")
@@ -430,8 +444,9 @@ def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
     opcodes = sorted({isa.decode(w).mnemonic for w in words})
     last_timed = max([ctx.timed_base + ctx.timed_no * _Ctx._TIMED_SPACING
                       for ctx in contexts] or [0])
-    cycles_bound = max(last_timed + 512, timed_base + 512 + 16 * n_insns) \
-        if timed else 300 + 16 * n_insns
+    pulls_total = sum(ctx.pulls for ctx in contexts)
+    cycles_bound = (max(last_timed + 1024, timed_base + 1024 + 16 * n_insns)
+                    + 8 * pulls_total) if timed else 512 + 20 * n_insns
     meta: dict[str, Any] = {
         "seed": seed,
         "n_insns": n_insns,
@@ -444,6 +459,8 @@ def gen(seed: int, n_insns: int = 80, num_threads: int = 1, *,
         "instruction_count": result.n_words,
         "word_count": len(words),
         "opcodes_used": opcodes,
+        "words_sha256": hashlib.sha256(
+            b"".join(int(w).to_bytes(4, "little") for w in words)).hexdigest(),
         "source": source,
         "notes": [
             "preload_rx[t] bytes must be pushed into thread t's RX FIFO before RUN",

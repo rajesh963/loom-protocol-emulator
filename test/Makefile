@@ -29,7 +29,7 @@ PYTHON_BIN    ?= $(shell $(COCOTB_CONFIG) --python-bin 2>/dev/null || echo $(VEN
 # ...and they find it through PATH inside `$(shell ...)` calls.
 export PATH := $(VENV_BIN):$(PATH)
 
-RTL_DIR    = $(abspath $(PWD)/../rtl)
+RTL_DIR    ?= $(abspath $(PWD)/../rtl)
 TEST_DIR   = $(abspath $(PWD))
 RTL_SRCS   = $(RTL_DIR)/loom_core.v \
              $(RTL_DIR)/loom_mem.v \

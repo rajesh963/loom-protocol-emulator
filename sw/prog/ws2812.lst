@@ -1,0 +1,55 @@
+; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/ws2812.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   34001000  clr 0x1000               clr     DATA_PIN
+0001   4A001000  setm 0x1000              setm    DATA_PIN
+0002   04801000  movi r2, 0x1000          movi    r2, DATA_PIN    ; "1" cell value
+0003   04C00000  movi r3, 0x0000          movi    r3, 0           ; "0" cell value
+; --- main = 0x004
+0004   54001000  waitd 0x1000             waitd   IDLE_DIV
+0005   2C000003  csrr r0, tfifo           csrr    r0, TFIFO
+0006   12000F00  andi r0, 0x0F00          andi    r0, 0x0F00      ; any LED bytes queued?
+0007   8200FFFD  jz 0x005                 jz      main
+0008   73400000  pull r5                  pull    r5              ; G
+0009   06680000  mov r1, r5               mov     r1, r5
+000A   2DC00008  csrr r7, tpc             csrr    r7, TPC
+000B   04000015  movi r0, 0x0015          movi    r0, sub_send8 - . + 1
+000C   08380000  add r0, r7               add     r0, r7
+000D   0BC00005  addi r7, 0x0005          addi    r7, 5
+000E   2A000008  csrw tpc, r0             csrw    TPC, r0
+000F   73400000  pull r5                  pull    r5              ; R
+0010   06680000  mov r1, r5               mov     r1, r5
+0011   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0012   0400000E  movi r0, 0x000E          movi    r0, sub_send8 - . + 1
+0013   08380000  add r0, r7               add     r0, r7
+0014   0BC00005  addi r7, 0x0005          addi    r7, 5
+0015   2A000008  csrw tpc, r0             csrw    TPC, r0
+0016   73400000  pull r5                  pull    r5              ; B
+0017   06680000  mov r1, r5               mov     r1, r5
+0018   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0019   04000007  movi r0, 0x0007          movi    r0, sub_send8 - . + 1
+001A   08380000  add r0, r7               add     r0, r7
+001B   0BC00005  addi r7, 0x0005          addi    r7, 5
+001C   2A000008  csrw tpc, r0             csrw    TPC, r0
+001D   5400BB80  waitd 0xBB80             waitd   RESET_DIV       ; latch: DATA stays low
+001E   8000FFE6  jmp 0x005                jmp     main
+; --- sub_send8 = 0x01F
+001F   1E400008  shl r1, 8                shl     r1, 8           ; MSB -> bit 15 for the ADD/C trick
+0020   05000008  movi r4, 0x0008          movi    r4, 8
+; --- ws_loop = 0x021
+0021   08480000  add r1, r1               add     r1, r1          ; C = next data bit
+0022   86000006  jc 0x029                 jc      ws_one
+0023   48000330  setp 0x0330              setp    T0L             ; LOW-cell duration before the HIGH event
+0024   40800000  emit r2                  emit    r2              ; high pulse (T0H, set by the next emit)
+0025   48000180  setp 0x0180              setp    T0H
+0026   40C00000  emit r3                  emit    r3              ; low pulse (T0L)
+0027   80000005  jmp 0x02D                jmp     ws_next
+; --- ws_one = 0x028
+0028   480001B0  setp 0x01B0              setp    T1L
+0029   40800000  emit r2                  emit    r2
+002A   48000300  setp 0x0300              setp    T1H
+002B   40C00000  emit r3                  emit    r3
+; --- ws_next = 0x02C
+002C   0F000001  subi r4, 0x0001          subi    r4, 1
+002D   8400FFF4  jnz 0x022                jnz     ws_loop
+002E   2A380008  csrw tpc, r7             csrw    TPC, r7
