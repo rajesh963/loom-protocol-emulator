@@ -26,5 +26,11 @@
   "MAGIC_WRITE_LEF_PINONLY": 1,
   "VERILOG_DEFINES": [
     "LOOM_PMEM_SMALL"
-  ]
+  ],
+  "pdk::ihp-sg13cmos5l": {
+    "MAX_FANOUT_CONSTRAINT": 40,
+    "scl::sg13cmos5l_stdcell": {
+      "MAX_FANOUT_CONSTRAINT": 40
+    }
+  }
 }

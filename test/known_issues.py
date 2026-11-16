@@ -131,7 +131,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "tests gated until then.",
     },
     "i2c_target_ack": {
-        "open": True,
+        "open": False,
         "id": "VER-007",
         "title": "I2C target NAKs the data byte of a write transaction",
         "spec": "spec §9: I2C target example acks address/reg/data, DMEM register file",

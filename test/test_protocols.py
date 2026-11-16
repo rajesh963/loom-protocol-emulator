@@ -378,8 +378,11 @@ async def test_i2c_clock_stretching(dut):
     """A target that holds SCL low after the address ACK must not stall the DUT."""
     host, mon = await start_loom(dut, clk_ns=CLK_NS, spi_half=3)
     payload = [0x00, 0xA0, 0x00, 0x5A]
+    # 120 polls x 4-cycle poll interval = 480 cycles of hold: longer than the
+    # 300-cycle 100 kHz low phase, so this genuinely stretches the clock (and
+    # the target's stretch now only ever starts from a low phase, per I2C).
     target, scl_tr, sda_tr = await run_i2c_controller(
-        host, mon, i2c_hz=100000, payload=payload, poll=4, stretch=25)
+        host, mon, i2c_hz=100000, payload=payload, poll=4, stretch=120)
     events = v_i2c.decode(scl_tr, sda_tr)
     log_wave(host, render_wave(scl_tr, t0=scl_tr[0][0] - 50,
                                t1=scl_tr[-1][0] + 50, cols=100,
