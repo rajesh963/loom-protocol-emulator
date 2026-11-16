@@ -27,6 +27,8 @@ Run with:  make timing
 
 from __future__ import annotations
 
+import os
+
 import cocotb
 
 from host import CSR, ascii_wave, start_loom
@@ -459,7 +461,12 @@ async def test_concurrent_threads_four_periods(dut):
 # ---------------------------------------------------------------------------
 # 7. queue back-pressure preserves schedule
 # ---------------------------------------------------------------------------
-@cocotb.test()
+# gl_test runs a flattened netlist: no RTL-internal probe for eq_cnt, and the
+# host-observable TEQ sampling is too coarse to prove saturation == 4.
+GL_MODE = os.environ.get("GATES") == "yes"
+
+
+@cocotb.test(skip=GL_MODE)
 async def test_queue_backpressure_schedule_exact(dut):
     """Producer faster than its period: TEQ saturates, edges stay exact."""
     host, mon = await start_loom(dut, clk_ns=10.0, spi_half=HALF)

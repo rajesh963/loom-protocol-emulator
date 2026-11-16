@@ -188,7 +188,7 @@ artifact (illegal clock-stretch injection).
 | protocol VIPs | **8/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + 400 kHz + clock stretching, I2C target |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
 | gate-level | pending | awaits the attempt-4 netlist |
-| sign-off (`gds`/`precheck`) | **attempt 4 running** | area solved (622 401 µm² = 51.5 %, −61 %); attempt 3 failed a GPL routability-mode check, fixed by one config line — see [flow status](docs/FLOW_STATUS.md) |
+| sign-off (`gds`/`precheck`) | **attempt 4 running** | area solved (622 401 µm² = 51.5 % raw / 44.7 % movable-relative, −46 %); attempt 3 failed a GPL routability-mode check, fixed by one config line — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
@@ -203,8 +203,9 @@ FF (flop-array) build failed on area (1 147 604 / 1 190 170 / 1 223 970 µm² ag
 ≤ ~750 k µm²), and the probes were informative: relaxing `MAX_FANOUT_CONSTRAINT` and dropping the
 clock to 25 MHz both made it *worse*, localising the 305 304 µm² of buffers (27 % of the design) to
 ABC's SCL sequential-mapping pass — constraint knobs are a dead end, structure is the lever.
-**Attempt 3 (SRAM 1024×32 macro + 32-word DMEM) measured 622 401 µm² = 51.5 % area ratio / 44.7 %
-flow utilisation — a −61 % area reduction** — and failed only a placement-*mode* check
+**Attempt 3 (SRAM 1024×32 macro + 32-word DMEM) measured 622 401 µm² = 51.5 % raw area ratio /
+44.7 % flow utilisation (movable area over the free, non-macro core area) — a −46 % area
+reduction** — and failed only a placement-*mode* check
 (`[GRT-0010]` inside GPL's routability-driven mode), which **attempt 4 fixes with one config line
 (`PL_ROUTABILITY_DRIVEN: false`) and is running now**. Both build configurations pass the full
 **59/59 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level

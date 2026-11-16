@@ -701,7 +701,6 @@ async def test_evset_evwait(dut):
     await host2.stop(0x3)
     assert (await host2.read_dmem(2))[0] == 0x00AA, \
         "evwait did not block until the other thread evset the flag"
-    assert int(dut.dut.u_core.pc[0].value) != 0 or True
     host2.log.info("evwait blocks until another thread evset (cross-thread event flag)")
 
 

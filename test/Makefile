@@ -49,6 +49,7 @@ SIM_BUILD = sim_build/rtl
 #   make SRAM_SIM=512    IHP RM_IHPSG13_1P_512x32  ( 79 720 um^2,  512 words)
 SRAM_SIM ?=
 export SRAM_SIM          # tests pick the PMEM depth from this (512 vs 1024)
+export GATES             # gl_test: skip the layers that need RTL-internal backdoor
 
 VERILOG_SOURCES = $(TEST_DIR)/tb.v
 COMPILE_ARGS   += -g2012 -I$(RTL_DIR)

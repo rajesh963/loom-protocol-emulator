@@ -210,6 +210,27 @@ uart.wire_send(b"LOOM"); world.run(20000)        # far end -> chip RX
 print(uart.app_recv())                           # chip RX firmware -> host
 ```
 
+## Changing the target clock (if the synthesis constraint changes)
+
+The examples assume **60 MHz** in two different ways, and only one of them is
+automatic:
+
+| kind | examples | action when `CLOCK_HZ` changes |
+|---|---|---|
+| derived from `.equ CLOCK_HZ` | `uart_tx/rx/loopback` (`BAUD_DIV`), `i2c_master` (`HALF_DIV`), `spi_master` (`QUARTER_CYCLES` is a chosen literal; `CLOCK_HZ` documents the rate) | edit the one `.equ CLOCK_HZ, 60000000` line per file; the timing re-derives |
+| absolute time encoded in cycles | `ws2812` (T0H/T1H in cycles), `ps2_target` (35 us/5 us/50 us), `onewire` (20 us/15 us/40 us slot cells) | rescale every `.equ` by `new_hz/60e6` (these are 12.4 fixed-point cycle counts, not register values) |
+| fixed cycles as robustness margin | `i2c_target` (`waitd 0x1400` = 320 cycles idle-bus resync) | re-check it still exceeds the 100 kHz SCL high phase: `CLOCK_HZ/(2*I2C_HZ)` cycles |
+| clock-independent | `spi_slave`, `i2c_target` bit loops (edge-polled; external master owns the clock) | none (max external clock margins in the tables were measured at 60 MHz and scale roughly linearly) |
+
+All UART baud rates keep their nominal value automatically (`BAUD_DIV` is
+computed from `CLOCK_HZ`), and the 12.4 fixed-point period register limit
+(`<=4095.94` cycles per cell, `CELLS` splits slower rates) is unchanged.
+
+`sw/examples/model_selftest.py` takes its clock from the model defaults; a
+different target clock needs the matching `clock_hz=` kwarg on the
+`UartBus`/`SpiBus` far ends, so a clock-change validation run is a one-line
+argument plus re-running the 45 checks.
+
 ## Known limits / next steps
 
 * UART at 115200 is the fast case; the 12.4 period limit means slow rates are

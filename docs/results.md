@@ -5,12 +5,12 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-CI commit: `35c3c42` (attempt 4 runs on a follow-up commit; the final pushed SHA is recorded here) ·
+CI commit: `5732b23` (attempt 4; full SHA `5732b23250ecb23b1e7c1b8f4a447701f8fa9b36`, CI run `43905211454`; the final pushed SHA is recorded here) ·
 flow: LibreLane via `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz
 (`CLOCK_PERIOD` 16.67 ns). `docs` and `test` workflows are green on CI.
 **Status: the area problem is solved; hardening is finishing.** Attempts 1/2/2b on the FF build
 failed on area (1.148 M / 1.190 M / 1.224 M µm²); **attempt 3's SRAM build measured 622 401 µm²
-(51.5 % area ratio, 44.7 % flow utilisation)** — a **−61 % area reduction** — and failed only on a
+(51.5 % raw area ratio, 44.7 % flow utilisation — (flow metric: 44.7 % is **movable-cell area relative to the free, non-macro core area** — 473 838 / (1 208 172 − 148 563); the raw 51.5 % counts the macro too: 622 401 / 1 208 172))** — a **−46 % area reduction** — and failed only on a
 placement-*mode* check (`[GRT-0010]`, GPL routability-driven) with a one-line config fix.
 **Attempt 4 (same design, `PL_ROUTABILITY_DRIVEN: false`) is running.** Verification on this exact
 build configuration is **59/59 PASS, 0 skip**. Nothing is marked passing until GDS + precheck +
@@ -33,7 +33,7 @@ fallback only**: it is fast to elaborate and is what most regression runs use, b
 | data memory | 32 words (`LOOM_DMEM_SMALL`) | 64 words | 32 words |
 | read latency | 1 cycle (`A_DLY=1`) | combinational | 1 cycle |
 | flow extras | official TT CMOS5L SRAM plugin + `pdn_cfg.tcl` | none | same as SRAM candidate |
-| measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm² (51.5 % area ratio, 44.7 % flow util)** | **1 147 604 µm² = 98.4 % → placement failed** | ~562 k µm² (reserve, derived: 622 401 − 60 463; 512-word limit) |
+| measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm²** (51.5 % raw ratio; 44.7 % movable-relative) | **1 147 604 µm² = 98.4 % → placement failed** | **561 938 µm² = 46.5 %** raw ratio (reserve; 512-word limit) |
 | simulation matrix on this exact config | **59 tests, 59 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, 154 s) | **59/59** (157 s; the earlier 2 I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
 | role | **tape-out candidate** | fast regression; **cannot fit 8×4** | documented area lever if attempt 3 misses |
 
@@ -111,8 +111,8 @@ Only metrics that came out of a CI log are listed. A build is "passing" only whe
 | 1 (`5ff6c6c`) | FF 128-word, defaults | **FAILED** `[DPL-0036]` detailed placement | 1 147 604 µm² | 95.0 % → 98.4 % |
 | 2 (`33012d5`) | FF, `MAX_FANOUT_CONSTRAINT = 40` | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
 | 2b | FF, 25 MHz probe | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
-| 3 (`35c3c42`) | **SRAM 1024×32 + 32-word DMEM** | area **solved (−61 %)**, failed on a placement-*mode* check `[GRT-0010]` inside GPL routability-driven (`gpl.tcl:88`) | **622 401 µm²** = fixed 148 563 + movable 473 838 | **44.7 %** (area ratio 51.5 %) |
-| 4 (commit pending) | same design, `PL_ROUTABILITY_DRIVEN: false` | **RUNNING** | — | — |
+| 3 (`35c3c42`) | **SRAM 1024×32 + 32-word DMEM** | area **solved (−46 % vs attempt 1)**, failed on a placement-*mode* check `[GRT-0010]` inside GPL routability-driven (`gpl.tcl:88`) | **622 401 µm²** = fixed 148 563 + movable 473 838 | **44.7 %** movable-relative (raw 51.5 %) |
+| 4 (`5732b23`) | same design, `PL_ROUTABILITY_DRIVEN: false` | **RUNNING** (CI run `43905211454`) | — | — |
 
 ### 3.1 Why the FF build cannot be tape-out, and why constraint knobs failed
 
@@ -131,8 +131,10 @@ end and structural area is the only lever.**
 `VERILOG_DEFINES=["LOOM_PMEM_SRAM","LOOM_DMEM_SMALL"]`, one `RM_IHPSG13_1P_1024x32_c2_bm_bist`
 at `u_mem.u_pmem.sram`, official TT CMOS5L SRAM plugin + `pdn_cfg.tcl`, 60 MHz. Measured: **fixed
 instance area 148 563 µm² + movable standard-cell area 473 838 µm² = 622 401 µm²** — **51.5 %** of the
-1 208 172 µm² core by area ratio, **44.7 %** flow-reported cumulative utilisation (attempt 1: 98.4 %).
-GPL overflow converged 0.999 → 0.299 at target density 0.6.
+1 208 172 µm² core by raw ratio, and **44.7 %** flow-reported movable-relative utilisation, because the
+placer's metric divides movable area by the *free* (non-macro) core area: 473 838 / (1 208 172 −
+148 563) = 44.72 %, while the raw figure counts the macro too: 622 401 / 1 208 172 = 51.52 %
+(attempt 1 was 98.4 %). GPL overflow converged 0.999 → 0.299 at target density 0.6.
 
 The failure is a **placement-mode** quirk, not a capacity or design problem: `[GRT-0010] Instance
 _40267_ is not placed`, raised inside GPL's routability-driven mode at `gpl.tcl:88` (that mode runs
@@ -158,6 +160,7 @@ log; they are **not** estimated.
 | Metric | Status |
 |---|---|
 | WNS / TNS @ 60 MHz, hold slack | **TBD** — no attempt has reached routing yet |
+| achieved frequency | **TBD** — will be stated from the measured WNS, not assumed. 60 MHz is the *target* (`CLOCK_PERIOD 16.67 ns`); if attempt 4 reaches routing with violations, `CLOCK_PERIOD` becomes the tunable (25–60 MHz are all valid for these protocols) and the honest achieved-frequency sentence goes here |
 | power (typical) | TBD |
 | DRC / LVS / antenna | TBD |
 

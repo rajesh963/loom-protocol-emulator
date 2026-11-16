@@ -217,8 +217,8 @@ pin is exercised at least once with four threads running concurrently.
 ## 7. Results
 
 > **Status: area solved, hardening finishing, reported as measured.** Three FF-build attempts failed
-> on area; the SRAM build (**attempt 3**) measured **622 401 µm² = 51.5 % area ratio / 44.7 % flow
-> utilisation — a −61 % area reduction** — and failed only on a placement-*mode* check that a
+> on area; the SRAM build (**attempt 3**) measured **622 401 µm² = 51.5 % raw area ratio / 44.7 %
+> movable-relative flow utilisation — a −46 % area reduction** — and failed only on a placement-*mode* check that a
 > one-line config fix addresses. **Attempt 4 (same design, routability-driven placement disabled) is
 > running now.** The RTL being hardened passes the **full 59/59 simulation matrix with 0 skips**.
 > Nothing in §7.1–§7.4 is marked passing until the flow step passed; canonical log
@@ -236,8 +236,8 @@ design that does not fit:
 | 1 `5ff6c6c` | FF 128-word, defaults | **FAILED** `[DPL-0036]` | 1 147 604 µm² | 95.0 → 98.4 % |
 | 2 `33012d5` | FF, relaxed `MAX_FANOUT_CONSTRAINT` (40) | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
 | 2b | FF, 25 MHz probe (`CLOCK_PERIOD` 40 ns) | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
-| 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | area **solved (−61 %)**; failed `[GRT-0010]` inside GPL routability-driven mode (`gpl.tcl:88`) | **622 401 µm²** (148 563 fixed + 473 838 movable) | **44.7 %** (area ratio 51.5 %) |
-| 4 (pending) | same design, `PL_ROUTABILITY_DRIVEN: false` | **running** — expected to reach routing/GDS/precheck/GL | — | — |
+| 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | area **solved (−46 % vs attempt 1)**; failed `[GRT-0010]` inside GPL routability-driven mode (`gpl.tcl:88`) | **622 401 µm²** (148 563 fixed + 473 838 movable) | **44.7 %** movable-relative (raw 51.5 %) |
+| 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | **running** (CI `43905211454`) — expected to reach routing/GDS/precheck/GL | — | — |
 
 Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
 305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
@@ -256,9 +256,11 @@ methodology finding from leaning on an automated flow, and it changed the plan: 
 memory is not an optimisation, it is the path to fitting at all.
 
 And it worked: attempt 3 (one `RM_IHPSG13_1P_1024x32` macro + 32-word DMEM) measured **148 563 µm² of
-fixed instance area + 473 838 µm² of movable standard cells = 622 401 µm²**, i.e. **51.5 % by area
-ratio and 44.7 % flow utilisation** — a **−61 % area reduction** versus attempt 1, with GPL overflow
-converging 0.999 → 0.299 at target density 0.6. It then failed on `[GRT-0010] Instance _40267_ is not
+fixed instance area + 473 838 µm² of movable standard cells = 622 401 µm²**, i.e. **51.5 % of the
+core by raw area ratio** and **44.7 % movable-relative flow utilisation** (the placer's figure divides
+movable area by the *free* core area, excluding the macro; the raw ratio counts the macro too) — a
+**−46 % area reduction** versus attempt 1, with GPL overflow converging 0.999 → 0.299 at target
+density 0.6. It then failed on `[GRT-0010] Instance _40267_ is not
 placed`, raised inside GPL's *routability-driven* mode (that mode runs the global router on a
 mid-placement snapshot). At 44.7 % utilisation routability-driven placement is unnecessary, so
 attempt 4 disables it — one line in `src/config.json`. That is the shape of the whole arc: the
@@ -282,7 +284,7 @@ synthesiser has to invent — only the post-synthesis mapped area is the budget.
 |---|---|---|---|
 | FF (`PMEM_IMPL=ff`, 128 words) | 8 038 | ~0.5 M µm² pre-ABC | **1.148 M µm² measured** — buffering + read mux under-counted |
 | SRAM 1024×32 + 32-word DMEM (**candidate**) | 3 942 | 608 415 µm² logic + 140 183 µm² macro = **748 598 µm²** | attempt 3 running; 62 % is inside the `vc32_cpu`-proven 73 % density envelope |
-| SRAM 512×32 (reserve) | — | ~710 k µm² (59 %) | `tools/select_build.sh sram512`; documented 512-word firmware limit |
+| SRAM 512×32 (reserve) | — | **561 938 µm² = 46.5 %** raw ratio | `tools/select_build.sh sram512`; documented 512-word firmware limit |
 
 ### 7.3 Timed simulation: the tape-out candidate is fully green
 

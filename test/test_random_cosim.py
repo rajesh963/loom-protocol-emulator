@@ -38,6 +38,7 @@ from sw import isa, loom_asm  # noqa: F401
 from sw.gen_program import gen
 from sw.loom_model import Loom
 
+GL_MODE = os.environ.get("GATES") == "yes"   # gate-level netlist: no backdoor
 SEEDS = int(os.environ.get("COSIM_SEEDS", "100"))
 # debug knob: replace CSRR in generated programs (used to bisect an RTL CSRR bug
 # without changing the generator/model; both sides run the same modified image).
@@ -416,7 +417,7 @@ async def run_one_seed(host, mon, rtl: RtlView, seed: int, *, n_insns: int,
 # ---------------------------------------------------------------------------
 # cocotb entry points
 # ---------------------------------------------------------------------------
-@cocotb.test(skip=KNOWN_ISSUES["dmem_addr"]["open"])
+@cocotb.test(skip=KNOWN_ISSUES["dmem_addr"]["open"] or GL_MODE)
 async def test_random_cosim(dut):
     """100 seeded random programs: full trace + full state differential test."""
     host, mon = await start_loom(dut, clk_ns=10.0, spi_half=3)
@@ -533,7 +534,7 @@ def _four_thread_words():
     return words
 
 
-@cocotb.test()
+@cocotb.test(skip=GL_MODE)
 async def test_cosim_handwritten(dut):
     """Hand-written programs validate trace+state alignment without DMEM."""
     host, mon = await start_loom(dut, clk_ns=10.0, spi_half=3)
@@ -591,7 +592,7 @@ async def test_cosim_handwritten(dut):
         raise AssertionError(f"hand-written co-sim mismatches: {failures}")
 
 
-@cocotb.test(skip=KNOWN_ISSUES["dmem_addr"]["open"])
+@cocotb.test(skip=KNOWN_ISSUES["dmem_addr"]["open"] or GL_MODE)
 async def test_cosim_pull_and_reactive(dut):
     """Pull / reactive / combined generators: 12 seeds with host-pushed RX FIFOs.
 

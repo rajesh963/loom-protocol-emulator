@@ -49,6 +49,10 @@ make GATES=yes      # gate-level: netlist + IHP cell models + SRAM macro models
 # that netlist INSTEAD of rtl/*.v (plus the PDK io/stdcell/UDP models and the
 # IHP macro behavioural models from flow/sram_model/ with -DGL_TEST -DFUNCTIONAL
 # -DSIM); SRAM_SIM selects the 1024x32 (default) or 512x32 macro wrapper.
+# Expected gl_test result: TESTS=59 PASS=55 FAIL=0 SKIP=4 — the co-sim layer
+# (3 tests, needs the RTL-internal backdoor) and the queue back-pressure test
+# (cycle-accurate internal eq_cnt) are skipped in GL via `export GATES`;
+# everything else (host/ISA/timing/protocols) is pin/host-level and runs.
 cd .. && ../.venv/bin/python formal/run_formal.py        # bounded formal proofs
 ```
 

@@ -71,23 +71,25 @@ configuration.
 | **fixed (macro) instance area** | **148 563 µm²** |
 | **movable standard-cell area** | **473 838 µm²** |
 | **total placed area** | **622 401 µm²** — **51.5 %** of the 1 208 172 µm² core by simple area ratio |
-| flow-reported cumulative utilisation | **44.7 %** (attempt 1 was 98.4 %) — the flow's utilisation metric and the raw area ratio differ; both are recorded |
+| flow-reported cumulative utilisation | **44.7 %** — *movable-cell area relative to the free (non-macro) core area*: 473 838 / (1 208 172 − 148 563) = 44.72 %, which is what OpenROAD's placer reports. The raw cumulative figure **51.5 %** counts the macro too: 622 401 / 1 208 172. Both are kept, labelled (attempt 1: 98.4 %) |
 | placement target density / GPL overflow | target 0.6; overflow converged 0.999 → **0.299** |
 | failing step | `OpenRoad.GlobalPlacement` (`gpl.tcl:88`) — **`[GRT-0010] Instance _40267_ is not placed`**, raised inside GPL's *routability-driven* mode (the routability check runs the global router on a mid-placement snapshot) |
 | reached GDS/precheck/GL? | **no** |
 | simulation on this exact RTL | **59/59 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, 154 s) |
 
-**Reading:** the area problem is solved — **−61 % area versus attempt 1**, 44.7 % utilisation, and the
+**Reading:** the area problem is solved — **−46 % area versus attempt 1** (622 401 / 1 147 604 = 54.2 %), 44.7 % movable-relative utilisation, and the
 failure is a placement-*mode* quirk with a one-line configuration fix, not a design or capacity
 problem. **Estimator note:** the local pre-flow estimator predicted 748 598 µm² (62 %); the flow
 measured 622 401 µm² (51.5 %), i.e. the estimator was *conservative* by ~17 % on the SRAM build — it
 over-prices generic memory muxes that the macro replaced. Honest calibration: the pre-ABC estimator
 was pessimistic here and optimistic on the FF build, so only post-synthesis mapped area is a budget.
 
-## Attempt 4 — same design, routability-driven placement disabled · commit pending — **RUNNING**
+## Attempt 4 — same design, routability-driven placement disabled · commit `5732b23` — **RUNNING**
 
 Identical RTL and SRAM configuration; the only change is `"PL_ROUTABILITY_DRIVEN": false` in
-`src/config.json` (LibreLane/OpenROAD `GlobalPlacement` variable, default `true`). At 44.7 %
+`src/config.json` (LibreLane/OpenROAD `GlobalPlacement` variable, default `true`) — commit
+`5732b23` ("flow: disable routability-driven global placement (attempt 4)"), full SHA
+`5732b23250ecb23b1e7c1b8f4a447701f8fa9b36`, CI run `43905211454`. At 44.7 %
 utilisation routability-driven placement is unnecessary, and it is the only step that failed in
 attempt 3. **Prediction: attempt 4 proceeds through detailed placement → CTS → routing → GDS →
 precheck → gate-level simulation.** WNS/TNS/utilisation/precheck/GL rows will be recorded here from
@@ -95,9 +97,10 @@ its CI log.
 
 ## Area lever still in reserve — `RM_IHPSG13_1P_512x32`
 
-`tools/select_build.sh sram512` swaps to a 512×32 macro (79 720 µm²) for **~−60 k µm² (~710 k, 59 %)**,
-with a documented 512-word firmware limit (four 128-word slots at `0x000`/`0x080`/`0x100`/`0x180`;
-highest used word 509). Not needed unless attempt 3 misses.
+`tools/select_build.sh sram512` swaps to a 512×32 macro (79 720 µm²): **561 938 µm² = 46.5 % of the
+1 208 172 µm² core** by the raw-ratio convention (622 401 − (140 183 − 79 720)), with a documented
+512-word firmware limit (four 128-word slots at `0x000`/`0x080`/`0x100`/`0x180`; highest used word
+509). Not needed unless attempt 4 misses.
 
 ## How to read this log
 
