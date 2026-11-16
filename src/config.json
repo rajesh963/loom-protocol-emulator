@@ -1,7 +1,7 @@
 {
   "//": "LOOM build config (merged by tools/select_build.sh; see flow/README.md for the SRAM flow additions)",
   "PL_TARGET_DENSITY_PCT": 60,
-  "CLOCK_PERIOD": 16.67,
+  "CLOCK_PERIOD": 30,
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
   "RUN_LINTER": 1,
