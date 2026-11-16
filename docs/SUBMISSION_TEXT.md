@@ -4,7 +4,7 @@
 **Repo:** https://github.com/rajesh963/loom-protocol-emulator (made public before submission)
 **Tiles:** 8x4 (IHP CMOS5L) · **Clock:** 33.33 MHz shipped design point (`CLOCK_PERIOD` 30 ns)
 **Memory:** one IHP `RM_IHPSG13_1P_1024x32` SRAM (1024 x 32 instruction memory) + 32 x 16 data memory
-**Flow:** Tiny Tapeout `tt-gds-action@ttihp27a` (LibreLane), standard precheck + gate-level test
+**Flow:** Tiny Tapeout `tt-gds-action@ttihp27a` (LibreLane), standard precheck + gate-level test — no custom GDS flow; one IHP SRAM macro (explicitly FAQ-allowed)
 
 ## One-liner
 
@@ -15,8 +15,8 @@ the chip is fabricated.
 
 ## What is demonstrated
 
-Ten firmware programs covering eight protocol roles across six families — all run on the same
-silicon with no hardware changes:
+Eleven firmware programs covering nine protocol roles across six families — all run on the same RTL
+and ISA with no per-protocol hardware:
 
 | Protocol | Roles | Measured at 33.33 MHz |
 |---|---|---|
@@ -26,7 +26,7 @@ silicon with no hardware changes:
 | PS/2 | target | 14.28 kHz |
 | 1-Wire | master | standard speed, DS18B20 +25.0 C |
 | WS2812 | driver | 800 kHz |
-| USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — golden-model proven |
+| USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); single-ended D+ prototype, not silicon-tested |
 
 SPI and I2C are demonstrated in **both controller and target roles**; four threads can run
 protocols concurrently, with timing that is deterministic by construction.
@@ -48,12 +48,13 @@ protocols concurrently, with timing that is deterministic by construction.
 
 ## Verification
 
-- **60-test cocotb suite, 60 PASS / 0 FAIL / 0 SKIP** on both memory configurations, reproducible
-  from a clean clone (~140 s).
+- **62-test cocotb suite, 62 PASS / 0 FAIL / 0 SKIP** on both memory configurations (FF and SRAM-1024),
+  reproducible from a clean clone (~144 s); frozen at `a55c1b7`.
 - **100-seed differential co-simulation** against an independent, spec-derived cycle-accurate model:
   cycle-exact on the full pin trace *and* full architectural state; plus 12/12 generated
   pull/reactive seeds and 6/6 hand-written programs.
-- Nine protocol-level tests against independent UART/SPI/I2C VIPs, all RTL-verified.
+- Nine protocol-level tests against independent UART/SPI/I2C VIPs plus **two USB low-speed TX tests**
+  (NRZI + sync + DATA0 PID + CRC16 + bit stuffing + EOP, independently decoded), all RTL-verified.
 - **3 formal proofs** (FIFO/queue bounds, reset completeness and event properties, host command
   ordering) via yosys SMT + z3.
 - Gate-level simulation of the hardened netlist in the Tiny Tapeout flow.
@@ -63,13 +64,19 @@ protocols concurrently, with timing that is deterministic by construction.
 ## Write-up
 
 `docs/writeup.md` — the narrative: the problem, the idea, the timing arithmetic, the machine, the
-protocol suite, verification, the honest hardening log (area went from 98 % to ~40 % utilisation via
-an SRAM instruction memory and a library-hygiene fix; the 60 MHz target failed timing with a 20.8 ns
-critical path so the design ships at 33.33 MHz), limitations, and how AI tools were used.
+protocol suite, verification, the honest hardening log (area 98.4 % → 44.7 % movable-relative / 51.5 %
+raw via an SRAM instruction memory and a library-hygiene fix; 60 MHz failed timing with a 20.8 ns
+critical path, so the design ships at 33.33 MHz; detailed routing was then fixed by a routing-config
+change after a template knob cost the 6-hour CI cap), limitations, and how AI tools were used.
 
 ## Honest limitations
 
 - Shipped clock is 33.33 MHz (60 MHz target did not close timing at 130 nm).
+- **GDS is not yet claimed.** Attempt 6 reached detailed routing in 15 min and was cancelled at the
+  6-hour GitHub Actions cap with 6 violations left — root-caused to `GRT_ALLOW_CONGESTION: true`
+  inherited from the TT template (global routing deferred 47 track overflows to DRT). Attempt 7 fixes
+  the routing configuration; if it still cannot fit the cap, the FAQ's prescribed fallback is a local
+  LibreLane run plus the custom GDS action.
 - SPI is bit-banged in firmware: ~1.06 MHz master. 10BASE-T is not feasible in this build (Manchester
   needs 1.67 cycles/symbol; the wave player can stream that but the 32-word data memory cannot hold a
   frame) — documented as a revision-B item requiring a second SRAM.

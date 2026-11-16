@@ -189,6 +189,7 @@ and cleared only by `ACK_IRQ`; FIFO conditions do not raise it.
 | 1-Wire master | ONEWIRE | standard/fast | chained `waitd` (60 µs units) |
 | WS2812 driver | WS2812_DATA | 800 kHz | `emitd` edge pairs, 75-cycle bit |
 | wave player demo | WAVE_OUT0 | ≤ 33.3 M patterns/s | DMEM pattern stream |
+| USB 1.1 low-speed TX (stretch) | D+ on one pin (single-ended prototype) | 1.5 Mbit/s (22.2 cycles/bit) | periodic `emit` × NRZI/stuffing/CRC16 firmware |
 
 Ready-to-assemble sources are in `docs/examples_src/`; the walkthroughs (with timing budgets and
 the reasoning) are in `docs/examples.md`. The assembler is `python3 -m sw.loom_asm`.

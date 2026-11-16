@@ -523,17 +523,29 @@ done:
 
 ---
 
-## 8. Stretch: USB low-speed
+## 8. USB 1.1 low-speed device TX (stretch — implemented and RTL-verified)
 
-USB LS is 1.5 Mbit/s = 22.2 cycles per bit at 33.33 MHz, with NRZI encoding, bit stuffing after six
-identical bits, a 7-bit sync and a CRC-5/CRC-16. The plan: one thread does the NRZI/bit-stuffing
-state machine and emits a symbol every 40 cycles with `setp 640` (`0x0280`), while the host streams
-the packet payload through the FIFO — the protocol logic is real firmware, the *bit* timing is the
-scheduler's. Sampling the upstream traffic uses `emite` on the `D+`/`D-` pins with a 4×
-oversampling strategy: `EMASK` = both data lines, sample with `inat` on a 5.6-cycle (0.25-bit) grid.
-USB's own bit-rate tolerance (±0.25 %) is far wider than LOOM's fractional period error
-(≤ 0.09 % at 1.5 Mbit/s), so the timing side is not the risk; the packet/CRC state machine and the
-host's USB stack are.
+USB LS is 1.5 Mbit/s = **22.2 cycles per bit** at 33.33 MHz, NRZI-coded, with bit stuffing after six
+identical bits, an 8-bit SYNC pattern, a PID, USB CRC16 and an EOP. The shipped prototype
+(`sw/examples/usb_ls_tx.asm`) is a **device-mode transmitter**: one thread owns the line and emits a
+symbol per bit period with `setp`, while the host streams the 4-byte payload through the FIFO. The
+protocol logic is real firmware; the *bit* timing is the scheduler's.
+
+| Element | Implementation |
+|---|---|
+| bit period | 22.2 cycles ≈ `PERIOD 0x0100` rounded to the 1.5 Mbit/s grid; each frame period accumulates fractionally, so no drift |
+| encoding | NRZI — a 0 bit toggles D+, a 1 leaves it; idle J level between packets |
+| SYNC / PID | 8 raw bits `00000001` LSB-first, then DATA0 PID `0xC3` (nibble + complement) |
+| payload / CRC | 4 data bytes, then CRC16 (poly `0x8005` reflected, init `0xFFFF`, final XOR `0xFFFF`) LSB-first |
+| stuffing / EOP | a 0 inserted after six consecutive 1s (SYNC never stuffed, none before EOP); EOP is 2 bit cells of SE0 |
+| pins | **single-ended prototype**: D+ on `P[0] = uio[0]`, push-pull, NRZI; the chip drives/monitors only the D+ half |
+| external parts | a real board needs a USB connector/Pmod with **D− biased to the LS idle level and a 1.5 kΩ pull-up**; the FAQ allows external parts |
+
+**Status: RTL-verified, not silicon-tested.** `test/test_usb_ls.py` decodes the transmitted packet with
+an independent model on both the FF and SRAM-1024 memory builds (2/2 PASS) and checks SYNC, PID,
+payload, CRC16, stuffing and EOP. USB's own bit-rate tolerance (±0.25 %) is far wider than LOOM's
+period error (≤ 0.09 %), so timing is not the risk; host-side enumeration (control transfers, SETUP
+packets, CRC5 tokens) is the next firmware step and is not claimed here.
 
 ## 9. Stretch: 10BASE-T
 
@@ -566,4 +578,5 @@ for the one-table summary.
 | `i2c_master` | 1 | SCL/SDA | 100 / 400 kHz | `waitd` + `dset`/`dclr` | sketch here, assembles |
 | `i2c_target`, `ps2_device` | 1 each | SCL/SDA, PS2_CLK/DAT | bus rate | `emite` pattern match | planned |
 | `ps2_host`, `onewire`, `ws2812`, `wave_player` | 1 each | see §4–§8 | see §4–§8 | `waitp`/`in`, chained `waitd`, `emitd`, CSRs | sketch here, assembles |
-| `uart_echo`, `capture_replay`, `usb_ls`, `10base_t` | 1–2 | various | various | mixed | planned / stretch |
+| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **implemented, RTL-verified** (`sw/examples/usb_ls_tx.asm`, 2 tests) |
+| `uart_echo`, `capture_replay`, `10base_t` | 1–2 | various | various | mixed | planned / stretch |

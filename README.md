@@ -47,9 +47,9 @@ write-up will be weighed heavily. Mapped row by row:
 | Criterion (FAQ) | How LOOM answers it | Evidence in repo |
 |---|---|---|
 | **Flexibility is the main thing** — reprogrammable for protocols it wasn't designed for | **No protocol hardblocks.** Protocols are *programs loaded over SPI after fabrication*; the ISA exists to express timing (event enqueue, fractional periods, absolute waits, timed sampling, shifts/masks). The same datapath runs 10 different programs covering **8 protocol roles across 6 families**, all RTL-verified | `sw/examples/`, [`docs/examples.md`](docs/examples.md), [`docs/isa.md`](docs/isa.md) |
-| **Which protocols are demonstrated** | UART TX, RX and loopback; SPI controller **modes 0–3** *and* SPI target; I²C controller 100 kHz **and 400 kHz** and I²C target; PS/2 target; 1-Wire master; WS2812 — **10 programs, all passing the protocol VIP suite** | `sw/examples/README.md`, `test/test_protocols.py` (9/9 protocol tests passing) |
+| **Which protocols are demonstrated** | UART TX, RX and loopback; SPI controller **modes 0–3** *and* SPI target; I²C controller 100 kHz **and 400 kHz** and I²C target; PS/2 target; 1-Wire master; WS2812; plus **USB low-speed TX** (stretch) — **11 programs, all RTL-verified** | `sw/examples/README.md`, `test/test_protocols.py` (9/9 protocol tests passing) |
 | **Anything unique the architecture makes possible** | Absolute-timeline multi-protocol scheduling; 1-cycle timed sampling as an in-system analyser primitive; a DMEM wave player (33.3 M patterns/s); capture/record-replay RTL (unit-verified, revision B for silicon); host bridge + Python toolchain making the chip a *protocol workstation* — see [`docs/writeup.md` §8](docs/writeup.md#8-extensibility-after-fabrication) "Beyond the obvious" | `docs/writeup.md` §8, `test/unit_wave` |
-| **How it was designed and verified** | Independent spec-derived golden model + **100/100 random-program differential co-simulation**, cycle-exact on the pin trace *and* full architectural state; **60-test cocotb suite on both memory builds** (host, ISA, timing, co-sim, protocol VIPs); **3 bounded formal proofs** (yosys SMT2 + z3); gate-level run of the hardened netlist; clean-clone reproducibility | [`docs/verification.md`](docs/verification.md) |
+| **How it was designed and verified** | Independent spec-derived golden model + **100/100 random-program differential co-simulation**, cycle-exact on the pin trace *and* full architectural state; **62-test cocotb suite on both memory builds** (host, ISA, timing, co-sim, protocol VIPs); **3 bounded formal proofs** (yosys SMT2 + z3); gate-level run of the hardened netlist; clean-clone reproducibility | [`docs/verification.md`](docs/verification.md) |
 | **Write-up readability, new techniques explained** | A narrative write-up (problem → insight → fractional-timing math → honest results → comparison → AI workflow) plus the **flow-attempt log** that shows exactly how the area and timing problems were found and fixed | [`docs/writeup.md`](docs/writeup.md), [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md) |
 
 **Rules compliance.** We use the required Tiny Tapeout flow — `tt-gds-action@ttihp27a` (LibreLane) on
@@ -189,8 +189,9 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 ## Verification
 
-Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **60 tests, 60 PASS, 0 FAIL, 0 SKIP** —
-both configurations run the matrix in ~138 s (`make SRAM_SIM=1024` and the default FF build) — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
+Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **62 tests, 62 PASS, 0 FAIL, 0 SKIP** —
+both configurations run the matrix in ~144 s (`make SRAM_SIM=1024` and the default FF build), and the
+counts are frozen at revision `a55c1b7` (also 62/62 from a clean clone) — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
 claims are CI-verifiable. Two independent implementations — hand-written RTL and a
 Python golden model written from the spec — agree on the exact cycle of every pin transition and on
 the full architectural state for 100/100 random programs. The two I²C gates that were skipped during
@@ -204,8 +205,9 @@ artifact (illegal clock-stretch injection).
 | timing | **7/7 PASS** | drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts |
 | protocol VIPs | **9/9 PASS** | UART TX, UART back-to-back decoder, UART RX, SPI modes 0–3, SPI target, I2C 100 kHz + 400 kHz + clock stretching, I2C target |
+| USB low-speed TX | **2/2 PASS** | NRZI + sync + DATA0 PID + CRC16 + bit stuffing + EOP, decoded independently — the stretch goal is RTL-verified |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
-| gate-level | pending | awaits the attempt-4 netlist |
+| gate-level | pending | awaits a routing-clean attempt-7 netlist |
 | sign-off (`gds`/`precheck`) | **attempt 6 running** | area solved (622 401 µm², −46 %); timing solved (**setup closes at 33.33 MHz**, `RSZ-0098`); last blocker was 4 stray IO-pad cells (57 600 µm²) now excluded — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
@@ -229,9 +231,13 @@ closed setup** (`RSZ-0098 No setup violations found`, 3 177 hold endpoints repai
 turned out to be neither congestion nor timing: the netlist held **four stray `IOPadOut16mA` cells
 (57 600 µm², 12 % of moved cell area) that ABC had mapped onto internal high-fanout nets** because the
 IO library was in the synthesis set — and a Tiny Tapeout design owns no pads, so IO placement never
-placed them. **Attempt 6 excludes `sg13cmos5l_IOPad*` and is running**, expecting a routing-clean result
-plus ~−57 600 µm² of cell area. Both build configurations pass the full
-**60/60 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level
+placed them. **Attempt 6 excluded `sg13cmos5l_IOPad*`** — the IO-pad fix worked, and every stage through global
+routing finished in **15 minutes**; detailed routing then ran 5 h 45 m and was **cancelled at GitHub
+Actions' 6-hour cap with 6 violations left**, root-caused (measured, not guessed) to the template's
+`GRT_ALLOW_CONGESTION: true` handing 47 track overflows to DRT. **Attempt 7 fixes only the routing
+configuration** (`GRT_ALLOW_CONGESTION:false`, `GRT_ADJUSTMENT:0.18`, `GRT_OVERFLOW_ITERS:150`, commit
+`6050726`) and is running; if GRT cannot converge it now fails in ~20 min instead of burning the cap. Both build configurations pass the full
+**62/62 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level
 all pass on one commit. Canonical log: [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in
 [`docs/results.md`](docs/results.md).
 

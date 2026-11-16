@@ -77,7 +77,7 @@ configuration.
 | placement target density / GPL overflow | target 0.6; overflow converged 0.999 → **0.299** |
 | failing step | `OpenRoad.GlobalPlacement` (`gpl.tcl:88`) — **`[GRT-0010] Instance _40267_ is not placed`**, raised inside GPL's *routability-driven* mode (the routability check runs the global router on a mid-placement snapshot). **Root cause later found: that instance was a stray IO-pad cell, not logic** — see “Root cause” below |
 | reached GDS/precheck/GL? | **no** |
-| simulation on this exact RTL | **60/60 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~138 s) |
+| simulation on this exact RTL | **62/62 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~144 s), frozen at `a55c1b7` |
 
 **Reading:** the area problem is solved — **−46 % area versus attempt 1** (622 401 / 1 147 604 = 54.2 %), 44.7 % movable-relative utilisation, and the
 failure is a placement-*mode* quirk with a one-line configuration fix, not a design or capacity
@@ -126,14 +126,50 @@ part of the synthesis library set. A Tiny Tapeout design owns no pads (the shutt
 so IO placement never places them; global routing then aborts with `[GRT-0010] Instance is not
 placed`. **That single library-hygiene quirk explains attempts 3, 4 and 5 failing at the same point.**
 
-## Attempt 6 — same design + IO pads excluded · `master` (commit pending) — **RUNNING**
+## Attempt 6 — same design + IO pads excluded · commit `1182041` — **CANCELLED at the 6-hour CI cap (not a design failure)**
 
-Identical RTL and `CLOCK_PERIOD 30 ns`, plus `"EXTRA_EXCLUDED_CELLS": ["sg13cmos5l_IOPad*"]` in
-`src/config.json` (LibreLane wildcard exclusion applied to the synthesis library set; verified against
-the LibreLane source that the entries are wildcards). Expected effect: no pad cells → nothing left
-unplaced → routing proceeds; bonus **−57 600 µm²** of cell area (473 838 → ~416 000, i.e. ~36–39 %
-utilisation). WNS/TNS/utilisation/precheck/GL will be recorded here from its CI log — **not
-estimated**.
+Identical RTL and `CLOCK_PERIOD 30 ns`, plus `"EXTRA_EXCLUDED_CELLS": ["sg13cmos5l_IOPad*"]`. **The
+IO-pad fix worked**: every stage through global routing finished in **15 minutes**, and for the first
+time the design reached detailed routing.
+
+| Stage | Time |
+|---|---|
+| lint → synthesis → floorplan → placement → repair → DPL → CTS | 16:58 → 17:02 |
+| post-CTS timing repair | 17:06:49 |
+| global routing | 17:06 – 17:10 |
+| antenna repair | 17:10 |
+| **detailed routing (DRT)** | **17:11:56 → 22:56:20 (5 h 45 m), cancelled by the 6 h job cap with 6 violations left** |
+
+DRT violation trajectory: **37 824 → 24 763 → 22 716 → 5 797 → … → 30 → 23 → 7 → 6**, at 20–50 min
+per pass on a 2-core runner. ~30 600 instances, effective utilisation **48.1 %** (GPL-reported 45.6 %).
+It was converging — just not fast enough for the CI cap.
+
+**Root cause (measured, not guessed).** Global routing was invoked with `-allow_congestion` because
+our `src/config.json` still carried the Tiny Tapeout template's `GRT_ALLOW_CONGESTION: true`. GRT
+therefore gave up with **47 track overflows** (usage M2 59.8 %, M3 66.1 %, M4 33.4 %) instead of
+clearing them, and its own log recommended *"reduce the layer adjustment from 30.0 % to 18 %"*. DRT
+then spent 5 h 45 m repairing that congestion violation-by-violation (iterations 1–46).
+
+This is *not* a "design too big" problem — 30.6 k instances at 45.6 % utilisation is a small design.
+It is a routing-*configuration* problem: **a flow knob inherited from a template can cost six hours
+before it is understood.** The competition FAQ anticipates the 6-hour GitHub Actions cap (and the
+workaround of a local LibreLane run + custom GDS action); we avoided needing that workaround by
+fixing the configuration instead of the design.
+
+## Attempt 7 — same design, routing configuration fixed · commit `6050726` — **RUNNING**
+
+RTL, firmware and clock are **unchanged**; only `src/config.json` changes:
+
+| Setting | Was (template default) | Now | Why |
+|---|---|---|---|
+| `GRT_ALLOW_CONGESTION` | `true` | **`false`** | force global routing to converge instead of passing congestion to DRT |
+| `GRT_ADJUSTMENT` | `0.30` | **`0.18`** | the router's own recommendation from attempt 6 |
+| `GRT_OVERFLOW_ITERS` | default | **`150`** | GRT took only ~3 min, so spend it to hand DRT clean guides |
+
+Expected: DRT starts near-zero violations and finishes in well under an hour. If GRT cannot clear
+congestion it now **fails in ~20 minutes** instead of burning the 6-hour cap, so further iterations
+are cheap. Utilisation/WNS/TNS/DRC/LVS/precheck/GL will be recorded here from its CI log — **not
+estimated**, and **no GDS success is claimed**.
 
 ## Area lever still in reserve — `RM_IHPSG13_1P_512x32`
 
@@ -155,6 +191,10 @@ estimated**.
   measures green** — 60 MHz failed timing (WNS −4.125 ns, 20.8 ns critical path), attempt 5 targets
   33.33 MHz; the FF build exists for fast regression and cannot be a tape-out fallback (1.147 M µm²
   measured — 98.4 %).
+* **A template knob can cost six hours.** `GRT_ALLOW_CONGESTION: true` (inherited from the Tiny
+  Tapeout template) let global routing hand 47 track overflows to detailed routing, which then spent
+  5 h 45 m repairing them and hit the CI cap with 6 violations left. At 45.6 % utilisation the design
+  was never too big — the router was just not allowed to converge. Fix the configuration first.
 * **Library hygiene is a real area/timing/congestion lever.** An IO library in the synthesis library
   set let ABC map internal nets onto 16 mA pad drivers — four cells, 57 600 µm² (12 % of moved area),
   never placeable on a Tiny Tapeout design. `EXTRA_EXCLUDED_CELLS` now excludes

@@ -5,19 +5,19 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-CI commit: `master` (attempt 6; attempt 5 was `98cd5d6`, attempt 4 `5732b23` / CI run `43905211454`) ·
-flow: LibreLane via `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock: **60 MHz target does not
-close; setup closes at 33.33 MHz (`CLOCK_PERIOD` 30 ns)**. `docs` and `test` workflows are green on CI.
-**Status: area solved, timing solved, last blocker was library hygiene.** Attempts 1/2/2b failed on
-area (1.148 M / 1.190 M / 1.224 M µm²); attempt 3 solved area (**622 401 µm²**, −46 %, 51.5 % raw /
-44.7 % movable-relative) but hit a GPL routability-mode check; attempt 4 fixed that, reached **global
-routing**, and was blocked by an unplaced instance while 16.67 ns failed setup (**WNS −4.125 ns,
-TNS −1658.6**, 20.8 ns path); attempt 5 at **33.33 MHz closed setup** (`RSZ-0098 No setup violations
-found`) and still hit the same instance — traced to **four stray `IOPadOut16mA` cells (57 600 µm²,
-12 % of moved area) mapped from internal nets** because the IO library was in the synthesis set;
-**attempt 6 excludes `sg13cmos5l_IOPad*` and is running**, with a bonus ~−57 600 µm² of cell area.
-Verification on this exact build configuration is **60/60 PASS, 0 skip** (9/9 protocol tests). Nothing is marked passing
-until GDS + precheck + gate-level pass on one commit; canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
+CI commit: `6050726` (attempt 7; attempt 6 was `1182041`) · **verified state frozen at `a55c1b7`** —
+62/62 on both memory configurations, 62/62 from a clean clone, USB-LS RTL-verified; attempts 6/7
+change **only flow configuration**, so those remain the citation values. Flow: LibreLane via
+`tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock: **33.33 MHz shipped** (`CLOCK_PERIOD` 30 ns;
+60 MHz failed timing at a 20.8 ns critical path). `docs` and `test` workflows are green on CI.
+**Status: the design fits and routes; the last blocker is routing configuration, not the design.**
+Attempts 1/2/2b failed on area (1.148 M / 1.190 M / 1.224 M µm²); 3 solved area (**622 401 µm²**,
+−46 %) but hit a GPL routability-mode check; 4/5 were blocked at routing by stray IO-pad cells while
+timing closed at 33.33 MHz; 6 fixed the pads and reached **detailed routing in 15 minutes**, then was
+**cancelled at the 6-hour CI cap with 6 DRT violations left** — root-caused, measured, to
+`GRT_ALLOW_CONGESTION: true` inherited from the TT template (47 track overflows handed to DRT);
+**7 fixes the routing configuration and is running.** No GDS success is claimed. Canonical log:
+[`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ---
 
@@ -37,7 +37,7 @@ fallback only**: it is fast to elaborate and is what most regression runs use, b
 | read latency | 1 cycle (`A_DLY=1`) | combinational | 1 cycle |
 | flow extras | official TT CMOS5L SRAM plugin + `pdn_cfg.tcl` | none | same as SRAM candidate |
 | measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm²** (51.5 % raw ratio; 44.7 % movable-relative) | **1 147 604 µm² = 98.4 % → placement failed** | **561 938 µm² = 46.5 %** raw ratio (reserve; 512-word limit) |
-| simulation matrix on this exact config | **60 tests, 60 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, ~138 s) | **60/60** (~138 s; the earlier 2 I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
+| simulation matrix on this exact config | **62 tests, 62 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, ~144 s) | **62/62** (~144 s; earlier I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
 | role | **tape-out candidate** (clock = whichever attempt measures green; 33.33 MHz targeted) | fast regression; **cannot fit 8×4** | documented area lever |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** nominal; the core the flow lays out is
@@ -117,7 +117,8 @@ Only metrics that came out of a CI log are listed. A build is "passing" only whe
 | 3 (`35c3c42`) | **SRAM 1024×32 + 32-word DMEM** | area **solved (−46 % vs attempt 1)**, failed `[GRT-0010]` inside GPL routability-driven (`gpl.tcl:88`) — that unplaced instance was later root-caused to a stray IO-pad cell | **622 401 µm²** = fixed 148 563 + movable 473 838 | **44.7 %** movable-relative (raw 51.5 %) |
 | 4 (`5732b23`) | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; failed on **timing**: 1 028 setup-violated endpoints, **WNS −4.125 ns, TNS −1658.6** at 16.67 ns (critical path ≈ 20.8 ns), "unable to repair all setup violations" | 622 401 µm² | 44.7 % movable-relative |
 | 5 (`98cd5d6`) | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **setup closed** (`RSZ-0098 No setup violations found`), 3 177 hold endpoints repaired — still `[GRT-0010]` on the same unplaced cell | 622 401 µm² | — |
-| 6 (master) | same design + `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` | **RUNNING** — expected routing clean; bonus **−57 600 µm²** (473 838 → ~416 000, ~36–39 %) | — | — |
+| 6 (`1182041`) | same design + `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` | **CANCELLED at the 6 h CI cap**: every stage through GRT in 15 min, then DRT ran 5 h 45 m and was killed with **6 violations left** (trajectory 37 824 → … → 6). Root cause: `GRT_ALLOW_CONGESTION: true` (template default) → 47 GRT track overflows handed to DRT | ~30 600 instances, 48.1 % effective / 45.6 % GPL | — |
+| 7 (`6050726`) | same design, routing configuration fixed (`GRT_ALLOW_CONGESTION:false`, `GRT_ADJUSTMENT:0.18`, `GRT_OVERFLOW_ITERS:150`) | **RUNNING** — expected DRT to start near-zero and finish well under an hour; if GRT cannot converge it now fails in ~20 min rather than burning the cap | — | — |
 
 ### 3.1 Why the FF build cannot be tape-out, and why constraint knobs failed
 
@@ -146,7 +147,7 @@ _40267_ is not placed`, raised inside GPL's routability-driven mode at `gpl.tcl:
 the global router on a mid-placement snapshot). At 44.7 % utilisation routability-driven placement
 is unnecessary, so attempt 4 disables it — a one-line `src/config.json` change.
 
-Simulation on this exact RTL configuration: **60/60 PASS, 0 skip** (§5).
+Simulation on this exact RTL configuration: **62/62 PASS, 0 skip** (§5).
 
 ### 3.3 Attempts 4–5 — two problems, and the routing blocker was not timing
 
@@ -204,6 +205,7 @@ and it scales with the clock divider).
 | achieved frequency (measured) | **33.33 MHz closes setup** (attempt 5, `RSZ-0098`); the final achieved-frequency claim awaits a flow that completes routing/GDS (attempt 6) |
 | power (typical) | TBD |
 | DRC / LVS / antenna | TBD |
+| CI time budget (6 h GitHub Actions cap) | attempt 6: all stages through GRT 15 min, DRT 5 h 45 m → **cancelled with 6 violations left**. The FAQ's stated fallback is a local LibreLane run + custom GDS action; we avoid needing it by fixing the routing configuration (attempt 7), not the design |
 
 `src/config.json` ships `CLOCK_PERIOD = 30` (33.33 MHz) for the submitted build; `info.yaml clock_hz`
 matches at `33333333`. 60 MHz was the original target and failed timing (see §3.3).
@@ -212,7 +214,7 @@ matches at `33333333`. 60 MHz was the original target and failed timing (see §3
 
 | Check | Result | Artefact |
 |---|---|---|
-| `gds` GitHub Action | **not yet passed** — attempts 1/2/2b failed on area; 3 solved area; 4/5 blocked at global routing by stray IO-pad cells (timing closed at 33.33 MHz in attempt 5); attempt 6 excludes the pads and is running | Actions run |
+| `gds` GitHub Action | **not yet passed** — area solved (3), timing solved (5), IO-pad blocker solved (6); attempt 6 reached detailed routing in 15 min and was cancelled at the 6 h cap with 6 violations left; attempt 7 fixes the routing configuration and is running | Actions run |
 | `precheck` | not yet reached | Actions run |
 | `gl_test` (gate-level protocol suite) | not yet reached | `test/results.xml` |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) | `formal/` log |
@@ -222,19 +224,19 @@ matches at `33333333`. 60 MHz was the original target and failed timing (see §3
 ## 5. Verification results (landed RTL, simulation)
 
 **Both configurations are now fully green, including the one headed for tape-out.** On the exact
-RTL configuration being hardened (`make SRAM_SIM=1024`): **60 tests, 60 PASS, 0 FAIL, 0 SKIP**, ~138 s
+RTL configuration being hardened (`make SRAM_SIM=1024`): **62 tests, 62 PASS, 0 FAIL, 0 SKIP**, ~144 s
 (protocol rates RTL-measured at the shipped clock: UART 289.35 cyc/bit = **115.20 kBd (+0.001 %)**,
 I²C full SCL period → **92.5 / 344.2 kHz**, bit-banged SPI **1.04–1.06 MHz**; I²C and SPI are legal
 because their specs give maxima, not exact rates)
 (incl. 100/100 differential co-sim seeds, harness backdoor made SRAM-aware). The FF regression build
-is also **60/60**, 138 s — the two I²C gates that were skipped during bring-up are closed (VER-006
+is also **62/62**, ~144 s — the two I²C gates that were skipped during bring-up are closed (VER-006
 VIP artifact, VER-007 firmware byte-boundary bug).
 Full layer tables and the sixteen-deviation history: [`verification.md` §9](verification.md).
 
 | Suite | Result | Notes |
 |---|---|---|
 | host link | **PASS** | 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
-| ISA | **22/22 PASS** | every mnemonic; all 60 tests covered by the coverage meta-test |
+| ISA | **22/22 PASS** | every mnemonic; all 62 tests covered by the coverage meta-test |
 | timing | **7/7 PASS** | drift-free fractional stream, UART 115200 (constant sweep at the shipped clock), `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written programs; 0 artefacts |
 | protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; **I2C 400 kHz and I2C target SKIP** (VER-006/007, firmware-timing triage — 100 kHz passes, so not a core-architecture gap) |

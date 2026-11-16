@@ -225,8 +225,8 @@ pin is exercised at least once with four threads running concurrently.
 > setup** (`RSZ-0098 No setup violations found`) — and still hit the same instance, which turned out to
 > be **four stray `IOPadOut16mA` cells (57 600 µm², 12 % of moved area) that ABC had mapped onto
 > internal high-fanout nets** because the IO library was in the synthesis set. **Attempt 6 excludes
-> `sg13cmos5l_IOPad*` and is running.** The RTL being hardened passes the **full 60/60 simulation
-> matrix with 0 skips**. Nothing here is marked passing until the flow step passed; canonical log
+> `sg13cmos5l_IOPad*` and is running.** The RTL being hardened passes the **full 62/62 simulation
+> matrix with 0 skips** (frozen at `a55c1b7`, USB-LS included). Nothing here is marked passing until the flow step passed; canonical log
 > [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ### 7.1 What the flow told us, and why it was worth four attempts
@@ -244,7 +244,8 @@ design that does not fit:
 | 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | area **solved (−46 % vs attempt 1)**; failed `[GRT-0010]` inside GPL routability-driven mode (`gpl.tcl:88`) | **622 401 µm²** (148 563 fixed + 473 838 movable) | **44.7 %** movable-relative (raw 51.5 %) |
 | 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; blocked by an unplaced instance while 16.67 ns also failed setup (**WNS −4.125 ns, TNS −1658.6**, 1 028 endpoints, path ≈ 20.8 ns) | 622 401 µm² | 44.7 % movable-relative |
 | 5 `98cd5d6` | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **setup closed** (`RSZ-0098 No setup violations found`), 3 177 hold endpoints repaired — still `[GRT-0010]` on the same unplaced cell | 622 401 µm² | — |
-| 6 (master) | same design + `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` | **running** — expected routing clean, and **−57 600 µm²** of stray pad area | — | — |
+| 6 `1182041` | same design + `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` | **CANCELLED at the 6-hour CI cap.** IO-pad fix worked: all stages through global routing finished in **15 min**, then detailed routing ran **5 h 45 m** and was killed with **6 violations left** (trajectory 37 824 → 24 763 → 22 716 → 5 797 → … → 6). Root cause: `GRT_ALLOW_CONGESTION: true` inherited from the TT template—global routing deferred **47 track overflows** to DRT | ~30 600 instances, 48.1 % eff. (45.6 % GPL) | — |
+| 7 `6050726` | same design, **routing configuration fixed** (`GRT_ALLOW_CONGESTION:false`, `GRT_ADJUSTMENT:0.18`, `GRT_OVERFLOW_ITERS:150`) | **running** — RTL/firmware/clock unchanged; expected DRT to start near-zero and finish well under an hour | — | — |
 
 Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
 305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
@@ -293,6 +294,23 @@ and 5 failing at the same point, and the fix is one line: **attempt 6 adds
 library set) and is running — with a bonus **−57 600 µm²** of cell area (473 838 → ~416 000, ~36–39 %
 utilisation).
 
+**Attempt 6 was the closest yet, and it was killed by a template knob, not by the design.** With the
+IO pads excluded the flow sailed through synthesis, placement, CTS and *global* routing in **15
+minutes** — then spent **5 h 45 m in detailed routing**, converging 37 824 → 24 763 → 22 716 → 5 797
+→ … → 6 violations, and was cancelled by GitHub Actions' 6-hour cap with six left. The design is ~30 600
+instances at 45.6 % utilisation: it was never too big. The measured cause is `GRT_ALLOW_CONGESTION:
+true` — a Tiny Tapeout template default — which made global routing give up with **47 track
+overflows** (M2 59.8 %, M3 66.1 % usage) and its own log recommended `GRT_ADJUSTMENT 0.18` rather than
+0.30. DRT then had to repair that congestion violation-by-violation.
+
+Attempt 7 changes only `src/config.json` (`GRT_ALLOW_CONGESTION: false`, `GRT_ADJUSTMENT: 0.18`,
+`GRT_OVERFLOW_ITERS: 150`) and is running. If global routing cannot converge it now fails in ~20
+minutes instead of burning the cap, so the loop is cheap. The FAQ anticipated designs that hit the
+6-hour limit and prescribes a local LibreLane run plus a custom GDS action; the lesson here is that we
+did not need that fallback — **we needed one flow setting.** A knob inherited from a template can cost
+six hours before it is understood, and reading the router's own warning ("reduce the layer adjustment
+from 30 % to 18 %") was worth more than another design iteration.
+
 ### Flow lessons worth keeping
 
 1. **Only post-synthesis mapped area is a budget.** A pre-ABC estimate can be optimistic (FF build:
@@ -307,6 +325,10 @@ utilisation).
 4. **Tools report symptoms, not causes.** A placement-mode heuristic produced `[GRT-0010]` long before
    anyone suspected the netlist contents, and the eventual fix was one configuration line. Read the
    artifact, not just the error string.
+5. **Template defaults are not neutral.** `GRT_ALLOW_CONGESTION: true`, inherited unexamined from the
+   Tiny Tapeout template, made global routing defer 47 overflows and cost 5 h 45 m of detailed routing
+   before the 6-hour cap killed the run — on a design that was never too big. The router's own log
+   contained the fix (`GRT_ADJUSTMENT` 0.30 → 0.18).
 
 ### 7.2 The budget lesson
 
@@ -330,10 +352,10 @@ synthesiser has to invent — only the post-synthesis mapped area is the budget.
 
 ### 7.3 Timed simulation: the tape-out candidate is fully green
 
-The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz — passes
-**60 of 60 tests, 0 fail, 0 skip** in ~138 s (`make SRAM_SIM=1024`), including 100/100 differential
-co-sim seeds (the harness backdoor was made SRAM-aware). The FF regression build is also **60/60**
-(138 s): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
+The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 33.33 MHz — passes
+**62 of 62 tests, 0 fail, 0 skip** in ~144 s (`make SRAM_SIM=1024`), including 100/100 differential
+co-sim seeds (the harness backdoor was made SRAM-aware) and 2 USB-LS TX tests. The FF regression build
+is also **62/62** (~144 s), and a clean clone reproduces 62/62 (frozen at `a55c1b7`): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
 (illegal clock-stretch injection), VER-007 a real firmware bug (the SCL-first byte-boundary rule).
 This is the first point at which *the artifact we intend to fabricate* has the full green matrix.
 
@@ -343,7 +365,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 |---|---|
 | WNS / TNS, hold | **60 MHz does not close** (attempt 4 at 16.67 ns: WNS −4.125 ns, TNS −1658.6, 1 028 endpoints); **setup closes at 33.33 MHz** (attempt 5: `RSZ-0098 No setup violations found`; 3 177 hold endpoints repaired) |
 | achieved frequency | **33.33 MHz closes setup** (`CLOCK_PERIOD 30 ns`); the final achieved-frequency claim awaits a completing flow (attempt 6 running) |
-| `gds` action | **not passed** — attempts 4/5 were blocked by stray IO-pad cells at global routing; attempt 6 (pads excluded, 33.33 MHz) running |
+| `gds` action | **not passed** — attempt 6 reached detailed routing in 15 min and was **cancelled at the 6 h CI cap with 6 DRT violations left** (template `GRT_ALLOW_CONGESTION` root cause); attempt 7 fixes the routing configuration and is running |
 | `precheck` | not reached |
 | `gl_test` (gate-level protocol suite) | not reached |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
@@ -356,14 +378,14 @@ plus the documented `sram512` macro swap rather than the FF build.
 
 ### 7.5 What is already proven by simulation
 
-The SRAM candidate configuration passes **60/60 (0 fail, 0 skip, ~138 s)** and the FF regression
-configuration also passes **60/60 (138 s)**; the `test` GitHub Actions workflow reproduces the matrix
+The SRAM candidate configuration passes **62/62 (0 fail, 0 skip, ~144 s)** and the FF regression
+configuration also passes **62/62 (~144 s)**; the `test` GitHub Actions workflow reproduces the matrix
 on every push:
 
 | Suite | Result |
 |---|---|
 | host link — 13 commands, global-CSR matrix, FIFOs, IRQ/ACK, CS-abort, STATUS | **PASS** |
-| ISA — every mnemonic, coverage meta-test over all 60 tests | **22/22 PASS** |
+| ISA — every mnemonic, coverage meta-test over all 62 tests | **22/22 PASS** |
 | timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
@@ -410,7 +432,7 @@ actually built, because an honest "RTL done, silicon deferred" is worth more tha
 | **Wave player: precomputed waveform streaming** | DMEM holds 16-bit pin patterns; the player emits one per 12.4-fractional symbol period, so any waveform whose encoding is precomputable (Manchester, IR/RF class, bit-stuffed streams) leaves the CPU free to run the state machine | **RTL + unit-verified** (1000 symbols at 1.625 cycles = 1625 cycles exact); up to **33.3 M patterns/s** at the shipped clock |
 | **A protocol workstation, not just a chip** | Host bridge + FIFOs + Python toolchain: assemble, load, run, stream TX/RX from a host script. Programs occupy RAM, so they survive while powered and reload in milliseconds — the chip is re-tasked between protocols without a bitstream | **demonstrated end-to-end** (`host/`, `sw/prog/`, the load-and-run path in `docs/host-protocol.md` §5) |
 | **Deterministic timing as a product feature** | The property that makes protocols exact also makes the part a **test instrument**: repeatable edge placement is exactly what a bus injector or a fault-injection rig needs | **architectural** (event scheduling from `TMR`; ±1 cycle scheduling, non-drifting periods) |
-| **Low-speed USB (stretch, not demonstrated)** | At 33.33 MHz a USB LS bit is **22.2 cycles**, and the fractional event scheduler can hold the 1.5 Mbit/s grid, so the TX path is a firmware project (NRZI, bit-stuffing, CRC-5/16) | **not demonstrated** — honest gap; firmware work, no new RTL expected |
+| **USB 1.1 low-speed device TX (stretch)** | At 33.33 MHz a USB LS bit is **22.2 cycles** and the fractional event scheduler holds the 1.5 Mbit/s grid, so the whole device-mode transmitter is firmware: NRZI, 8-bit SYNC, DATA0 PID, payload, USB CRC16, bit stuffing after six ones, EOP | **RTL-verified** (`sw/examples/usb_ls_tx.asm`, 2 tests: packet decoded by an independent model). **Single-ended prototype** — drives/monitors D+ only; a real board needs a USB connector/Pmod with D− biased to the LS idle level and a 1.5 kΩ pull-up (external parts are FAQ-allowed). Not silicon-tested |
 | **10BASE-T (stretch, not demonstrated)** | Manchester at 10 Mbaud is 1.67 cycles/symbol — the wave player can stream that, but a useful MAC needs a **larger pattern buffer than our 32-word DMEM** | **not demonstrated** — revision-B item with a second SRAM; stated plainly rather than overclaimed |
 
 
@@ -497,9 +519,9 @@ README:
 | Criterion (FAQ) | How LOOM answers it | Evidence |
 |---|---|---|
 | **Flexibility is the main thing** | no protocol hardblocks — a protocol is a program loaded over SPI after fabrication; the ISA is a timing language (events, fractional periods, absolute waits, timed sampling) and the same datapath runs 10 programs covering 8 protocol roles across 6 families | `sw/examples/`, [`examples.md`](examples.md), [`isa.md`](isa.md) |
-| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812 — 10 programs, **9/9 protocol VIP tests passing** | `test/test_protocols.py`, `sw/examples/README.md` |
+| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** — 11 programs, 9/9 protocol VIP + 2/2 USB-LS tests passing | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/README.md` |
 | **Anything unique the architecture enables** | absolute-timeline scheduling, 1-cycle timed sampling, wave player, capture/record-replay (RTL done, rev-B silicon), host toolchain — the "Beyond the obvious" table in §8 | §8 above |
-| **How it was designed and verified** | spec-derived golden model, 100/100 differential co-sim (pins **and** architectural state), 60-test cocotb suite on both memory builds, 3 bounded formal proofs, gate-level run, reproducible from a clean clone | [`verification.md`](verification.md) |
+| **How it was designed and verified** | spec-derived golden model, 100/100 differential co-sim (pins **and** architectural state), 62-test cocotb suite on both memory builds (incl. USB-LS), 3 bounded formal proofs, gate-level run, clean-clone reproducible | [`verification.md`](verification.md) |
 | **Write-up** | this narrative plus the flow-attempt log — every dead end, measured number and one-line fix, including the IO-pad library-hygiene bug | [`FLOW_STATUS.md`](FLOW_STATUS.md), §7 |
 
 **Rules compliance:** the required Tiny Tapeout flow (`tt-gds-action@ttihp27a` / LibreLane, IHP

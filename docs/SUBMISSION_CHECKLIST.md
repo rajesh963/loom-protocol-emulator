@@ -26,10 +26,11 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | TBD |
 | 8 | Both build variants buildable (FF fallback and SRAM flagship) | CI matrix | lead | TBD |
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
-| 9b | `test` workflow reproduces the full cocotb matrix on GitHub (59 PASS / 0 SKIP on both build configurations) | Actions run | verify | **done** (green; re-check on the final SHA) |
+| 9b | `test` workflow reproduces the full cocotb matrix on GitHub (62 PASS / 0 SKIP on both build configurations) | Actions run | verify | **done** (green; re-check on the final SHA) |
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
 | 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempts 1/2/2b failed on area; attempt 3 solved area (−46 %); attempts 4/5 were blocked at global routing by **stray IO-pad cells** (57 600 µm²) that ABC mapped from internal nets; **timing closed at 33.33 MHz** in attempt 5 (`RSZ-0098 No setup violations`); attempt 6 excludes `sg13cmos5l_IOPad*` and is running |
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
+| 9g | The GDS run finishes **inside the 6-hour GitHub Actions cap**. Attempt 6 hit the cap in detailed routing (template `GRT_ALLOW_CONGESTION` bug); attempt 7's routing fix should make DRT short. FAQ fallback if it cannot: run LibreLane locally and submit via the custom GDS action (still needs precheck) | Actions run | lead | **pending attempt 7** |
 | 9f | Timing tables re-scaled to the shipped 33.33 MHz (architecture §2.1, `isa.md` constants, `examples.md` budgets, SVG diagrams, host-link SCK ceiling) and `info.yaml clock_hz = 33333333` | docs + firmware (`sw/examples/`, `sw/prog/manifest.json`) | docs / firmware | **done** (firmware sweep `fbea876`) |
 
 ## 2. Documentation (the write-up is weighted heavily)
@@ -132,9 +133,10 @@ echo "REMEMBER: docs/results.md filled with the final git revision and CI number
 5. Record in `results.md` which build was submitted, **the clock it was measured-green at** (60 MHz
    failed timing: WNS −4.125 ns / 20.8 ns path; attempt 5 targets 33.33 MHz) and the exact git SHA.
    The submitted candidate is the **SRAM 1024×32 + 32-word DMEM build** (the only one that fits 8×4
-   and whose exact RTL passes the full 60/60 matrix); the FF build is a *simulation/regression* configuration only (it
+   and whose exact RTL passes the full 62/62 matrix); the FF build is a *simulation/regression* configuration only (it
    measured 1.15 M µm² and cannot fit), and `tools/select_build.sh sram512` is the documented area
    reserve (−60 k µm², 512-word firmware limit).
-6. Submit the repository link through the competition form (added to the announcement page before
+6. Paste [`SUBMISSION_TEXT.md`](SUBMISSION_TEXT.md) (one-liner, protocol matrix, novelty, verification,
+   honest limits) into the competition form and submit the repository link (added to the announcement page before
    the deadline), with `spec/ARCHITECTURE.md`, `docs/writeup.md` and `docs/verification.md` called
    out as the entry points.
