@@ -172,7 +172,7 @@ KNOWN_ISSUES: dict[str, dict] = {
                     "timed-wait windows until resolved.",
     },
     "status_pipeline": {
-        "open": False,
+        "open": True,
         "id": "VER-005",
         "title": "STATUS command bytes are still off by one CSR after the VER-003 fix",
         "spec": "spec §6 STATUS: 4 thread bytes {halted,en,tx_full,tx_empty,"
@@ -317,9 +317,34 @@ KNOWN_ISSUES: dict[str, dict] = {
         "decision": "requested from Lead; test_emita_emitd_do_not_touch_nextt "
                     "is the directed regression and is gated until fixed.",
     },
+    "host_csrr_data_registered": {
+        "open": True,
+        "id": "VER-015",
+        "title": "host_csrr_data is combinational on host_csrr_addr, so the "
+                 "STATUS engine's 8 back-to-back reads sample the wrong address",
+        "spec": "rtl/loom_host.v header: STATUS issues one CSR read per clk and "
+                "captures 2 clk after each issue, i.e. csr_rd_data must be "
+                "f(csr_rd_addr) registered one cycle after the address is "
+                "presented (pipelined reads)",
+        "rtl": "rtl/loom_core.v `assign host_csrr_data = host_csrr_rdata;` is "
+               "purely combinational on the registered `host_csrr_addr`.  For "
+               "isolated reads that is fine (address held), but the STATUS "
+               "engine advances the address every cycle, so the p2 capture "
+               "sees f(addr_{i+1}) while p2_i says addr_i.  Thread 0's byte is "
+               "launched in two halves, so the result is 0x84 instead of "
+               "0x94 (tx_empty/tx_full bits sampled one read late).",
+        "impact": "host STATUS command: thread 0 byte 0x84 instead of 0x94 "
+                  "(other bytes usually right by luck of the byte boundary); "
+                  "test_host.test_status_command.",
+        "repro": "`make TESTCASE=test_status_command` -> bytes [0x24,0x90,"
+                 "0x94,0x94] vs expected thread0 0x94.",
+        "fix": "Register the read data one cycle, e.g.\n  reg [15:0] "
+               "host_csrr_data_r;\n  always @(posedge clk) if (!rst_n) "
+               "host_csrr_data_r <= 16'd0; else host_csrr_data_r <= "
+               "host_csrr_rdata;\n  assign host_csrr_data = host_csrr_data_r;\n"
+               "Pre-validated on `test/_scratch_rtl2` (copy of current rtl + "
+               "this patch): test_status_command PASS.",
+        "decision": "reported to Lead; test_status_command stays gated on this "
+                    "entry (also re-gates the STATUS-dependent host checks).",
+    },
 }
-
-for _key, _entry in KNOWN_ISSUES.items():
-    if _key in _FORCE_FIXED or _entry.get("id") in _FORCE_FIXED:
-        _entry["open"] = False
-

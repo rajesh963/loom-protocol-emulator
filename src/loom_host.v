@@ -378,24 +378,26 @@ module loom_host (
       p2_v <= p1_v;
       p2_i <= p1_i;
 
-      if (p2_v && stat_en) begin
-        if (p2_i[0] == 1'b0) begin
+      if (p1_v && stat_en) begin
+        if (p1_i[0] == 1'b0) begin
           // TSTATUS = {14'b0, halted, en}
-          statb[p2_i[2:1]] <= {csr_rd_data[1:0], statb[p2_i[2:1]][5:0]};
+          statb[p1_i[2:1]] <= {csr_rd_data[1:0], statb[p1_i[2:1]][5:0]};
         end else begin
           // TFIFO counts: [11:8] = rx_count, [7:4] = tx_count
-          statb[p2_i[2:1]] <= {statb[p2_i[2:1]][7:6],
+          statb[p1_i[2:1]] <= {statb[p1_i[2:1]][7:6],
                                cap_tx_full,
-                               tx_empty[p2_i[2:1]],
-                               rx_full[p2_i[2:1]],
+                               tx_empty[p1_i[2:1]],
+                               rx_full[p1_i[2:1]],
                                cap_rx_empty,
                                2'b00};
         end
-        if (p2_i == 4'd7)
-          stat_en <= 1'b0;                     // last read captured
+        if (p1_i == 4'd7) begin
+          stat_en    <= 1'b0;                  // last read captured
+          csr_rd_en  <= 1'b0;
+        end
         // thread 0's byte is needed before its transfer boundary: launch it
-        if (resp_is_status && (p2_i[2:1] == 2'd0)) begin
-          if (p2_i[0] == 1'b0)
+        if (resp_is_status && (p1_i[2:1] == 2'd0)) begin
+          if (p1_i[0] == 1'b0)
             tx_shift <= {csr_rd_data[1:0], 6'b000000};      // bit7 = halted
           else
             tx_shift <= {statb[0][7:6], cap_tx_full,

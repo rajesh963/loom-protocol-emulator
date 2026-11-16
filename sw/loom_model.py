@@ -132,7 +132,9 @@ Where the model had to choose (all reported to Lead)
         TEQ     = {13'b0, eq_cnt[2:0]}
         TNEXTT  = nextt; TPC = pc; TPERIOD/TMASK/TEMASK/TECOND as named
         POUT/PDIR/TMR/EVT/IRQ as named
-        WCTRL   = {13'b0, oneshot, loop, start}; reads back with start=0
+        WCTRL   = {13'b0, wave_ctl_q}; wave_ctl_q is the last written data[2:0]
+                  (bit0 start, bit1 loop, bit2 oneshot), so the start bit reads
+                  back as written (RTL truth)
         WADDR   = {10'b0, addr}; WLEN = {9'b0, len}
         WSTATUS = {14'b0, busy, done}        -> bit1 busy, bit0 done
         GSTATUS = {7'b0, en[3:0], 4'b0, irq} -> [8:5] en mask, bit0 irq
@@ -394,7 +396,16 @@ class Loom:
         self.pin_in16 = self._pin_in(0)
 
     def soft_reset(self) -> None:
-        """CSR 0x20 write-1 behaviour (matches RTL): core only, no memories/wave."""
+        """CSR 0x20 write-1 behaviour (matches landed RTL, Lead 2026-11-16).
+
+        Resets only: thread state (PC/regs/flags/en=0/halt=1/stall/period=16/
+        tmask=0xFFFF/emask/econd/nextt=0/queues/FIFOs/rpt/inat), `pout=0`,
+        `pdir=0`, `evt=0`, `irq_code=0` and the event-queue valid bits.
+        **TMR keeps running** (`self.cycle` is NOT reset), PMEM and DMEM keep
+        their contents, the wave player and its CSR configuration keep running,
+        and the fetch/issue pipeline (issue_ptr/fetch_ptr/in-flight fetch) is
+        NOT cleared (the RTL soft-reset block does not touch them either).
+        """
         for th in self.threads:
             th.reset()
         self.pins_reg = 0
@@ -402,10 +413,6 @@ class Loom:
         self.dir = 0
         self.evt = 0
         self.irq_code = 0
-        self.issue_ptr = 0
-        self.fetch_ptr = 0
-        self.fetch_returning = None
-        self._next_fetch = None
         self.pin_in16 = self._pin_in(0)
 
     def load(self, words: Iterable[int], addr: int = 0) -> None:
@@ -544,6 +551,9 @@ class Loom:
             return True
         if n == CSR_TPC:
             th.pc = val & PC_MASK
+            # RTL (Lead, batch 2): both host CSR_TPC writes and thread
+            # `csrw TPC` clear i_rdy in addition to redirecting the same-cycle
+            # fetch, so any prefetched word is dropped.
             th.insn_valid = False
             return True
         return False               # TSTATUS/TFIFO/TNEXTT/TEQ are read-only
@@ -560,8 +570,9 @@ class Loom:
         if addr == CSR_IRQ:
             return self.irq_code & 0xFFFF       # non-destructive (RTL)
         if addr == CSR_WCTRL:
-            # {13'b0, oneshot, loop, start-reads-0}
-            return (1 if self.wl_oneshot else 0) << 2 | (1 if self.wl_loop else 0) << 1
+            # RTL truth: {13'b0, wave_ctl_q} = last written data[2:0]
+            # (bit0 = start, bit1 = loop, bit2 = oneshot)
+            return self.wave_ctl & 0x7
         if addr == CSR_WADDR:
             return self.wave_addr & 0x3F
         if addr == CSR_WLEN:
@@ -582,6 +593,18 @@ class Loom:
                     en_mask |= 1 << th.tid
             return ((en_mask & 0xF) << 5) | (1 if self.irq_code else 0)
         return 0
+
+    def _thread_global_csr_write(self, addr: int, val: int) -> bool:
+        """Global CSR write from a *thread* instruction (RTL instruction case).
+
+        The RTL instruction CSR-write case covers EVT/IRQ/WCTRL/WADDR/WLEN/
+        WPER/CAPCTRL (plus POUT/PDIR through their special writeback paths); it
+        does **not** include the host bridge's private RUN/STOP masks or the
+        host-only soft reset.  Those must be ignored here.
+        """
+        if addr in (isa.CSR_RUN, isa.CSR_STOP, CSR_SOFTRST):
+            return False
+        return self._global_csr_write(addr, val)
 
     def _global_csr_write(self, addr: int, val: int) -> bool:
         val &= 0xFFFF
@@ -965,7 +988,7 @@ class Loom:
                 npout_events = (npout_events & ~mask) | (fire_val[t] & mask)
 
         # ---------------- wave player: visible level during this cycle ------
-        wave_visible = self._mask_pout(self.w_pins) if self.w_valid else None
+        wave_visible = (self.w_pins & 0xFFFF) if self.w_valid else None
         visible_events = wave_visible if wave_visible is not None else npout_events
         settled_pins = self._pin_in(visible_events)
 
@@ -1169,9 +1192,13 @@ class Loom:
                 elif opc == EMITA:
                     ev_enqueue = (TIME_KIND, self._clamp_target(imm), src_a)
                 elif opc == EMITD:
-                    ev_enqueue = (TIME_KIND,
-                                  self._clamp_target((tmr + imm) & 0xFFFF, special_zero=(imm == 0)),
-                                  src_a)
+                    # RTL truth (Lead decision): `emitd d` is a *relative* delay
+                    # in 1..65535 cycles, so it is always in the future and the
+                    # behind-schedule clamp must NOT be applied (that would turn
+                    # a legal ~0.5 ms delay into 1 cycle).  Only d==0 is
+                    # special-cased to TMR+1 so the event is not lost.
+                    target = (tmr + 1) & 0xFFFF if imm == 0 else (tmr + imm) & 0xFFFF
+                    ev_enqueue = (TIME_KIND, target, src_a)
                 elif opc == EMITE:
                     ev_enqueue = (EDGE_KIND, 0, src_a)
                 elif opc == SETP:
@@ -1184,14 +1211,16 @@ class Loom:
                     csr_wr = (CSR_TECOND, imm)
                 elif opc == INAT:
                     delta = (imm - tmr) & 0xFFFF
-                    if delta == 0:
+                    # VER-008: target now or already past => sample immediately
+                    if delta == 0 or delta >= 0x8000:
                         wb_en, wb_rd, wb_data = True, rd, settled_pins
                     else:
                         inat_arm = (rd, (k + delta) & 0xFFFFFFFF)
                         stall_set = delta
                 elif opc == WAITU:
                     delta = (imm - tmr) & 0xFFFF
-                    stall_set = 0 if delta == 0 else delta - 1
+                    # VER-008: target now or already past => no stall
+                    stall_set = 0 if (delta == 0 or delta >= 0x8000) else delta - 1
                 elif opc == WAITD:
                     frac = th.wfrac + (imm & 0xF)
                     carry = frac >> 4
@@ -1298,7 +1327,9 @@ class Loom:
                 mask = ths[t].tmask & DRIVABLE
                 npout = (npout & ~mask) | (fire_val[t] & mask)
         visible = wave_visible if wave_visible is not None else npout
-        self.pins_visible = self._mask_pout(visible)
+        # npout is already masked to PINS_OUT_DRIVABLE; the wave player drives
+        # the full 16-bit vector in RTL (pins_out = wave_active ? wave_pins : npout)
+        self.pins_visible = visible & 0xFFFF
         self.pin_in16 = settled_pins
 
         # ---------------- S5/S7: commits at the end of the cycle ------------
@@ -1368,7 +1399,7 @@ class Loom:
                             th.pc = value & PC_MASK
                             th.insn_valid = False
                     else:
-                        self._global_csr_write(addr, value)
+                        self._thread_global_csr_write(addr, value)
 
         # optional retirement log (debugging aid; disabled by default)
         if self.retire_log is not None and issued and not retry and sel is not None:

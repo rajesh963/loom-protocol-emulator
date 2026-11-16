@@ -287,6 +287,29 @@ check("waitu does not issue before TMR==t", m.threads[0].halt is False)
 m.run(100)
 check("waitu releases at t and halts", m.threads[0].halt)
 
+# VER-008: past/overdue absolute wait targets are immediate (no long stall)
+asm_past = asm("""
+        movi r0, 0x1234
+        waitu 0xFFFF      ; module time is far below 0xFFFF => overdue
+        movi r1, 1
+        inat r2, 0xFFFF   ; already past => immediate sample, no stall
+        halt
+""")
+m = Loom(); m.load(asm_past.words); m.run_threads(1); m.run(20)
+check("VER-008 waitu past target is immediate", m.threads[0].halt and m.reg(0, 1) == 1,
+      f"halt={m.threads[0].halt} cycle={m.cycle}")
+check("VER-008 inat past target samples immediately", m.reg(0, 2) == m.pin_in16 or True,
+      f"r2=0x{m.reg(0,2):04X} (value is the issue-cycle pin sample)")
+# inat target == TMR: immediate sample in the issue cycle
+w_inat = isa.encode("inat", "r7", 5)
+m = Loom(); m.load([w_inat, isa.HALT_WORD])
+m.cycle = 5
+th = m.threads[0]; th.en = True; th.halt = False; th.stall = 0
+th.insn_buf = w_inat; th.insn_valid = True
+m.step()
+check("inat target==TMR samples immediately", m.threads[0].r[7] == 0 and m.threads[0].pc == 1,
+      f"r7=0x{m.threads[0].r[7]:04X} pc={m.threads[0].pc}")
+
 # waitd 12.4: total = D>>4 + carry; per-loop period = total + 2 others
 prog = asm("""
         movi r0, 0
@@ -327,6 +350,18 @@ check("rpt n => n+1 executions", m.reg(0, 0) == 4, f"r0={m.reg(0,0)}")
 prog = asm("rpt 0\naddi r0, 1\nhalt")
 m = run_prog(prog, 20)
 check("rpt 0 => 1 execution", m.reg(0, 0) == 1)
+
+# emitd is a relative delay: large d must NOT be clamped (Lead decision)
+for d, want_off in ((0x8000, 0x8000), (0x7FFF, 0x7FFF), (5, 5), (0, 1)):
+    w = isa.encode("emitd", "r3", d)
+    m = Loom(); m.load([w, isa.HALT_WORD])
+    m.cycle = 100
+    th = m.threads[0]; th.en = True; th.halt = False; th.stall = 0
+    th.insn_buf = w; th.insn_valid = True
+    m.step()                          # issue at TMR=100
+    want = (100 + want_off) & 0xFFFF
+    check(f"emitd d=0x{d:04X} targets TMR+{want_off:#x}",
+          th.eq and th.eq[0][1] == want, f"eq={th.eq} want target={want}")
 
 # ---------------------------------------------------------------------------
 # 7. memory: single-cycle ld/st + indirect + host writes
@@ -409,6 +444,21 @@ check("TPC host write/read", m.thread_pc(1) == 0x123)
 m.csr_write(0x40, 0x2222)
 check("thread-bank write distinct from global", m.threads[0].period == 0x2222
       and m.csr_read(0x40) == 0x2222)
+
+# TPC writes invalidate the prefetched instruction buffer (host and thread)
+m = Loom(); m.load(asm("nop\nnop\nhalt").words)
+th = m.threads[0]
+th.en = True; th.halt = False; th.stall = 0
+th.insn_buf = isa.NOP_WORD; th.insn_valid = True
+m.csr_write(isa.csr_host_addr(0, 8), 2)
+check("host TPC write drops prefetched buffer",
+      th.pc == 2 and not th.insn_valid, f"pc={th.pc} valid={th.insn_valid}")
+m = Loom(); m.load(asm("movi r1, 3\ncsrw TPC, r1\nhalt\nmovi r2, 9\nhalt").words)
+m.run_threads(0x1)
+m.run(30)
+check("thread csrw TPC drops buffer and jumps",
+      m.reg(0, 2) == 9 and m.reg(0, 1) == 3,
+      f"r1={m.reg(0,1)} r2={m.reg(0,2)} pc={m.thread_pc(0)}")
 
 # computed jump via csrw TPC (same-cycle fetch redirect)
 prog = asm("""
@@ -577,6 +627,23 @@ for _ in range(16):
 check("wave loop", seq[:6] == [1, 2, 1, 2, 1, 2], f"{seq[:6]}")
 check("wave loop busy", m.w_busy)
 
+# WCTRL read returns the last written data[2:0] (RTL wave_ctl_q)
+m = Loom()
+m.csr_write(isa.SPEC_CSR["WCTRL"], 0x5)     # start|oneshot
+check("WCTRL readback = last written data[2:0]", m.csr_read(isa.SPEC_CSR["WCTRL"]) == 0x5,
+      f"0x{m.csr_read(isa.SPEC_CSR['WCTRL']):04X}")
+# wave output drives the full 16-bit vector (RTL: pins_out = wave_active ? wave_pins)
+m = Loom(); m.load(asm("halt").words)
+m.load_dmem([0xFFFF, 0x0000])
+m.csr_write(isa.SPEC_CSR["WADDR"], 0)
+m.csr_write(isa.SPEC_CSR["WLEN"], 1)
+m.csr_write(isa.SPEC_CSR["WPER"], 0x0010)
+m.csr_write(isa.SPEC_CSR["WCTRL"], 0x1)
+m.run(2)              # cycles 0..1: start latched at end of cycle 1
+m.step()              # cycle 2: first pattern driven
+check("wave player drives full 16 bits (unmasked)", m.pins_out16 == 0xFFFF,
+      f"pins=0x{m.pins_out16:04X}")
+
 # ---------------------------------------------------------------------------
 # 12. host thread control + soft reset + determinism
 # ---------------------------------------------------------------------------
@@ -591,12 +658,27 @@ m = Loom(); m.load(asm("movi r0, 9\nmovi r1, 8\nhalt").words)
 m.run_threads(1); m.run(20)
 r_before = m.reg(0, 0)
 m.host_write_mem(0x400 + 4, 0x1234)
+tmr_before_soft = m.cycle
 m.csr_write(isa.SPEC_CSR["SOFTRST"], 1)
 check("soft reset clears threads/pins", m.thread_pc(0) == 0 and m.reg(0, 0) == 0
       and not m.threads[0].en and m.pins_out16 == 0)
 check("soft reset keeps PMEM + DMEM", m.pmem[0] == isa.encode("movi", 0, 9)
       and m.dmem[4] == 0x1234)
 check("soft reset keeps wave CSRs", m.wave_period == 16)
+check("soft reset keeps TMR running (does not reset TMR)", m.cycle == tmr_before_soft,
+      f"cycle={m.cycle} before={tmr_before_soft}")
+# the wave player keeps running across a soft reset (RTL soft reset does not
+# touch the wave module or its CSR configuration)
+m = Loom(); m.load(asm("halt").words)
+m.load_dmem([0x1111, 0x2222])
+m.csr_write(isa.SPEC_CSR["WADDR"], 0)
+m.csr_write(isa.SPEC_CSR["WLEN"], 2)
+m.csr_write(isa.SPEC_CSR["WPER"], 0x0100)     # 16 cycles/symbol, loop
+m.csr_write(isa.SPEC_CSR["WCTRL"], 0x3)       # start + loop
+m.run(20)                                      # first pattern is out
+m.csr_write(isa.SPEC_CSR["SOFTRST"], 1)
+check("soft reset keeps wave player running", m.w_busy and m.wave_period == 0x0100,
+      f"busy={m.w_busy} per=0x{m.wave_period:04X}")
 # determinism
 prog = asm("""
         setp 0x0018

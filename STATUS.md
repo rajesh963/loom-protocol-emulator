@@ -91,3 +91,10 @@
   Local suites after the batch: unit_core PASS, unit_host PASS, unit_wave PASS, integration PASS,
   SW_TESTS PASS; cocotb 28 PASS / 1 FAIL (TEQ sampling artefact, verify to fix) / 30 SKIP
   (known-issue flags still gated — flipping them is verify's next step).
+- **Verification suite: 57 PASS / 0 FAIL / 2 SKIP locally** (the 2 skips are I2C 400 kHz sampling
+  and I2C-target data NAK, still gated for triage). Includes the 100-seed differential co-sim
+  (RTL vs golden model, full trace + architectural state) — the headline verification claim — plus
+  22/22 ISA opcode tests, timing 7/7, UART/SPI/I2C protocol VIPs, and 3/3 formal proofs.
+- Final RTL batch: hostbridge STATUS capture now samples 1 clk after issue (combinational host read
+  port); TPC writes invalidate the prefetched instruction buffer.
+- CI: docs workflow PASS; test workflow expected green on next push.

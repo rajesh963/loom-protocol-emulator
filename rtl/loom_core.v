@@ -803,7 +803,10 @@ module loom_core #(
             `CSR_TMASK:   tmask [host_csrw_addr[5:4]] <= host_csrw_data;
             `CSR_TEMASK:  emask [host_csrw_addr[5:4]] <= host_csrw_data;
             `CSR_TECOND:  econd [host_csrw_addr[5:4]] <= host_csrw_data;
-            `CSR_TPC:     pc    [host_csrw_addr[5:4]] <= host_csrw_data[9:0];
+            `CSR_TPC: begin
+              pc    [host_csrw_addr[5:4]] <= host_csrw_data[9:0];
+              i_rdy [host_csrw_addr[5:4]] <= 1'b0;   // drop any prefetched word
+            end
             default: ;
           endcase
         end else begin
@@ -876,7 +879,10 @@ module loom_core #(
             `CSR_TMASK:   tmask [sel] <= csr_wr_val;
             `CSR_TEMASK:  emask [sel] <= csr_wr_val;
             `CSR_TECOND:  econd [sel] <= csr_wr_val;
-            `CSR_TPC:     pc    [sel] <= csr_wr_val[9:0];
+            `CSR_TPC: begin
+              pc    [sel] <= csr_wr_val[9:0];
+              i_rdy [sel] <= 1'b0;                   // drop any prefetched word
+            end
             default: ;
           endcase
         end else begin
