@@ -69,6 +69,7 @@ protocols share one 1-instruction/cycle datapath.
 | `ws2812.asm` | — | DATA=P[12]=uo[4] | 47 | model-verified | 800 kHz (T0H 13.3 / T1H 26.7 cyc), 50 us latch |
 | `ps2_target.asm` | — | CLK=P[13]=uo[5], DATA=P[14]=uo[6] | 58 | model-verified | 14.28 kHz clock, 11-bit frames + odd parity |
 | `onewire.asm` | — | DQ=P[7]=uio[7] (open-drain) | 91 | model-verified | standard-speed, +25.0 C DS18B20 scratchpad |
+| `usb_ls_tx.asm` (stretch) | — | D+=P[0]=uio[0] | 96 | model-verified (TX only) | 1.4980 Mbit/s (−0.13 %), 22.25 cyc/bit |
 
 Pin convention: `P[15:10]` = `uo_out[7:2]`, `P[15:11]` = `ui_in[7:3]` readable,
 `P[7:0]` = the bidirectional open-drain `uio` pins (DIR=1 pulls low, DIR=0
@@ -229,6 +230,47 @@ four-program demo needs the 1024-word SRAM build.
   +25.0 C (`0x90 0x01 ...`); the 9th byte is a CRC placeholder (the demo does
   not verify it — a real CRC-8/MAXIM is ~30 extra instructions).
 
+## USB 1.1 low-speed device transmitter — stretch (`usb_ls_tx.asm`)
+
+The competition FAQ lists low-speed USB as a stretch goal and rewards protocols
+where the chip does the line coding, CRC and framing itself. This is a
+**device→host, transmit-only prototype, proven on the golden model** (not yet in
+the RTL suite and not silicon-proven).
+
+* **Pin**: single-ended D+ on `P[0] = uio[0]` (push-pull, DIR bit 0). A real
+  board needs the other half of the pair: D− tied to the LS idle level (high)
+  and a 1.5 kΩ pull-up on D− (external parts are allowed by the FAQ); the chip
+  drives/monitors only D+, which is why the far-end decoder can be single-ended.
+* **Frame**: `SYNC (00000001)` → `PID = 0xC3 (DATA0)` → 4 host-supplied data
+  bytes → `CRC16` → `EOP (SE0, 2 cell times)` → idle J.
+* **Coding**: NRZI (0 toggles D+, 1 holds), bit stuffing after six consecutive
+  1s (SYNC never stuffed), USB data CRC16 = reflected poly 0x8005 (0xA001), init
+  0xFFFF, final XOR 0xFFFF, computed over the **data field only** and sent
+  LSB-first. Validated against the published CRC-16/USB check value
+  (`crc16_usb(b"123456789") == 0xB4C8`). The decoder independently checks
+  SYNC, PID+complement, stuffing, CRC and EOP.
+* **Timing**: one LS bit at the shipped 33.33 MHz is 22.2222 cycles; the event
+  scheduler period `setp 0x0164` = 22.25 cycles gives **1.4981 Mbit/s
+  (−0.125 %, inside the LS ±0.25 % budget)** and the 12.4 carry keeps every bit
+  boundary drift-free. Budget: ~12–14 instructions/bit (worst case 18 with a
+  stuff bit) against 22.25 cycles/bit at IPC 1 — every edge is an `emit`, the
+  CPU only keeps the 4-deep queue fed. A packet is ≤ 8 + 56 + ≤8 = ≤72 encoded
+  bits ≈ 1602 cycles (48 µs), EOP 44.5 cycles, 100 µs idle between packets.
+* **Model evidence** (`model_selftest.py`, 13 checks): two host-controlled
+  packets decode with SYNC/PID+complement/EOP ok; payloads `FF FF FF FF`
+  (**6 stuffed bits**, CRC 0x4FFE) and `LOOM` (0 stuffed, CRC 0x992C); every NRZI
+  edge sits on the 22.25-cycle event grid (max residual 0.50 cycle = integer
+  cycle quantisation, i.e. no CPU/issue jitter); measured **22.249 cycles/bit →
+  1.4982 Mbit/s (−0.122 %)**. `host/usb_ls.py` is the receiver: NRZI decode,
+  unstuffing, PID/CRC16/EOP checks and bit-period recovery from the 7 SYNC
+  edges (the same information a USB DPLL locks to).
+* **Honest verdict**: TX-only, single-ended, model-proven. A real LS device also
+  needs the differential transceiver + 1.5 kΩ on D−, a receive path with DPLL
+  sampling the far end's NRZI stream (the same logic fits a thread at ~10–14
+  instructions/bit vs 22.25 available), and host SOF/EOF enumeration — follow-on
+  work, not claimed. What *is* demonstrated is the judged axis: line coding, bit
+  stuffing, protocol framing and CRC are done by the chip in firmware.
+
 ## Host helpers (`sw/protocols.py`)
 
 `UartBus`, `SpiBus`, `I2cBus`, `Ws2812`, `Ps2Host`, `OneWireMaster` are both
@@ -289,5 +331,8 @@ re-running the 45 checks and the RTL protocol suite.
 * On-chip capture/record-replay is a stretch feature; `host/demos/
   demo_record_replay.py` shows the model-level record/replay flow that the
   capture engine will make on-chip once `loom_capture.v` lands.
+* `usb_ls_tx.asm` is a **stretch prototype**: device→host TX only, single-ended
+  D+ (external D− tie + 1.5 kΩ are board parts), golden-model-proven; RX/DPLL
+  and host enumeration are not implemented.
 * External rise times (I2C pull-ups, UART/SPI drivers) are the user's board
   responsibility; the firmware guarantees the 30–70 % point timing.

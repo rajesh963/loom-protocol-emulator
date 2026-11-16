@@ -44,6 +44,9 @@ from sw.protocols import (                                 # noqa: E402
     UartBus, SpiBus, SpiMasterModel, I2cBus, I2cMasterModel,
     Ws2812, Ps2Host, OneWireMaster, WireWorld, format_wave,
 )
+from host.usb_ls import (                                  # noqa: E402
+    UsbLsDecoder, crc16_usb, encode_reference, USB_LS_BIT_RATE,
+)
 from host.loom_host import ModelLink                        # noqa: E402
 
 EXAMPLES = HERE
@@ -336,6 +339,61 @@ def test_onewire() -> None:
 
 
 # ---------------------------------------------------------------------------
+# USB 1.1 low-speed device transmitter (stretch protocol)
+# ---------------------------------------------------------------------------
+def test_usb_ls_tx() -> None:
+    prog = assemble("usb_ls_tx")
+    check("usb_ls_tx: size < 128 words", len(prog.words) < FF_FALLBACK_WORDS,
+          f"{len(prog.words)} words")
+    check("CRC-16/USB check value ('123456789' -> 0xB4C8)",
+          crc16_usb(b"123456789") == 0xB4C8, hex(crc16_usb(b"123456789")))
+    loom, link, world = make_link(prog, 0, 0)
+    dec = UsbLsDecoder(world)
+    world.run(300)                                  # firmware idle loop
+    payloads = [bytes([0xFF, 0xFF, 0xFF, 0xFF]),     # stuffing stress
+                b"LOOM"]                            # human-readable payload
+    try:
+        for i, payload in enumerate(payloads):
+            for b in payload:
+                link.tx_push(0, b)
+            world.run_until(lambda i=i: len(dec.packets) > i, 12000,
+                            f"USB LS packet {i}")
+    except Exception as exc:
+        check("usb_ls_tx: two packets decoded", False,
+              f"{type(exc).__name__}: {exc}")
+        return
+    check("usb_ls_tx: two packets decoded", len(dec.packets) >= 2,
+          f"{len(dec.packets)} packets, errors={dec.errors}")
+    for i, payload in enumerate(payloads):
+        ref = encode_reference(payload)
+        pkt = dec.packets[i]
+        check(f"usb_ls_tx[{i}]: SYNC/PID/complement/EOP",
+              pkt.sync_ok and pkt.pid == 0xC3 and pkt.pid_ok and pkt.eop_ok,
+              f"sync={pkt.sync_ok} pid=0x{pkt.pid:02X} pid_ok={pkt.pid_ok} "
+              f"eop={pkt.eop_ok}")
+        check(f"usb_ls_tx[{i}]: payload {payload!r} + CRC-16/USB",
+              pkt.payload == payload and pkt.crc_ok
+              and pkt.crc_rx == ref["crc"],
+              f"payload={pkt.payload!r} crc=0x{pkt.crc_rx:04X} "
+              f"(want 0x{ref['crc']:04X})")
+        check(f"usb_ls_tx[{i}]: bit stuffing ({ref['stuff_count']} stuffed bits)",
+              pkt.stuff_count == ref["stuff_count"],
+              f"decoded {pkt.stuff_count}, expected {ref['stuff_count']}")
+        check(f"usb_ls_tx[{i}]: edges on the 22.25-cycle event grid",
+              pkt.grid_residual_max <= 1.0,
+              f"max residual {pkt.grid_residual_max:.2f} cyc")
+    pkt = dec.packets[0]
+    err = pkt.bit_rate / USB_LS_BIT_RATE - 1.0
+    check("usb_ls_tx: measured 1.4980 Mbit/s (-0.13 %, within LS +/-0.25 %)",
+          abs(err) <= 0.0025 and abs(pkt.period_cycles - 22.25) <= 0.02,
+          f"{pkt.bit_rate/1e6:.4f} Mbit/s, {pkt.period_cycles:.3f} cyc/bit, "
+          f"{err*100:+.3f} %")
+    check("usb_ls_tx: stuffing path exercised (>=1 stuffed bit)",
+          dec.packets[0].stuff_count + dec.packets[1].stuff_count >= 1,
+          f"stuff counts {[p.stuff_count for p in dec.packets]}")
+
+
+# ---------------------------------------------------------------------------
 # All four demo programs at once
 # ---------------------------------------------------------------------------
 DEMO_BASE = {"uart_tx": 0x000, "uart_rx": 0x080, "spi_master": 0x100,
@@ -387,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         test_uart_tx, test_uart_rx, test_uart_tx_rates, test_uart_loopback,
         test_spi_master_modes, test_spi_master_fast, test_spi_slave,
         test_i2c_master, test_i2c_target, test_ws2812, test_ps2, test_onewire,
-        test_all_four_threads,
+        test_usb_ls_tx, test_all_four_threads,
     ]
     print("LOOM example-model self-test")
     print(f"  examples: {EXAMPLES}")
