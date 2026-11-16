@@ -84,16 +84,38 @@ measured 622 401 µm² (51.5 %), i.e. the estimator was *conservative* by ~17 % 
 over-prices generic memory muxes that the macro replaced. Honest calibration: the pre-ABC estimator
 was pessimistic here and optimistic on the FF build, so only post-synthesis mapped area is a budget.
 
-## Attempt 4 — same design, routability-driven placement disabled · commit `5732b23` — **RUNNING**
+## Attempt 4 — same design, routability-driven placement disabled · commit `5732b23` — **FAILED, now purely timing-driven**
 
 Identical RTL and SRAM configuration; the only change is `"PL_ROUTABILITY_DRIVEN": false` in
-`src/config.json` (LibreLane/OpenROAD `GlobalPlacement` variable, default `true`) — commit
-`5732b23` ("flow: disable routability-driven global placement (attempt 4)"), full SHA
-`5732b23250ecb23b1e7c1b8f4a447701f8fa9b36`, CI run `43905211454`. At 44.7 %
-utilisation routability-driven placement is unnecessary, and it is the only step that failed in
-attempt 3. **Prediction: attempt 4 proceeds through detailed placement → CTS → routing → GDS →
-precheck → gate-level simulation.** WNS/TNS/utilisation/precheck/GL rows will be recorded here from
-its CI log.
+`src/config.json` (commit `5732b23`, full SHA `5732b23250ecb23b1e7c1b8f4a447701f8fa9b36`, CI run
+`43905211454`). **This attempt got much deeper:** floorplan → macro placement/PDN → global placement
+→ repair → detailed placement → CTS → post-CTS timing repair, a 27-minute run.
+
+| Metric | Value |
+|---|---|
+| completed steps | floorplan, macro placement + PDN, **global placement, repair, detailed placement, CTS, post-CTS timing repair** |
+| failing step | **`OpenROAD.GlobalRouting`** — `[GRT-0010] Instance _40267_ is not placed` (`grt.tcl:20`) |
+| root cause | **timing.** Post-GPL repair found **1 028 setup-violated endpoints, WNS −4.125 ns, TNS −1658.6** at `CLOCK_PERIOD 16.67 ns` (critical path ≈ **20.8 ns**) and reported "Unable to repair all setup violations"; the resizer's inserted cells left one instance unplaced for GRT |
+| repair activity | 1 909 fanout violations + 9 slew violations repaired; **3 178 hold endpoints** found after CTS |
+| reached GDS/precheck/GL? | **no** |
+
+**Reading:** the placement-mode fix worked — the design now *places*. The new blocker is pure timing:
+the critical path is ~20.8 ns, so a 16.67 ns clock cannot be met by this RTL/netlist at 130 nm
+without further optimisation. Since the competition sets no frequency target ("pick one that closes
+timing"), the correct engineering response is to re-target the clock rather than to chase setup.
+
+## Attempt 5 — same design at 33.33 MHz (`CLOCK_PERIOD = 30 ns`) · commit `98cd5d6` — **RUNNING**
+
+Identical RTL; **`CLOCK_PERIOD 30 ns` (33.33 MHz)** — ~44 % margin over the measured 20.8 ns critical
+path. Rationale: 33.33 MHz still supports **every demonstrated protocol with large margin** — UART
+115200, I²C 100/400 kHz, PS/2, 1-Wire, bit-banged SPI, WS2812 — and the only path that is
+clock-sensitive in practice is the wave player, which scales with the clock divider. CI run follows
+`43905211454`; WNS/TNS/utilisation/precheck/GL will be recorded here from its log. **No frequency is
+claimed anywhere until that WNS is measured.**
+
+If attempt 5 is comfortable, one further run at `CLOCK_PERIOD = 25 ns` (40 MHz) may be tried as a
+speed experiment; **the submitted design will be whichever build is measured-green**, and the docs
+describe that one.
 
 ## Area lever still in reserve — `RM_IHPSG13_1P_512x32`
 
@@ -111,8 +133,10 @@ its CI log.
 * **Budget lesson:** pre-ABC cell counts cannot predict ABC's fanout buffering under a process
   fanout constraint, so only **post-synthesis mapped area** is a usable budget number. That is the
   number attempt 1 produced, and it is now the tracker every attempt is judged against.
-* The submitted build is the SRAM configuration (`35c3c42` onward); the FF build exists for fast
-  regression and cannot be a tape-out fallback (1.147 M µm² measured — 98.4 %).
+* The submitted build is the SRAM configuration (`35c3c42` onward) **at whatever clock the flow
+  measures green** — 60 MHz failed timing (WNS −4.125 ns, 20.8 ns critical path), attempt 5 targets
+  33.33 MHz; the FF build exists for fast regression and cannot be a tape-out fallback (1.147 M µm²
+  measured — 98.4 %).
 * Attempt 3 also settled the estimator question: on the SRAM build the pre-flow estimate was
   **conservative** (748 598 predicted vs 622 401 measured), the opposite of the FF build — the
   estimator over-prices generic memory muxes that the macro replaces.

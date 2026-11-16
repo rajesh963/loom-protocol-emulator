@@ -109,7 +109,7 @@ pin by software**.
 | `uio[2]` | `PS2_CLK` (open drain) | `uio[6]` | `SPI_MOSI` |
 | `uio[3]` | `PS2_DAT` (open drain) | `uio[7]` | `SPI_MISO` |
 
-`clk` = 60 MHz target (10–66 MHz accepted), `rst_n` asynchronous active low, `ena` ignored. The full
+`clk` = 60 MHz design point, re-targeted to **33.33 MHz** for the hardened build pending attempt 5 (10–66 MHz accepted; see [flow status](docs/FLOW_STATUS.md)), `rst_n` asynchronous active low, `ena` ignored. The full
 pad map, the instruction-level pin vector and the in/out overlap are in
 [`docs/architecture.md` §5](docs/architecture.md#5-pins) and [`docs/images/pinout.svg`](docs/images/pinout.svg).
 
@@ -188,7 +188,7 @@ artifact (illegal clock-stretch injection).
 | protocol VIPs | **8/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + 400 kHz + clock stretching, I2C target |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
 | gate-level | pending | awaits the attempt-4 netlist |
-| sign-off (`gds`/`precheck`) | **attempt 4 running** | area solved (622 401 µm² = 51.5 % raw / 44.7 % movable-relative, −46 %); attempt 3 failed a GPL routability-mode check, fixed by one config line — see [flow status](docs/FLOW_STATUS.md) |
+| sign-off (`gds`/`precheck`) | **attempt 5 running** | area solved (622 401 µm² = 51.5 % raw / 44.7 % movable-relative, −46 %); attempt 4 reached global routing then failed timing at 60 MHz (**WNS −4.125 ns**, 20.8 ns path) → re-targeted to 33.33 MHz — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
@@ -205,9 +205,12 @@ clock to 25 MHz both made it *worse*, localising the 305 304 µm² of buffers (2
 ABC's SCL sequential-mapping pass — constraint knobs are a dead end, structure is the lever.
 **Attempt 3 (SRAM 1024×32 macro + 32-word DMEM) measured 622 401 µm² = 51.5 % raw area ratio /
 44.7 % flow utilisation (movable area over the free, non-macro core area) — a −46 % area
-reduction** — and failed only a placement-*mode* check
-(`[GRT-0010]` inside GPL's routability-driven mode), which **attempt 4 fixes with one config line
-(`PL_ROUTABILITY_DRIVEN: false`) and is running now**. Both build configurations pass the full
+reduction**, failing only a placement-*mode* check. **Attempt 4 fixed that
+(`PL_ROUTABILITY_DRIVEN: false`) and reached global routing, then failed on timing**: 1 028
+setup-violated endpoints, **WNS −4.125 ns / TNS −1658.6** at a 16.67 ns clock — a **20.8 ns critical
+path**. The competition sets no frequency target, so **attempt 5 re-targets the identical design to
+33.33 MHz (`CLOCK_PERIOD` 30 ns, ~44 % margin) and is running now**; **no frequency is claimed until
+its WNS is measured**. Both build configurations pass the full
 **59/59 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level
 all pass on one commit. Canonical log: [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in
 [`docs/results.md`](docs/results.md).

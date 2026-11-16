@@ -371,6 +371,11 @@ first.
 
 ## 7. Assembler
 
+> **Timing constants:** every `TPERIOD`/`waitd` value in this document assumes the **60 MHz design
+> point**. The hardened build is being re-targeted to 33.33 MHz after a measured 20.8 ns critical path
+> (`CLOCK_PERIOD` 30 ns), in which case period constants scale by 1.8× and firmware regenerates them
+> from its `.equ CLOCK_HZ` sweep. Nothing about the ISA or the scheduler semantics changes.
+
 `sw/loom_asm.py` (owner: toolchain) is a two-pass assembler with relocations.
 
 ```sh

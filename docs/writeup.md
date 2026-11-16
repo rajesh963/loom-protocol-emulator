@@ -237,7 +237,8 @@ design that does not fit:
 | 2 `33012d5` | FF, relaxed `MAX_FANOUT_CONSTRAINT` (40) | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
 | 2b | FF, 25 MHz probe (`CLOCK_PERIOD` 40 ns) | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
 | 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | area **solved (−46 % vs attempt 1)**; failed `[GRT-0010]` inside GPL routability-driven mode (`gpl.tcl:88`) | **622 401 µm²** (148 563 fixed + 473 838 movable) | **44.7 %** movable-relative (raw 51.5 %) |
-| 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | **running** (CI `43905211454`) — expected to reach routing/GDS/precheck/GL | — | — |
+| 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; failed on **timing** — **WNS −4.125 ns, TNS −1658.6**, 1 028 setup endpoints, critical path ≈ 20.8 ns at 16.67 ns | 622 401 µm² | 44.7 % movable-relative |
+| 5 `98cd5d6` | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **running** — ~44 % margin over the 20.8 ns path | — | — |
 
 Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
 305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
@@ -265,6 +266,20 @@ placed`, raised inside GPL's *routability-driven* mode (that mode runs the globa
 mid-placement snapshot). At 44.7 % utilisation routability-driven placement is unnecessary, so
 attempt 4 disables it — one line in `src/config.json`. That is the shape of the whole arc: the
 design was never the problem after the structural fix; a placement heuristic was.
+
+Attempt 4 then went a long way — floorplan, macro placement + PDN, global and detailed placement, CTS,
+post-CTS repair, a 27-minute run — and failed at global routing with one unplaced instance. The root
+cause is **timing, not congestion**: post-GPL repair found **1 028 setup-violated endpoints, WNS
+−4.125 ns and TNS −1658.6** at a 16.67 ns clock, i.e. a **critical path ≈ 20.8 ns**, and the resizer's
+inserted cells left one instance unplaced for the router. The design places; 60 MHz on 130 nm does not
+close for this netlist.
+
+The right response is the one the competition invites: it sets **no frequency target** — "pick one that
+closes timing" — so attempt 5 re-targets the *same* design to **33.33 MHz** (`CLOCK_PERIOD 30 ns`),
+**~44 % margin over the measured 20.8 ns path**. 33.33 MHz still supports every demonstrated protocol
+with large margin (UART 115200, I²C 100/400 kHz, PS/2, 1-Wire, bit-banged SPI, WS2812); the only
+clock-sensitive path in practice is the wave player, and that scales with the clock divider. Frequency
+is a knob, not a feature — and the write-up will state the achieved number only after it is measured.
 
 ### 7.2 The budget lesson
 
@@ -299,8 +314,9 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 
 | Check | Result |
 |---|---|
-| WNS / TNS @ 60 MHz, hold | **TBD** — no attempt has reached routing |
-| `gds` action | **not passed** — attempt 3 reached global placement (area solved, placement-mode check failed); attempt 4 running |
+| WNS / TNS, hold | attempt 4 at 16.67 ns: **WNS −4.125 ns, TNS −1658.6**; timing clean at the 30 ns re-target is **TBD** (attempt 5) |
+| achieved frequency | **TBD** — stated only from attempt 5's measured WNS; the design was re-targeted from 60 MHz to 33.33 MHz after the 20.8 ns critical path was measured |
+| `gds` action | **not passed** — attempt 4 reached global routing, then failed timing at 60 MHz; attempt 5 (33.33 MHz) running |
 | `precheck` | not reached |
 | `gl_test` (gate-level protocol suite) | not reached |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |

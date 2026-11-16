@@ -27,8 +27,9 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
 | 9b | `test` workflow reproduces the full cocotb matrix on GitHub (59 PASS / 0 SKIP on both build configurations) | Actions run | verify | **done** (green; re-check on the final SHA) |
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
-| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempts 1/2/2b failed on area; attempt 3 **solved area** (622 401 µm² = 51.5 % raw / 44.7 % movable-relative, −46 %) but hit a GPL routability-mode check; attempt 4 (`5732b23`, one-line config fix) running |
+| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempts 1/2/2b failed on area; attempt 3 solved area (−46 %); attempt 4 (`5732b23`) reached global routing then failed **timing** at 60 MHz (WNS −4.125 ns, 20.8 ns path); attempt 5 (`98cd5d6`, 33.33 MHz / `CLOCK_PERIOD 30 ns`) running |
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
+| 9f | Timing tables re-scaled if the shipped clock is not 60 MHz (architecture §2.1, `isa.md` period constants, `examples.md` budgets, firmware `.equ CLOCK_HZ` sweep) and `info.yaml clock_hz` matches the shipped clock | docs + firmware | docs / firmware | **pending attempt 5** |
 
 ## 2. Documentation (the write-up is weighted heavily)
 
@@ -127,9 +128,10 @@ echo "REMEMBER: docs/results.md filled with the final git revision and CI number
    [`verification.md`](verification.md) §9 with the final revision and CI links.
 4. Make the repository public (or flip it public at the moment of submission), verify from a logged-
    out browser that the README, docs and images render.
-5. Record in `results.md` which build was submitted and the exact git SHA. The submitted candidate is
-   the **SRAM 1024×32 + 32-word DMEM build at 60 MHz** (the only one that fits 8×4 and whose exact RTL
-   passes the full 59/59 matrix); the FF build is a *simulation/regression* configuration only (it
+5. Record in `results.md` which build was submitted, **the clock it was measured-green at** (60 MHz
+   failed timing: WNS −4.125 ns / 20.8 ns path; attempt 5 targets 33.33 MHz) and the exact git SHA.
+   The submitted candidate is the **SRAM 1024×32 + 32-word DMEM build** (the only one that fits 8×4
+   and whose exact RTL passes the full 59/59 matrix); the FF build is a *simulation/regression* configuration only (it
    measured 1.15 M µm² and cannot fit), and `tools/select_build.sh sram512` is the documented area
    reserve (−60 k µm², 512-word firmware limit).
 6. Submit the repository link through the competition form (added to the announcement page before

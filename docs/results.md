@@ -5,16 +5,17 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-CI commit: `5732b23` (attempt 4; full SHA `5732b23250ecb23b1e7c1b8f4a447701f8fa9b36`, CI run `43905211454`; the final pushed SHA is recorded here) ·
-flow: LibreLane via `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz
-(`CLOCK_PERIOD` 16.67 ns). `docs` and `test` workflows are green on CI.
-**Status: the area problem is solved; hardening is finishing.** Attempts 1/2/2b on the FF build
-failed on area (1.148 M / 1.190 M / 1.224 M µm²); **attempt 3's SRAM build measured 622 401 µm²
-(51.5 % raw area ratio, 44.7 % flow utilisation — (flow metric: 44.7 % is **movable-cell area relative to the free, non-macro core area** — 473 838 / (1 208 172 − 148 563); the raw 51.5 % counts the macro too: 622 401 / 1 208 172))** — a **−46 % area reduction** — and failed only on a
-placement-*mode* check (`[GRT-0010]`, GPL routability-driven) with a one-line config fix.
-**Attempt 4 (same design, `PL_ROUTABILITY_DRIVEN: false`) is running.** Verification on this exact
-build configuration is **59/59 PASS, 0 skip**. Nothing is marked passing until GDS + precheck +
-gate-level pass on one commit; canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
+CI commit: `98cd5d6` (attempt 5; attempt 4 was `5732b23`, CI run `43905211454`) · flow: LibreLane via
+`tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock: **60 MHz target not met; build re-targeted to
+33.33 MHz (`CLOCK_PERIOD` 30 ns) pending attempt 5**. `docs` and `test` workflows are green on CI.
+**Status: area solved; hardening now timing-driven.** Attempts 1/2/2b failed on area (1.148 M /
+1.190 M / 1.224 M µm²); attempt 3 solved area (**622 401 µm²**, −46 %, 51.5 % raw / 44.7 %
+movable-relative) but hit a GPL routability-mode check; attempt 4 fixed that and reached **global
+routing**, then failed on **timing** (1 028 setup-violated endpoints, **WNS −4.125 ns, TNS −1658.6** at
+16.67 ns; critical path ≈ **20.8 ns**); **attempt 5 runs the identical design at `CLOCK_PERIOD 30 ns`
+(33.33 MHz, ~44 % margin)**. Verification on this exact build configuration is **59/59 PASS, 0 skip**.
+Nothing is marked passing until GDS + precheck + gate-level pass on one commit; canonical log:
+[`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ---
 
@@ -35,7 +36,7 @@ fallback only**: it is fast to elaborate and is what most regression runs use, b
 | flow extras | official TT CMOS5L SRAM plugin + `pdn_cfg.tcl` | none | same as SRAM candidate |
 | measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm²** (51.5 % raw ratio; 44.7 % movable-relative) | **1 147 604 µm² = 98.4 % → placement failed** | **561 938 µm² = 46.5 %** raw ratio (reserve; 512-word limit) |
 | simulation matrix on this exact config | **59 tests, 59 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, 154 s) | **59/59** (157 s; the earlier 2 I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
-| role | **tape-out candidate** | fast regression; **cannot fit 8×4** | documented area lever if attempt 3 misses |
+| role | **tape-out candidate** (clock = whichever attempt measures green; 33.33 MHz targeted) | fast regression; **cannot fit 8×4** | documented area lever |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** nominal; the core the flow lays out is
 1 208 172 µm². **Budget tracker: post-synthesis mapped area ≤ ~700–750 k µm² (~60 % utilisation)** —
@@ -112,7 +113,8 @@ Only metrics that came out of a CI log are listed. A build is "passing" only whe
 | 2 (`33012d5`) | FF, `MAX_FANOUT_CONSTRAINT = 40` | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
 | 2b | FF, 25 MHz probe | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
 | 3 (`35c3c42`) | **SRAM 1024×32 + 32-word DMEM** | area **solved (−46 % vs attempt 1)**, failed on a placement-*mode* check `[GRT-0010]` inside GPL routability-driven (`gpl.tcl:88`) | **622 401 µm²** = fixed 148 563 + movable 473 838 | **44.7 %** movable-relative (raw 51.5 %) |
-| 4 (`5732b23`) | same design, `PL_ROUTABILITY_DRIVEN: false` | **RUNNING** (CI run `43905211454`) | — | — |
+| 4 (`5732b23`) | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; failed on **timing**: 1 028 setup-violated endpoints, **WNS −4.125 ns, TNS −1658.6** at 16.67 ns (critical path ≈ 20.8 ns), "unable to repair all setup violations" | 622 401 µm² | 44.7 % movable-relative |
+| 5 (`98cd5d6`) | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **RUNNING** — ~44 % margin over the 20.8 ns critical path | — | — |
 
 ### 3.1 Why the FF build cannot be tape-out, and why constraint knobs failed
 
@@ -143,24 +145,45 @@ is unnecessary, so attempt 4 disables it — a one-line `src/config.json` change
 
 Simulation on this exact RTL configuration: **59/59 PASS, 0 skip** (§5).
 
-### 3.3 Attempt 4 — same design, one config line — RUNNING
+### 3.3 Attempt 4 — placement fixed, and the blocker became timing
 
-`"PL_ROUTABILITY_DRIVEN": false`. Expected to proceed through detailed placement → CTS → routing →
-GDS → precheck → gate level. WNS/TNS/utilisation/precheck/GL rows will be recorded here from its CI
-log; they are **not** estimated.
+`"PL_ROUTABILITY_DRIVEN": false` (commit `5732b23`) did exactly what was intended: floorplan, macro
+placement + PDN, global placement, repair, detailed placement, CTS and post-CTS timing repair all
+completed (a 27-minute run). It failed at **`OpenROAD.GlobalRouting`** with `[GRT-0010] Instance
+_40267_ is not placed` (`grt.tcl:20`), and the root cause is **timing**, not congestion:
 
-### 3.4 Area levers still in reserve
+| Metric | Value |
+|---|---|
+| post-GPL setup repair | **1 028 setup-violated endpoints, WNS −4.125 ns, TNS −1658.6** at `CLOCK_PERIOD 16.67 ns`; critical path ≈ **20.8 ns**; "Unable to repair all setup violations" |
+| repair activity | 1 909 fanout + 9 slew violations repaired; **3 178 hold endpoints** after CTS |
+| consequence | the resizer's inserted cells left one instance unplaced for GRT |
+
+So the design *places*; a 16.67 ns clock simply cannot be met by this RTL/netlist at 130 nm without
+further optimisation. The competition sets no frequency target ("pick one that closes timing"), so the
+engineering response is to re-target the clock, not to chase setup.
+
+### 3.4 Attempt 5 — identical design at 33.33 MHz (`CLOCK_PERIOD 30 ns`) — RUNNING
+
+Commit `98cd5d6`. 33.33 MHz is **~44 % margin over the measured 20.8 ns critical path** and still
+supports every demonstrated protocol with large margin (UART 115200, I²C 100/400 kHz, PS/2, 1-Wire,
+bit-banged SPI, WS2812); the only clock-sensitive path in practice is the wave player, which scales
+with the clock divider. **No frequency is claimed here until its WNS is measured.** If attempt 5 is
+comfortable, a 25 ns (40 MHz) run may follow as a speed experiment; the submitted design is whichever
+build is measured-green, and these tables describe that one.
+
+### 3.5 Area levers still in reserve
 
 `tools/select_build.sh sram512` → `RM_IHPSG13_1P_512x32` (79 720 µm²): ~−60 k µm² with a documented
 512-word firmware limit (four 128-word slots at `0x000`/`0x080`/`0x100`/`0x180`, highest usable word
 509). Also held: DMEM 32→16. Not needed unless attempt 4 misses.
 
-### 3.5 Timing, power, DRC/LVS
+### 3.6 Timing, power, DRC/LVS
 
 | Metric | Status |
 |---|---|
-| WNS / TNS @ 60 MHz, hold slack | **TBD** — no attempt has reached routing yet |
-| achieved frequency | **TBD** — will be stated from the measured WNS, not assumed. 60 MHz is the *target* (`CLOCK_PERIOD 16.67 ns`); if attempt 4 reaches routing with violations, `CLOCK_PERIOD` becomes the tunable (25–60 MHz are all valid for these protocols) and the honest achieved-frequency sentence goes here |
+| WNS / TNS, hold slack | attempt 4 at 16.67 ns: **WNS −4.125 ns, TNS −1658.6** (1 028 violated endpoints) — timing clean is **TBD** for attempt 5 at 30 ns |
+| frequency | **60 MHz target not met; critical path measured 20.8 ns at the first closed placement; build re-targeted to 33.33 MHz (`CLOCK_PERIOD` 30 ns)** — attempt 5 running |
+| achieved frequency (measured) | **TBD** — stated only from attempt 5's measured WNS; no frequency is claimed before that |
 | power (typical) | TBD |
 | DRC / LVS / antenna | TBD |
 
@@ -170,7 +193,7 @@ log; they are **not** estimated.
 
 | Check | Result | Artefact |
 |---|---|---|
-| `gds` GitHub Action | **not yet passed** — attempts 1/2/2b failed on area; attempt 3 solved area (622 401 µm²) but hit a GPL routability-mode check; attempt 4 running | Actions run |
+| `gds` GitHub Action | **not yet passed** — attempts 1/2/2b failed on area; attempt 3 solved area; attempt 4 reached global routing and failed on **timing** at 60 MHz (WNS −4.125 ns); attempt 5 at 33.33 MHz running | Actions run |
 | `precheck` | not yet reached | Actions run |
 | `gl_test` (gate-level protocol suite) | not yet reached | `test/results.xml` |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) | `formal/` log |

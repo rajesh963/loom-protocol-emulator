@@ -108,7 +108,8 @@ link's own outputs) can never be driven by firmware — `csrr POUT` after `out 0
 Nothing is pre-programmed: the chip comes out of reset with all threads halted and waits for a host.
 
 1. **Wire the host link.** `ui[0]=CS_N`, `ui[1]=SCK`, `ui[2]=MOSI`, `uo[0]=MISO`,
-   `uo[1]=IRQ`, `clk` = 60 MHz, `rst_n` high. Any 4-wire SPI master up to 10 MHz works; the
+   `uo[1]=IRQ`, `clk` = 60 MHz design point (the hardened build targets 33.33 MHz — see
+   [`results.md` §3.6](results.md)), `rst_n` high. Any 4-wire SPI master up to 10 MHz works; the
    protocol needs no clock stretching and no dummy byte.
 2. **PING.** Send `0D 5A`; MISO returns `80 A5`. This proves clock sampling, the command FSM and
    MISO all work.

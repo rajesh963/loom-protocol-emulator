@@ -36,6 +36,13 @@ because the edge was scheduled before the branch happened.
 
 ### 2.1 Cycles per bit at 60 MHz
 
+> **Clock status:** the numbers in this section are at the **60 MHz design point**. The hardened build
+> failed timing at 16.67 ns (WNS −4.125 ns, 20.8 ns critical path) and is being re-targeted to
+> **33.33 MHz** (`CLOCK_PERIOD` 30 ns, attempt 5 in flight). If that is the shipped clock, every cycle
+> count here scales by 60/33.33 = **1.8×** (e.g. UART 115200 becomes 289.35 cycles/bit) and the
+> firmware `.equ` values are regenerated from the sweep. The *architecture* is clock-agnostic; only the
+> constants move. See [`results.md` §3.6](results.md).
+
 | Protocol rate | cycles/unit | LOOM `PERIOD` (12.4 fixed) | register value | resulting rate | rate error |
 |---|---|---|---|---|---|
 | UART 9600 | 6250 | 6250.0000 | `0x186A0` | 9600.0 Bd | 0 |
