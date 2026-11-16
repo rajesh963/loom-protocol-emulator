@@ -358,7 +358,7 @@ _INSN_TABLE: tuple[InsnSpec, ...] = (
     InsnSpec("inat", 0x28, (("rd", REG), ("imm16", ABS16)), "stall until TMR==imm16, latch pins_in that cycle, R[rd]=latch"),
     InsnSpec("waitu", 0x29, (("imm16", ABS16),), "stall until TMR==imm16"),
     InsnSpec("waitd", 0x2A, (("imm16", IMM),), "stall imm16 (12.4) cycles, drift-free fractional accumulation"),
-    InsnSpec("waitp", 0x2B, (("imm16", WAITP),), "stall until (pins_in & imm16[15:8]) == imm16[7:0]"),
+    InsnSpec("waitp", 0x2B, (("imm16", WAITP),), "retry until (pins_in[7:0] & imm16[15:8]) == imm16[7:0] (uio pins only)"),
     InsnSpec("ld", 0x30, (("rd", REG), ("imm16", ADDR6)), "R[rd] = DMEM[imm16[5:0]] (single-cycle, combinational read)"),
     InsnSpec("st", 0x31, (("imm16", ADDR6), ("rs", REG)), "DMEM[imm16[5:0]] = R[rs] (single-cycle, write commits end of cycle)"),
     InsnSpec("ldi", 0x32, _RR, "R[rd] = DMEM[R[rs][5:0]] (indirect, single-cycle)"),
@@ -837,6 +837,11 @@ def disasm(word: int, pc: int | None = None,
 # ---------------------------------------------------------------------------
 # Docs helpers
 # ---------------------------------------------------------------------------
+def _md(text: str) -> str:
+    """Escape a string for a markdown table cell (pipes would split the row)."""
+    return str(text).replace("|", "\\|")
+
+
 def _operand_text(spec: InsnSpec) -> str:
     names = {"reg": lambda f: f, "imm": lambda f: "imm16", "imm8": lambda f: "imm8",
              "imm4": lambda f: "n", "csr": lambda f: "csr", "addr6": lambda f: "a6",
@@ -854,7 +859,8 @@ def summary_table(header: bool = True) -> str:
     for spec in INSTRUCTIONS.values():
         rows.append(
             f"| `0x{spec.opcode:02X}` | `{spec.mnemonic}` | "
-            f"`{_operand_text(spec)}` | {spec.description} | {spec.flags or '—'} |"
+            f"`{_md(_operand_text(spec))}` | {_md(spec.description)} | "
+            f"{_md(spec.flags or '—')} |"
         )
     return "\n".join(rows)
 
@@ -868,7 +874,7 @@ def csr_table(header: bool = True) -> str:
         rows.append(
             f"| `0x{c.addr:02X}` | `{c.name}` | {c.rw.upper()} | "
             f"{'per-thread' if c.scope == 'thread' else c.scope} | {c.width} | "
-            f"{c.description} | {c.fields or '—'} |"
+            f"{_md(c.description)} | {_md(c.fields or '—')} |"
         )
     return "\n".join(rows)
 
@@ -880,8 +886,8 @@ def host_command_table(header: bool = True) -> str:
         rows.append("|---|---|---|---|---|")
     for c in HOST_COMMANDS:
         rows.append(
-            f"| `0x{c.opcode:02X}` | `{c.name}` | {c.args} | {c.returns} | "
-            f"{c.description} |"
+            f"| `0x{c.opcode:02X}` | `{c.name}` | {_md(c.args)} | {_md(c.returns)} | "
+            f"{_md(c.description)} |"
         )
     return "\n".join(rows)
 

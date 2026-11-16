@@ -20,9 +20,10 @@
 ;   baud error = (520.8125-520.8333)/520.8333 = -40 ppm  (crystal-class)
 ;
 ; HOST INTERFACE (byte stream, see host/demos/demo_all.py)
-;   Host pushes one data byte with TX_PUSH(t0, byte) and rings the doorbell by
+;   Host pushes data bytes with TX_PUSH(t0, byte) and rings the doorbell by
 ;   writing EVT bit 0 (WRITE_CSR 0x13 = 1).  Firmware idles in `evwait` (zero
-;   issue slots burned) then transmits the byte.
+;   issue slots burned), then drains the whole RX FIFO (TFIFO rx_cnt[11:8]
+;   check) before going back to sleep: one doorbell per *burst*.
 ;   No reply is queued in the thread TX FIFO; the wire is the output.
 ;
 ; FRAME
@@ -66,7 +67,11 @@ start:
         setm    TX_PIN          ; this thread's events drive P[10] only
         setp    BAUD_DIV        ; hardware bit clock, drift-free 12.4
 main:
-        evwait  EVT_BIT         ; sleep until the host has queued a byte
+        evwait  EVT_BIT         ; sleep until the host has queued data
+drain:
+        csrr    r0, TFIFO
+        andi    r0, 0x0F00      ; rx_cnt[3:0] != 0 ?
+        jz      main
         pull    r1              ; r1 = data byte (host TX_PUSH)
         movi    r0, 0
         emit    r0              ; cell 0: start bit = 0
@@ -82,4 +87,4 @@ bit_loop:
         jnz     bit_loop
         movi    r2, TX_PIN
         emit    r2              ; cell 9: stop bit = 1
-        jmp     main
+        jmp     drain

@@ -40,10 +40,10 @@ def main():
 
     # ---- thread 1 (PC 16): square wave on pins [11:8], period 8 cycles ----
     t1 = [
-        enc('movi', rd=0, imm=0x0100),
+        enc('movi', rd=0, imm=0x0400),
         enc('movi', rd=1, imm=0x0000),
         enc('setp', imm=0x0080),        # period = 8.0 cycles
-        enc('setm', imm=0x0F00),
+        enc('setm', imm=0x0C00),
         enc('emit', rd=0),
         enc('emit', rd=1),
         enc('jmp',  imm=0xFFFE),

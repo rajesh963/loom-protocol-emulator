@@ -122,7 +122,7 @@ loom/
 │   ├── loom_mem.v         PMEM (FF or IHP SRAM) + DMEM
 │   ├── loom_host.v        SPI slave host bridge, 13-command FSM, IRQ latch
 │   ├── loom_wave.v        wave player
-│   ├── loom_capture.v     capture engine (stretch; not in the default build)
+│   ├── loom_capture.v     capture engine (stretch: unit-verified, silicon integration rev B)
 │   ├── loom_fifo.v        FIFO primitive (unit-test helper)
 │   ├── loom_bus.vh        FROZEN: opcodes, CSRs, host commands
 │   └── tt_um_rajesh963_loom.v   top level, TT pin mapping

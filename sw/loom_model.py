@@ -929,7 +929,9 @@ class Loom:
             elif opc in (EMIT, EMITA, EMITD, EMITE) and eq_len_start[sel] >= self.eq_depth:
                 retry = True
             elif opc == WAITP:
-                if (settled_pins & (imm & 0xFF00)) != (imm & 0x00FF):
+                # Lead-confirmed RTL semantics: only the 8 uio pins are watched:
+                # (pins_in[7:0] & imm16[15:8]) == imm16[7:0]
+                if ((settled_pins & 0xFF) & ((imm >> 8) & 0xFF)) != (imm & 0xFF):
                     retry = True
             elif opc == EVWAIT:
                 if not (self.evt & (1 << (imm & 0x7))):

@@ -122,7 +122,9 @@ bank as `0x00`–`0x0F`; the host addresses thread *t* at `0x40 + 16t + n`.
 Global: `0x10 POUT`, `0x11 PDIR`, `0x12 TMR`, `0x13 EVT`, `0x14 IRQ` (non-destructive read;
 `ACK_IRQ` clears), `0x15 WCTRL`, `0x16 WADDR`, `0x17 WLEN`, `0x18 WPER`, `0x19 WSTATUS`
 (`[1]=busy`, `[0]=done`), `0x1A/0x1B` capture (stretch), `0x1C GSTATUS` (`[8:5]=en[3:0]`,
-`[0]=irq`). Host-only `0x20` = soft reset. The full field-level reference is
+`[0]=irq`). Host-only `0x20` = soft reset. `CAPCTRL`/`CAPSTAT` are the capture
+engine's CSRs: RTL complete and unit-verified, silicon integration deferred to revision B (enabling
+it aliases the wave player's 64-word DMEM), so they read as zero in the submitted build. The full field-level reference is
 [`isa.md` §5](isa.md#5-csr-map).
 
 ## Host protocol summary

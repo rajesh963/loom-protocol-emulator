@@ -315,7 +315,7 @@ Memory:
 | Region | Depth × width | Implementation | Who writes |
 |---|---|---|---|
 | PMEM | 1024 × 32 | FF array (simulation / area-safe fallback: 128 words) **or** IHP `1024x32` 1-port SRAM macro | host only |
-| DMEM | 64 × 16 | FF array, 1 CPU read + 1 CPU write + 1 wave-player read port | host, threads, wave player |
+| DMEM | 64 × 16 | FF array, 1 CPU read + 1 CPU write + 1 wave-player read port (capture would alias this buffer — hence revision B) | host, threads, wave player |
 | TX/RX FIFOs | 8 × 8 per thread | FF, fall-through read | host ⇄ threads |
 
 ---
