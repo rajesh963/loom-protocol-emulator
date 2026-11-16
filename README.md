@@ -170,13 +170,14 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 ## Verification
 
-Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **59 tests, 57 PASS, 0 FAIL, 2 SKIP,
-147 s wall** — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
+Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **59 tests, 59 PASS, 0 FAIL, 0 SKIP** —
+154 s on the SRAM tape-out configuration (`make SRAM_SIM=1024`), 157 s on the FF regression
+configuration — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
 claims are CI-verifiable. Two independent implementations — hand-written RTL and a
 Python golden model written from the spec — agree on the exact cycle of every pin transition and on
-the full architectural state for 100/100 random programs. The two SKIPs are I2C 400 kHz and I2C
-target, gated on firmware-timing triage (VER-006/007); I2C 100 kHz and clock stretching pass, so the
-gap is in example-firmware timing, not the core architecture.
+the full architectural state for 100/100 random programs. The two I²C gates that were skipped during
+bring-up are now closed: VER-007 was a real firmware bug (SCL-first byte boundary) and VER-006 a VIP
+artifact (illegal clock-stretch injection).
 
 | Suite | Result | What it proves |
 |---|---|---|
@@ -184,28 +185,29 @@ gap is in example-firmware timing, not the core architecture.
 | ISA | **22/22 PASS** | every mnemonic; coverage meta-test covers all 59 tests |
 | timing | **7/7 PASS** | drift-free fractional stream, UART 115200 @ 60 MHz, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts |
-| protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; 2 SKIP (above) |
+| protocol VIPs | **8/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + 400 kHz + clock stretching, I2C target |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
-| gate-level | pending | awaits a routing-clean LibreLane netlist |
-| sign-off (`gds`/`precheck`) | **attempt 1 failed at placement** | design is ~2× the 8×4 area budget (1.148 M µm² measured); fixes in flight — see [flow status](docs/FLOW_STATUS.md) |
+| gate-level | pending | awaits the attempt-4 netlist |
+| sign-off (`gds`/`precheck`) | **attempt 4 running** | area solved (622 401 µm² = 51.5 %, −61 %); attempt 3 failed a GPL routability-mode check, fixed by one config line — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
 a computed-jump/`pc+1` bug where the golden model was right and the RTL wrong (VER-000), a `TFIFO`
 layout disagreement (VER-002), an undriven DMEM address (VER-004), an `INAT` register-bank
 truncation (VER-013) and peripheral event-chain pollution (VER-014) — all closed with regressions.
-Detail, plus the two skips stated plainly, in
-[`docs/verification.md` §9](docs/verification.md#9-results).
+Detail in [`docs/verification.md` §9](docs/verification.md#9-results), including how the two I²C gates
+closed and why one was a design bug and one a test bug.
 
-**Flow status, reported as measured.** Three hardening attempts on the FF (flop-array) build
-**failed on area** — 1 147 604 / 1 190 170 / 1 223 970 µm² against an 8×4 budget of ≤ ~750 k µm² —
-and the experiments were informative: relaxing `MAX_FANOUT_CONSTRAINT` and dropping the clock to
-25 MHz both made it *worse*, localising the 305 304 µm² of buffers (27 % of the design) to ABC's SCL
-sequential-mapping pass rather than timing constraints. **Attempt 3, the SRAM build that is the
-tape-out candidate, is running now** (1024×32 macro + 32-word DMEM, 60 MHz; local estimate
-608 415 µm² logic + 140 183 µm² macro = **748 598 µm² = 62 %**), and its exact RTL configuration
-passes the **full 59/59 simulation matrix with 0 skips**. The FF build is now a fast-regression
-configuration only — it cannot fit 8×4. Nothing is marked passing until GDS + precheck + gate-level
+**Flow status, reported as measured — the area problem is solved.** Three hardening attempts on the
+FF (flop-array) build failed on area (1 147 604 / 1 190 170 / 1 223 970 µm² against an 8×4 budget of
+≤ ~750 k µm²), and the probes were informative: relaxing `MAX_FANOUT_CONSTRAINT` and dropping the
+clock to 25 MHz both made it *worse*, localising the 305 304 µm² of buffers (27 % of the design) to
+ABC's SCL sequential-mapping pass — constraint knobs are a dead end, structure is the lever.
+**Attempt 3 (SRAM 1024×32 macro + 32-word DMEM) measured 622 401 µm² = 51.5 % area ratio / 44.7 %
+flow utilisation — a −61 % area reduction** — and failed only a placement-*mode* check
+(`[GRT-0010]` inside GPL's routability-driven mode), which **attempt 4 fixes with one config line
+(`PL_ROUTABILITY_DRIVEN: false`) and is running now**. Both build configurations pass the full
+**59/59 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level
 all pass on one commit. Canonical log: [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in
 [`docs/results.md`](docs/results.md).
 

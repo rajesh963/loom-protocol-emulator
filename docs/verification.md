@@ -215,10 +215,10 @@ meta-test.
 
 ## 9. Results
 
-> **Landed RTL, simulation only — and the tape-out candidate is the configuration that is green.**
+> **Landed RTL, simulation only — and both configurations are green, including the tape-out one.**
 > On the exact RTL configuration being hardened (`LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz,
-> `make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP in 154 s wall**. The FF build used for
-> fast regression is 57 PASS / 2 SKIP (the two I²C VIP gates, which the SRAM run now passes).
+> `make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP in 154 s wall**. The FF regression
+> configuration is also **59/59** (157 s) — the two I²C gates skipped during bring-up are closed (§9.2).
 > `docs` and `test` GitHub Actions workflows are green and reproduce the matrix on each push.
 > No LibreLane/gate-level/silicon rows are claimed: see [`FLOW_STATUS.md`](FLOW_STATUS.md) and
 > [`results.md`](results.md) §3.
@@ -233,7 +233,7 @@ meta-test.
 | differential co-sim | **PASS** | **100/100 random programs** cycle-exact on the full `(pins_out, DIR)` transition trace *and* full architectural state; **12/12** pull/reactive seeds; **6/6** hand-written programs; 0 artefacts (harness backdoor made SRAM-aware) |
 | protocol VIPs | **8/8 PASS** | UART TX/RX, SPI controller modes 0–3, SPI target/slave, I2C 100 kHz, **I2C 400 kHz**, **I2C target**, clock stretching — including the two tests gated during bring-up |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
-| **total** | **59 PASS / 0 FAIL / 0 SKIP** | 59 tests, 154 s wall |
+| **total** | **59 PASS / 0 FAIL / 0 SKIP** | 59 tests, 154 s wall (SRAM) / 157 s (FF) |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
 Python golden model written from the spec) agree on the exact cycle of every pin transition and on

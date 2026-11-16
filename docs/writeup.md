@@ -216,11 +216,13 @@ pin is exercised at least once with four threads running concurrently.
 
 ## 7. Results
 
-> **Status: hardening, reported as measured.** Three FF-build attempts failed on area; the fourth —
-> the SRAM build that is the actual tape-out candidate — **is running now**, with a local area
-> estimate of 748 598 µm² (62 % of the 1 208 172 µm² core) and a **fully green simulation matrix
-> (59/59, 0 skip) on its exact RTL configuration**. Nothing in §7.1–§7.3 is marked passing until the
-> flow step passed; the canonical log is [`FLOW_STATUS.md`](FLOW_STATUS.md).
+> **Status: area solved, hardening finishing, reported as measured.** Three FF-build attempts failed
+> on area; the SRAM build (**attempt 3**) measured **622 401 µm² = 51.5 % area ratio / 44.7 % flow
+> utilisation — a −61 % area reduction** — and failed only on a placement-*mode* check that a
+> one-line config fix addresses. **Attempt 4 (same design, routability-driven placement disabled) is
+> running now.** The RTL being hardened passes the **full 59/59 simulation matrix with 0 skips**.
+> Nothing in §7.1–§7.4 is marked passing until the flow step passed; canonical log
+> [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ### 7.1 What the flow told us, and why it was worth four attempts
 
@@ -234,7 +236,8 @@ design that does not fit:
 | 1 `5ff6c6c` | FF 128-word, defaults | **FAILED** `[DPL-0036]` | 1 147 604 µm² | 95.0 → 98.4 % |
 | 2 `33012d5` | FF, relaxed `MAX_FANOUT_CONSTRAINT` (40) | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
 | 2b | FF, 25 MHz probe (`CLOCK_PERIOD` 40 ns) | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
-| 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | **running**; local estimate 608 415 µm² logic + 140 183 µm² macro = **748 598 µm² = 62 %** | — |
+| 3 `35c3c42` | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | area **solved (−61 %)**; failed `[GRT-0010]` inside GPL routability-driven mode (`gpl.tcl:88`) | **622 401 µm²** (148 563 fixed + 473 838 movable) | **44.7 %** (area ratio 51.5 %) |
+| 4 (pending) | same design, `PL_ROUTABILITY_DRIVEN: false` | **running** — expected to reach routing/GDS/precheck/GL | — | — |
 
 Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
 305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
@@ -252,14 +255,28 @@ constraints. **Constraint knobs are a dead end; structural area is the only leve
 methodology finding from leaning on an automated flow, and it changed the plan: the SRAM instruction
 memory is not an optimisation, it is the path to fitting at all.
 
+And it worked: attempt 3 (one `RM_IHPSG13_1P_1024x32` macro + 32-word DMEM) measured **148 563 µm² of
+fixed instance area + 473 838 µm² of movable standard cells = 622 401 µm²**, i.e. **51.5 % by area
+ratio and 44.7 % flow utilisation** — a **−61 % area reduction** versus attempt 1, with GPL overflow
+converging 0.999 → 0.299 at target density 0.6. It then failed on `[GRT-0010] Instance _40267_ is not
+placed`, raised inside GPL's *routability-driven* mode (that mode runs the global router on a
+mid-placement snapshot). At 44.7 % utilisation routability-driven placement is unnecessary, so
+attempt 4 disables it — one line in `src/config.json`. That is the shape of the whole arc: the
+design was never the problem after the structural fix; a placement heuristic was.
+
 ### 7.2 The budget lesson
 
 The pre-flow estimate in the table below predicted 55–65 % utilisation. Attempt 1 measured
 **1 147 604 µm²**, ~2× the model. The reason is specific: **pre-ABC cell counts cannot predict ABC's
 fanout buffering under a process fanout constraint**, so only *post-synthesis mapped area* is a
 usable budget number. That is the number attempt 1 produced, and it is now the tracker every attempt
-is judged against — including attempt 3's 748 598 µm² estimate from the same estimator that predicted
-attempt 1 within 3.4 %.
+is judged against.
+
+Attempt 3 also showed the estimator's *other* failure mode: it predicted 748 598 µm² for the SRAM
+build and the flow measured 622 401 µm², i.e. it was **~17 % conservative** there because it
+over-prices generic memory muxes that the macro replaces. So the honest calibration is directional:
+a pre-ABC estimate can be optimistic (FF build) or pessimistic (SRAM build) depending on what the
+synthesiser has to invent — only the post-synthesis mapped area is the budget.
 
 | Build | Flip-flops | Modelled area | Reality |
 |---|---|---|---|
@@ -270,17 +287,18 @@ attempt 1 within 3.4 %.
 ### 7.3 Timed simulation: the tape-out candidate is fully green
 
 The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz — passes
-**59 of 59 tests, 0 fail, 0 skip** (`make SRAM_SIM=1024`), including 100/100 differential co-sim
-seeds (the harness backdoor was made SRAM-aware). This is the first build configuration where *the
-artifact we intend to fabricate* has the full green matrix; the FF build used for most regression
-runs is 57 PASS / 2 SKIP, the two I²C VIP gates.
+**59 of 59 tests, 0 fail, 0 skip** in 154 s (`make SRAM_SIM=1024`), including 100/100 differential
+co-sim seeds (the harness backdoor was made SRAM-aware). The FF regression build is also **59/59**
+(157 s): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
+(illegal clock-stretch injection), VER-007 a real firmware bug (the SCL-first byte-boundary rule).
+This is the first point at which *the artifact we intend to fabricate* has the full green matrix.
 
 ### 7.4 Timing, gate level and sign-off
 
 | Check | Result |
 |---|---|
 | WNS / TNS @ 60 MHz, hold | **TBD** — no attempt has reached routing |
-| `gds` action | **not passed** — attempt 3 running |
+| `gds` action | **not passed** — attempt 3 reached global placement (area solved, placement-mode check failed); attempt 4 running |
 | `precheck` | not reached |
 | `gl_test` (gate-level protocol suite) | not reached |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
@@ -293,9 +311,9 @@ plus the documented `sram512` macro swap rather than the FF build.
 
 ### 7.5 What is already proven by simulation
 
-The SRAM candidate configuration passes **59/59 (0 fail, 0 skip)**; the FF regression configuration
-passes **57/59 (0 fail, 2 skip, 147 s wall)**; the `test` GitHub Actions workflow reproduces the
-matrix on every push:
+The SRAM candidate configuration passes **59/59 (0 fail, 0 skip, 154 s)** and the FF regression
+configuration also passes **59/59 (157 s)**; the `test` GitHub Actions workflow reproduces the matrix
+on every push:
 
 | Suite | Result |
 |---|---|

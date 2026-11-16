@@ -5,14 +5,16 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-CI commit: `35c3c42` (the final pushed SHA is recorded here when the repo goes public) · flow:
-LibreLane via `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz
+CI commit: `35c3c42` (attempt 4 runs on a follow-up commit; the final pushed SHA is recorded here) ·
+flow: LibreLane via `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock target: 60 MHz
 (`CLOCK_PERIOD` 16.67 ns). `docs` and `test` workflows are green on CI.
-**Status: hardening in progress, reported as measured.** Attempts 1, 2 and 2b on the FF build all
-**failed on area** (1.148 M / 1.190 M / 1.224 M µm² against a ≤ ~750 k µm² budget); attempt 3 — the
-SRAM 1024×32 + 32-word-DMEM build that is the actual tape-out candidate — **is running now**. Its
-RTL configuration passes the full simulation matrix (**59/59, 0 skip**). Nothing below is marked
-passing until the flow step actually passed; the canonical log is [`FLOW_STATUS.md`](FLOW_STATUS.md).
+**Status: the area problem is solved; hardening is finishing.** Attempts 1/2/2b on the FF build
+failed on area (1.148 M / 1.190 M / 1.224 M µm²); **attempt 3's SRAM build measured 622 401 µm²
+(51.5 % area ratio, 44.7 % flow utilisation)** — a **−61 % area reduction** — and failed only on a
+placement-*mode* check (`[GRT-0010]`, GPL routability-driven) with a one-line config fix.
+**Attempt 4 (same design, `PL_ROUTABILITY_DRIVEN: false`) is running.** Verification on this exact
+build configuration is **59/59 PASS, 0 skip**. Nothing is marked passing until GDS + precheck +
+gate-level pass on one commit; canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ---
 
@@ -31,8 +33,8 @@ fallback only**: it is fast to elaborate and is what most regression runs use, b
 | data memory | 32 words (`LOOM_DMEM_SMALL`) | 64 words | 32 words |
 | read latency | 1 cycle (`A_DLY=1`) | combinational | 1 cycle |
 | flow extras | official TT CMOS5L SRAM plugin + `pdn_cfg.tcl` | none | same as SRAM candidate |
-| measured area | logic 608 415 µm² (local estimator, ±3.4 %) + macro 140 183 = **748 598 µm² = 62 %** | **1 147 604 µm² = 95 % → placement failed** | ~710 k µm² = 59 % (reserve) |
-| simulation matrix on this exact config | **59 tests, 59 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`) | 57 PASS / 2 SKIP (I²C VIP gating) | same RTL as SRAM candidate, 512-word limit |
+| measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm² (51.5 % area ratio, 44.7 % flow util)** | **1 147 604 µm² = 98.4 % → placement failed** | ~562 k µm² (reserve, derived: 622 401 − 60 463; 512-word limit) |
+| simulation matrix on this exact config | **59 tests, 59 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, 154 s) | **59/59** (157 s; the earlier 2 I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
 | role | **tape-out candidate** | fast regression; **cannot fit 8×4** | documented area lever if attempt 3 misses |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** nominal; the core the flow lays out is
@@ -66,9 +68,11 @@ The SRAM build removes 4 096 PMEM flops (−~200 k µm²) and the 128:1 32-bit P
 (−~70 k µm²) at the cost of one 140 k µm² macro: it is both smaller *and* eight times the program
 memory, which is why it is the flagship configuration.
 
-**This estimate was ~2× too optimistic, and the flow proved it — and the reason is worth stating
-plainly: pre-ABC cell counts cannot predict ABC's fanout buffering under a process fanout constraint,
-so only post-synthesis mapped area is a usable budget number.** LibreLane attempt 1 measured
+**On the FF build this estimate was ~2× too optimistic, and the flow proved it — the reason being
+worth stating plainly: pre-ABC cell counts cannot predict ABC's fanout buffering under a process
+fanout constraint, so only post-synthesis mapped area is a usable budget number.** (On the *SRAM*
+build the same estimator turned out ~17 % **conservative** — 748 598 predicted vs 622 401 measured —
+because it over-prices generic memory muxes the macro replaces; see §3.) LibreLane attempt 1 measured
 **1 147 604 µm² of mapped cell area** for the FF build against a predicted ~0.5 M µm², because ABC
 inserted 35 510 buffers (305 304 µm², 27 % of the design) at synthesis time under the PDK's
 `MAX_FANOUT_CONSTRAINT`, and the PMEM read mux was under-counted. The estimate is kept here as the
@@ -102,42 +106,54 @@ Only metrics that came out of a CI log are listed. A build is "passing" only whe
 
 **Budget:** ≤ ~700–750 k µm² post-synthesis mapped cell area (~60 % of the 1 208 172 µm² core).
 
-| Attempt | Build | Result | Mapped area | Utilisation |
+| Attempt | Build | Result | Area | Utilisation |
 |---|---|---|---|---|
-| 1 (`5ff6c6c`) | FF 128-word, defaults | **FAILED** `[DPL-0036]` at detailed placement | **1 147 604 µm²** | 95.0 % → 98.4 % |
-| 2 (`33012d5`) | FF, `MAX_FANOUT_CONSTRAINT = 40` | **FAILED, worse** `[GPL-0301]` | **1 190 170 µm²** | 100.96 % |
-| 2b | FF, `CLOCK_PERIOD = 40 ns` (25 MHz probe) | **FAILED, worse still** | **1 223 970 µm²** | 101.3 % |
-| 3 (`35c3c42`) | **SRAM 1024×32 + 32-word DMEM, 60 MHz** | **RUNNING** | 608 415 µm² logic + 140 183 µm² macro = **748 598 µm² (62 %)**, local estimate | pending |
+| 1 (`5ff6c6c`) | FF 128-word, defaults | **FAILED** `[DPL-0036]` detailed placement | 1 147 604 µm² | 95.0 % → 98.4 % |
+| 2 (`33012d5`) | FF, `MAX_FANOUT_CONSTRAINT = 40` | **FAILED, worse** `[GPL-0301]` | 1 190 170 µm² | 100.96 % |
+| 2b | FF, 25 MHz probe | **FAILED, worse still** | 1 223 970 µm² | 101.3 % |
+| 3 (`35c3c42`) | **SRAM 1024×32 + 32-word DMEM** | area **solved (−61 %)**, failed on a placement-*mode* check `[GRT-0010]` inside GPL routability-driven (`gpl.tcl:88`) | **622 401 µm²** = fixed 148 563 + movable 473 838 | **44.7 %** (area ratio 51.5 %) |
+| 4 (commit pending) | same design, `PL_ROUTABILITY_DRIVEN: false` | **RUNNING** | — | — |
 
-### 3.1 Why the FF build cannot be tape-out
+### 3.1 Why the FF build cannot be tape-out, and why constraint knobs failed
 
 Attempt 1's histogram: 8 042 flip-flops (394 k µm²), **35 510 buffer cells = 305 304 µm² (27.0 % of
-the mapped area)** — of which `buf_1` 29 195 = 211 958 µm² and `buf_2/4/8/16` ≈ 93 k µm² — plus
-5 658 `mux2_1` + 3 063 `mux4_1` ≈ 220 k µm². The two dominating costs are a flop-array PMEM with a
-128:1 32-bit read mux (~320 k µm²) and the buffer population.
+the mapped area)** — `buf_1` 29 195 = 211 958 µm², `buf_2/4/8/16` ≈ 93 k µm² — plus 5 658 `mux2_1` +
+3 063 `mux4_1` ≈ 220 k µm². The two dominating costs were a flop-array PMEM with a 128:1 32-bit read
+mux (~320 k µm²) and the buffer population.
 
 Attempts 2 and 2b tested whether the buffers were a constraint artefact. They were not: relaxing
-fanout, then relaxing the clock to 25 MHz, both made the mapped area **worse** (1.190 M, 1.224 M µm²).
+fanout, then dropping the clock to 25 MHz, both made area **worse** (1.190 M, 1.224 M µm²).
 **Conclusion: the buffers come from ABC's SCL sequential-mapping pass; constraint knobs are a dead
 end and structural area is the only lever.**
 
-### 3.2 Attempt 3 — the SRAM candidate (running)
+### 3.2 Attempt 3 — structural fix, and the measured answer
 
 `VERILOG_DEFINES=["LOOM_PMEM_SRAM","LOOM_DMEM_SMALL"]`, one `RM_IHPSG13_1P_1024x32_c2_bm_bist`
-(140 183 µm²) at `u_mem.u_pmem.sram`, official Tiny Tapeout CMOS5L SRAM flow plugin + `pdn_cfg.tcl`,
-60 MHz. Local estimate (same estimator that predicted attempt 1 within 3.4 %): 608 415 µm² logic +
-140 183 µm² macro = **748 598 µm² = 62 %**, inside the `vc32_cpu`-proven 73 % density envelope — it
-*should* place and route; the CI run decides. On this exact RTL configuration the simulation matrix
-is **59/59 with 0 skips** (§5). Area/utilisation/WNS/TNS will be recorded here when the run finishes;
-they are **not** estimated.
+at `u_mem.u_pmem.sram`, official TT CMOS5L SRAM plugin + `pdn_cfg.tcl`, 60 MHz. Measured: **fixed
+instance area 148 563 µm² + movable standard-cell area 473 838 µm² = 622 401 µm²** — **51.5 %** of the
+1 208 172 µm² core by area ratio, **44.7 %** flow-reported cumulative utilisation (attempt 1: 98.4 %).
+GPL overflow converged 0.999 → 0.299 at target density 0.6.
 
-### 3.3 Area lever in reserve
+The failure is a **placement-mode** quirk, not a capacity or design problem: `[GRT-0010] Instance
+_40267_ is not placed`, raised inside GPL's routability-driven mode at `gpl.tcl:88` (that mode runs
+the global router on a mid-placement snapshot). At 44.7 % utilisation routability-driven placement
+is unnecessary, so attempt 4 disables it — a one-line `src/config.json` change.
 
-`tools/select_build.sh sram512` → `RM_IHPSG13_1P_512x32` (79 720 µm²): ~−60 k µm² (**~710 k µm²,
-59 %**) with a documented 512-word firmware limit (four 128-word slots at
-`0x000`/`0x080`/`0x100`/`0x180`, highest usable word 509). Not needed unless attempt 3 misses.
+Simulation on this exact RTL configuration: **59/59 PASS, 0 skip** (§5).
 
-### 3.4 Timing, power, DRC/LVS
+### 3.3 Attempt 4 — same design, one config line — RUNNING
+
+`"PL_ROUTABILITY_DRIVEN": false`. Expected to proceed through detailed placement → CTS → routing →
+GDS → precheck → gate level. WNS/TNS/utilisation/precheck/GL rows will be recorded here from its CI
+log; they are **not** estimated.
+
+### 3.4 Area levers still in reserve
+
+`tools/select_build.sh sram512` → `RM_IHPSG13_1P_512x32` (79 720 µm²): ~−60 k µm² with a documented
+512-word firmware limit (four 128-word slots at `0x000`/`0x080`/`0x100`/`0x180`, highest usable word
+509). Also held: DMEM 32→16. Not needed unless attempt 4 misses.
+
+### 3.5 Timing, power, DRC/LVS
 
 | Metric | Status |
 |---|---|
@@ -151,7 +167,7 @@ they are **not** estimated.
 
 | Check | Result | Artefact |
 |---|---|---|
-| `gds` GitHub Action | **not yet passed** — attempts 1/2/2b failed on area; attempt 3 (SRAM candidate) running | Actions run |
+| `gds` GitHub Action | **not yet passed** — attempts 1/2/2b failed on area; attempt 3 solved area (622 401 µm²) but hit a GPL routability-mode check; attempt 4 running | Actions run |
 | `precheck` | not yet reached | Actions run |
 | `gl_test` (gate-level protocol suite) | not yet reached | `test/results.xml` |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) | `formal/` log |
@@ -160,11 +176,11 @@ they are **not** estimated.
 
 ## 5. Verification results (landed RTL, simulation)
 
-**Two configurations are measured, and the important one is the SRAM candidate.** On the exact RTL
-configuration headed for tape-out (`make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP**,
-including 100/100 differential co-sim seeds (the harness backdoor was made SRAM-aware). That is the
-first configuration where the artifact we intend to fabricate has the full green matrix. The FF
-build used for most regression runs is 57 PASS / 2 SKIP (the two I²C VIP gates), 147 s wall.
+**Both configurations are now fully green, including the one headed for tape-out.** On the exact
+RTL configuration being hardened (`make SRAM_SIM=1024`): **59 tests, 59 PASS, 0 FAIL, 0 SKIP**, 154 s
+(incl. 100/100 differential co-sim seeds, harness backdoor made SRAM-aware). The FF regression build
+is also **59/59**, 157 s — the two I²C gates that were skipped during bring-up are closed (VER-006
+VIP artifact, VER-007 firmware byte-boundary bug).
 Full layer tables and the sixteen-deviation history: [`verification.md` §9](verification.md).
 
 | Suite | Result | Notes |
