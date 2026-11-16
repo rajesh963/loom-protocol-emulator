@@ -15,7 +15,7 @@
   "LEFT_MARGIN_MULT": 6,
   "RIGHT_MARGIN_MULT": 6,
   "FP_SIZING": "absolute",
-  "GRT_ALLOW_CONGESTION": 1,
+  "GRT_ALLOW_CONGESTION": false,
   "FP_IO_HLENGTH": 2,
   "FP_IO_VLENGTH": 2,
   "RUN_CTS": 1,
@@ -81,5 +81,7 @@
   "PL_ROUTABILITY_DRIVEN": false,
   "EXTRA_EXCLUDED_CELLS": [
     "sg13cmos5l_IOPad*"
-  ]
+  ],
+  "GRT_ADJUSTMENT": 0.18,
+  "GRT_OVERFLOW_ITERS": 150
 }
