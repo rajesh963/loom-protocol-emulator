@@ -57,6 +57,9 @@ make GATES=yes      # gate-level: netlist + IHP cell models + SRAM macro models
 # (cycle-accurate internal eq_cnt) are skipped in GL via `export GATES`;
 # everything else (host/ISA/timing/protocols/USB-LS/Ethernet) is pin/host-level
 # and runs.  GL is X-clean after the DMEM initialisation described below.
+# CI gate-level evidence is `results.xml` plus the job-log matrix line; CI does
+# not dump or upload `tb.fst` (a 60 M-cycle FST would cost runtime/artifact
+# size for no benefit).  Local runs with `make WAVES=1` do produce `tb.fst`.
 cd .. && ../.venv/bin/python formal/run_formal.py        # bounded formal proofs
 ```
 
