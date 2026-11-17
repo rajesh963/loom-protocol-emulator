@@ -50,7 +50,7 @@ protocols concurrently, with timing that is deterministic by construction.
 ## Verification
 
 - **64-test cocotb suite, 62 PASS / 0 FAIL / 0 SKIP** on both memory configurations (FF and SRAM-1024),
-  reproducible from a clean clone (≈271 s per configuration); frozen at `4164c42`.
+  reproducible from a clean clone (≈271 s per configuration); frozen at `7d2fb2f`.
 - **100-seed differential co-simulation** against an independent, spec-derived cycle-accurate model:
   cycle-exact on the full pin trace *and* full architectural state; plus 12/12 generated
   pull/reactive seeds and 6/6 hand-written programs.
@@ -58,6 +58,10 @@ protocols concurrently, with timing that is deterministic by construction.
   (NRZI + sync + DATA0 PID + CRC16 + bit stuffing + EOP, independently decoded), all RTL-verified.
 - **3 formal proofs** (FIFO/queue bounds, reset completeness and event properties, host command
   ordering) via yosys SMT + z3.
+- **Gate level on the hardened netlist**: `TESTS=64 PASS=60 FAIL=0 SKIP=4` (four expected skips are
+  RTL-backdoor-dependent tests), from the CI artifact's `results.xml` (no GL FST is produced).
+- **All four Tiny Tapeout CI jobs green** on design SHA `7d2fb2f`: `gds`, `precheck` (10/10), `viewer`,
+  `gl_test`. No silicon measurements exist.
 - Gate-level simulation of the hardened netlist in the Tiny Tapeout flow (a real GL-only defect was
   caught this way: DMEM was zeroed only by an unsynthesised `initial`, so GL started undefined — fixed
   by having the testbench initialise all 64 DMEM words over the host port, matching the firmware

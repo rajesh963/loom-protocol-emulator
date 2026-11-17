@@ -7,18 +7,30 @@ that produced it) or explicitly `TBD`. Nothing here is an estimate dressed up as
 is a silicon measurement — no LOOM silicon exists yet.
 
 **Submission build:** SRAM `RM_IHPSG13_1P_1024x32` instruction memory + 32-word DMEM, **33.33 MHz**
-(`CLOCK_PERIOD` 30 ns), commit **`d7bec7a`** (attempt 8).
+(`CLOCK_PERIOD` 30 ns), design commit **`d7bec7a`** (attempt 8); submitted tree **`352e473`** (docs/test/
+hygiene only since the design commit).
+
+**FINAL: all four CI jobs GREEN on `7d2fb2f` (run `44068106013`) — `gds` ✅ · `precheck` ✅ ·
+`viewer` ✅ · `gl_test` ✅ with `TESTS=64 PASS=60 FAIL=0 SKIP=4` (2 739.85 s)** — module breakdown
+host 19, isa 22, timing 7 + 1 skip, cosim 3 + 3 skips, protocols 9, usb_ls 2, eth 1, usb_ls_rx 1; the
+four skips are exactly the RTL-backdoor-dependent tests (`test_random_cosim.*` ×3 and
+`test_timing.test_queue_backpressure_schedule_exact`). CI evidence is `results.xml` from the
+`gatelevel_test_results` artifact plus the job log — **the CI gate-level job does not run with
+`WAVES=1`, so no gate-level FST is produced or claimed**. **Design and verification are frozen at
+`7d2fb2f`; the submission tree is git tag `submission-1`** (docs/hygiene commits only after the design
+freeze).
 **GDS BUILD PASSED · PRECHECK 10/10 PASSED · DRC clean · timing closed at all three corners · 8.60 mW.**
 Gate-level: the first run was `57/60`, and the three failures were **one** root cause — DMEM is zeroed by
 a **simulation-only `initial` block** in `rtl/loom_mem.v` that is not synthesised, so the gate-level
 netlist starts with undefined DMEM; tests reading DMEM words they never wrote got X through the host
 bridge, X reached MISO, and the cycle monitor's `int()` threw. Fixed in `7d2fb2f` (`start_loom()` writes
 zeros to all 64 DMEM words through the host port after reset, so RTL and GL start from the same defined
-state — mirroring the firmware contract). **Expected final GL: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (the
-four skips are RTL-backdoor-dependent tests); the count is published only when the run reports.
+state — mirroring the firmware contract). **Final GL result: `TESTS=64 PASS=60 FAIL=0 SKIP=4` (2 740 s)**
+— the four skips are RTL-backdoor-dependent tests, and the longer wall time versus RTL is the 64 DMEM
+word writes `start_loom()` now performs per test.
 
-RTL verification is frozen at `4164c42`: **64/64 PASS on both memory builds, 0 skips, 64/64 from a
-clean clone**, with `test` and `docs` workflows green on the fix commit `7d2fb2f`; the tape-out facts above are unchanged since `d7bec7a` (only test/sim/host files changed).
+RTL simulation verification is frozen at `7d2fb2f`: **64/64 PASS on both memory builds, 0 skips,
+64/64 from a clean clone**, with `test` and `docs` workflows green on the fix commit `7d2fb2f`; the tape-out facts above are unchanged since `d7bec7a` (only test/sim/host files changed).
 
 ---
 
@@ -136,7 +148,7 @@ IO pads excluded. Numbers from `stats/metrics.csv` of the hardened run:
 | **Clock skew** | worst setup +0.440 ns, worst hold −0.453 ns |
 | **Lint** | 0 errors, 52 warnings, 0 inferred latches |
 | **Precheck** | **10/10 checks passed** — KLayout pin-label overlap, KLayout SG13CMOS5L DRC, zero-area, KLayout checks, pin check, boundary check, layer check, cell-name check, analog-pin check, Verilog syntax |
-| **Gate level** | first run `TESTS=64 PASS=57 FAIL=3 SKIP=4`; all three failures were **one** cause: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only `initial` block that is not synthesised**, so the GL netlist starts with undefined DMEM, the tests read unwritten DMEM words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (initialising the PMEM SRAM model to `halt` was necessary but not sufficient). Fixed in `7d2fb2f`: `start_loom()` writes zeros to all 64 DMEM words over the host port after reset — RTL and GL now start from identical defined state, mirroring the firmware contract that DMEM has no reset. **Final run in progress; expected `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (skips are RTL-backdoor-dependent tests) |
+| **Gate level** | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** on `7d2fb2f` (run `44068106013`, 2 740 s), no errors. First run was `57/60`; all three failures were **one** cause: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only `initial` block that is not synthesised**, so the GL netlist started with undefined DMEM, tests read unwritten DMEM words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (initialising the PMEM SRAM model to `halt` was necessary but not sufficient). Fixed in `7d2fb2f`: `start_loom()` writes zeros to all 64 DMEM words over the host port after reset — RTL and GL now start from identical defined state, mirroring the firmware contract. The four skips are RTL-backdoor-dependent tests; GL is slower than RTL (2 740 s) because of those 64 DMEM writes per test |
 
 Honest footnote: the metrics also list 292 max-fanout / 80 max-slew / 27 max-cap flags — these are the
 TT/PDK *default limit checks*, not timing violations, and the flow does not gate on them (they are
@@ -148,10 +160,16 @@ reported here rather than hidden).
 |---|---|---|
 | `gds` GitHub Action | **PASSED** — attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations at both routing stages | Actions run |
 | `precheck` | **PASSED 10/10** | Actions run |
-| `gl_test` (gate-level suite) | **57/60 first run → one root cause found (unsynthesised DMEM `initial`) → fixed in `7d2fb2f`; final run in progress** (expected `TESTS=64 PASS=60 FAIL=0 SKIP=4`) | `test/results.xml` |
+| `gl_test` (gate-level suite) | ✅ **PASSED — `TESTS=64 PASS=60 FAIL=0 SKIP=4`**, run `44068106013` on `7d2fb2f`, 2 740 s, no errors (four skips are RTL-backdoor-dependent) | Actions run `44068106013` |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) | `formal/` log |
 | `docs` action | **PASS** | Actions run |
 | `test` action | **PASS** — reproduces 64/64 on every push | Actions run |
+
+Sign-off footnote: the flow's **PSM connectivity checker flags the SRAM array power rails** (`[PSM-0069]`
+lines in the GDS log). The SRAM flow config sets `ERROR_ON_PDN_VIOLATIONS: 0` (as in the Tiny Tapeout SRAM
+example), so these are non-fatal — this is **not** a claim of clean PDN sign-off. The independent Tiny
+Tapeout **precheck passes all 10 checks**, including KLayout DRC/layer/pin, and the `gds` job is green by
+design.
 
 No silicon measurements exist; the frequency, power and areas above are flow results for the hardened
 netlist at 33.33 MHz, VDD 1.2 V nominal.
@@ -160,7 +178,7 @@ netlist at 33.33 MHz, VDD 1.2 V nominal.
 
 **Both configurations are fully green, including the one that tape-out uses.** On the exact RTL
 configuration being hardened (`make SRAM_SIM=1024`): **64 tests, 64 PASS, 0 FAIL, 0 SKIP**, ≈271 s per configuration, including 100/100 differential co-sim seeds, 2 USB-LS TX tests, the USB-LS RX
-pin-path test and the Ethernet frame TX test. Frozen at `4164c42`; a clean clone reproduces 64/64.
+pin-path test and the Ethernet frame TX test. Frozen at `7d2fb2f`; a clean clone reproduces 64/64.
 
 | Suite | Result | Notes |
 |---|---|---|
@@ -172,7 +190,7 @@ pin-path test and the Ethernet frame TX test. Frozen at `4164c42`; a clean clone
 | USB-LS TX / RX pin path | **2/2 + 1/1 PASS** | TX packet decoded independently; RX proves the differential pad path + reference decoder (0 mismatches, ±0.25 % drift) — not enumeration, no on-chip RX firmware |
 | Ethernet frame TX | **1/1 PASS** | two host-preloaded frames, FCS `0xF57743B9`/`0x696CF29E`, cells 8.000 cycles, 2.0833 Mbit/s, 0.00-cycle edge residual |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3` |
-| gate-level | **57/60 first run → fixed (`7d2fb2f`) → final re-run in progress** | expected `TESTS=64 PASS=60 FAIL=0 SKIP=4`; root cause: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only `initial` block that is not synthesised**, so the gate-level netlist starts with undefined DMEM; the tests that read DMEM words they never wrote got X back through the host bridge, X reached the MISO pin, and the cycle monitor's `int()` conversion threw. (Initialising the PMEM SRAM model to `halt` was necessary but not sufficient.) Fix (`7d2fb2f`): `start_loom()` writes zeros to all 64 DMEM words through the host port after reset, so RTL and GL start from the same defined state — which mirrors the firmware contract (DMEM has no reset; software initialises it). |
+| gate-level | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s, no errors) on `7d2fb2f`, module breakdown host 19 / isa 22 / timing 7+1 skip / cosim 3+3 skips / protocols 9 / usb_ls 2 / eth 1 / usb_ls_rx 1. Skips = the four RTL-backdoor tests. | First run was `57/60`; one root cause: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only `initial`** that is not synthesised, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed (`7d2fb2f`) by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract. Evidence: `results.xml` artifact + job log; **no GL FST is produced** (`WAVES=1` not enabled in CI). |
 | coverage | **PASS (meta-test gate)** | every opcode/CSR exercised; numeric cross-coverage report is reporting-only |
 
 ## 7. Errata and known gaps
@@ -183,5 +201,5 @@ pin-path test and the Ethernet frame TX test. Frozen at `4164c42`; a clean clone
 | 2 | Full-duplex SPI above ~2 MHz controller-side needs a queue-synchronised read | documented limitation, see [`writeup.md`](writeup.md) §9 | design |
 | 3 | capture / record-replay: RTL complete and unit-verified (209 checks), **silicon integration deferred to revision B** because enabling it aliases the 32-word DMEM used by the wave player | not in `source_files`; not in the submitted build | Lead |
 | 4 | **True 10BASE-T not achievable**: 20 Mbaud = 1.6667 cycles/cell needs ≥4 instr/cell = 80 M instr/s vs 33.33 M instr/s IPC (2.4× over); measured same-code ceiling 3.03 Mbit/s; ±15–23 ns edge quantisation vs a few-ns TX jitter budget; 1024 half-cells/frame exceed the 32-word DMEM | documented, not a defect — revision-B item. Ethernet *frame TX* at 2.0833 Mbit/s with firmware CRC-32 is RTL-verified instead (§6) | Lead |
-| 5 | **GDS + precheck passed; gate-level was 57/60, one root cause (DMEM zeroed by an unsynthesised `initial` block), fixed in `7d2fb2f`** | final `gl_test` count + SHA filled in when the run reports (expected `TESTS=64 PASS=60 FAIL=0 SKIP=4`); **no silicon measurements exist** | Lead |
+| 5 | **None — all four CI jobs are green.** GDS + precheck 10/10, gate-level `TESTS=64 PASS=60 FAIL=0 SKIP=4` on `7d2fb2f` (run `44068106013`) | design/verification frozen at `7d2fb2f`; submitted tree `352e473` has its own `gds` run pending (`44087988160`). **No silicon measurements exist** | Lead |
 | 6 | The 6-hour CI cap remains a hard limit: attempts 6/7 hit it (design stages are only ~15–20 min; the cap is a DRT budget). Attempt 8 converged in ~2.5 h, so the submitted build is inside it | FAQ fallback (local LibreLane + custom GDS action) not needed | Lead |

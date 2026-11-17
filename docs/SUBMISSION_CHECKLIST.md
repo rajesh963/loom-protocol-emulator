@@ -23,14 +23,15 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 4 | RTL lint clean (`iverilog -g2012 -I rtl -o /dev/null rtl/*.v`) | CI / local | lead | TBD |
 | 5 | `gds` GitHub Action green (LibreLane, `tt-gds-action@ttihp27a`, `ihp-sg13cmos5l`) | Actions run | lead | **done** — attempt 8 (`d7bec7a`), GDS built in ~2.5 h, DRT 0 violations; 658 414 µm² (54.5 %), timing closed, 8.60 mW |
 | 6 | `precheck` green | Actions run | lead | **done** — **10/10 checks passed** on `d7bec7a` |
-| 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | **in progress** — first run `57/60`, one root cause (DMEM zeroed by an unsynthesised simulation-only `initial`, so GL read X and it reached MISO), fixed in `7d2fb2f`; final run in progress, expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (skips are RTL-backdoor tests) |
+| 7 | `gl_test` green (gate-level protocol suite) | Actions run `44068106013` + artifact `gatelevel_test_results` (`results.xml`; no FST — CI GL runs without `WAVES=1`) | verify | **done** — **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** on `7d2fb2f`, 2 739.85 s; skips are the four RTL-backdoor tests |
 | 8 | Both build variants buildable (FF fallback and SRAM flagship) | CI matrix | lead | TBD |
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
 | 9b | `test` workflow reproduces the full cocotb matrix on GitHub (64 PASS / 0 SKIP on both build configurations) | Actions run | verify | **done** (green; re-check on the final SHA) |
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
-| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **GDS + precheck done** (attempt 8, `d7bec7a`); only `gl_test` re-verification remains (`fd0a67b`) |
+| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **done** — `7d2fb2f`: `gds` ✅, `precheck` ✅, `viewer` ✅, `gl_test` ✅ (`TESTS=64 PASS=60 FAIL=0 SKIP=4`) |
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
-| 9h | On the fix commit `7d2fb2f`: `test` ✅, `docs` ✅, `gds` in progress (GDS → precheck → gl_test → viewer) | Actions | lead | in progress |
+| 9h | On the fix commit `7d2fb2f`: **`gds` ✅, `precheck` ✅, `viewer` ✅, `gl_test` ✅, `test` ✅, `docs` ✅** | Actions run `44068106013` | lead | **done** |
+| 9i | Final freeze: design + verification at `7d2fb2f`; submission tree = git tag `submission-1`; one full-pipeline run dispatched on that tree | git tag + Actions | lead | in progress |
 | 9g | The GDS run finishes **inside the 6-hour GitHub Actions cap** | Actions run | lead | **done** — attempt 8 completed the whole flow in **~2.5 h** (routability-driven placement + 50 % density); attempts 6/7 had capped at 6 h in DRT. FAQ local-flow/custom-GDS fallback not needed |
 | 9f | Timing tables re-scaled to the shipped 33.33 MHz (architecture §2.1, `isa.md` constants, `examples.md` budgets, SVG diagrams, host-link SCK ceiling) and `info.yaml clock_hz = 33333333` | docs + firmware (`sw/examples/`, `sw/prog/manifest.json`) | docs / firmware | **done** (firmware sweep `fbea876`) |
 

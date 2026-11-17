@@ -220,11 +220,10 @@ pin is exercised at least once with four threads running concurrently.
 > **Status: COMPLETE, VERIFIED TAPE-OUT.** The final build (attempt 8, `d7bec7a`) **passed GDS and
 > precheck 10/10** in ~2.5 h: **658 414 µm² = 54.5 %** of the 1 208 170 µm² core (35 971 instances), **DRC/antenna
 > clean**, **timing closed at all three corners** with worst setup slack **+1.6006 ns** at the slow
-> corner (28.4 ns path against 30 ns), **8.60 mW** at 33.33 MHz, VDD 1.2 V. Gate level was `57/60` and the
-> three failures were one root cause — DMEM is zeroed by an unsynthesised simulation-only `initial`
-> block, so GL started with undefined DMEM and X reached MISO — fixed in `7d2fb2f` and re-verifying now
-> (expected `TESTS=64 PASS=60 FAIL=0 SKIP=4`). RTL verification is frozen at
-> `4164c42`: **64/64 on both memory builds, 0 skips**. **No silicon measurements exist** — these are
+> corner (28.4 ns path against 30 ns), **8.60 mW** at 33.33 MHz, VDD 1.2 V. **All four CI jobs are green on `7d2fb2f`** (`gds`, `precheck`, `viewer`, `gl_test`); gate level is
+> **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s; the four skips are RTL-backdoor-dependent tests, and
+> no GL FST is produced). Design and verification are frozen at `7d2fb2f`: **RTL 64/64 on both memory
+> builds, 0 skips, and GL `60/4`**. **No silicon measurements exist** — these are
 > flow results for the hardened netlist. Canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ### 7.1 What the flow told us, and why it was worth eight attempts
@@ -364,7 +363,7 @@ The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL
 **64 of 64 tests, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ≈271 s per configuration), including
 100/100 differential co-sim seeds (the harness backdoor was made SRAM-aware), 2 USB-LS TX tests, the
 USB-LS RX pin-path test and the Ethernet frame TX test. A clean clone reproduces 64/64 (frozen at
-`4164c42`): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
+`7d2fb2f`): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
 (illegal clock-stretch injection), VER-007 a real firmware bug (the SCL-first byte-boundary rule).
 This is the first point at which *the artifact we intend to fabricate* has the full green matrix.
 
@@ -378,7 +377,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 | **DRC / antenna** | 0 antenna violations, 0 routed DRC, 0 lint errors (52 warnings, 0 inferred latches) |
 | **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
 | **`precheck`** | **PASSED 10/10** |
-| **`gl_test`** | first run `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` block that is **not synthesised**, so the GL netlist started with undefined DMEM; tests reading unwritten DMEM words got X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed in `7d2fb2f`: `start_loom()` writes zeros to all 64 DMEM words over the host port after reset — the firmware contract (DMEM has no reset). **Final run in progress**; expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (skips are RTL-backdoor-dependent) |
+| **`gl_test`** | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s) on `7d2fb2f`, no errors; skips are the four RTL-backdoor tests. First run was `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` that is **not synthesised**, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract (DMEM has no reset). Evidence: `results.xml` + job log; **no GL FST** (`WAVES=1` not enabled) |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
 | `test` / `docs` CI workflows | **green** |
 

@@ -204,7 +204,7 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **64 tests, 64 PASS, 0 FAIL, 0 SKIP** —
 both configurations run the matrix in ≈271 s per configuration (FF build and `make SRAM_SIM=1024`), and the
-counts are frozen at revision `4164c42` (also 64/64 from a clean clone) — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
+counts are frozen at revision `7d2fb2f` (also 64/64 from a clean clone) — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
 claims are CI-verifiable. Two independent implementations — hand-written RTL and a
 Python golden model written from the spec — agree on the exact cycle of every pin transition and on
 the full architectural state for 100/100 random programs. The two I²C gates that were skipped during
@@ -222,7 +222,7 @@ artifact (illegal clock-stretch injection).
 | Ethernet frame TX | **1/1 PASS** | 802.3 Manchester, 64-byte minimum frame, firmware CRC-32, cells at exactly 8.000 cycles (2.0833 Mbit/s), 0.00-cycle edge residual — two host-preloaded frames decoded from the RTL pin trace (FCS `0xF57743B9` / `0x696CF29E`) |
 | USB-LS RX pin path | **1/1 PASS** | chip high-Z after reset; testbench drives differential D+/D− through the open-drain pad model, RTL `pins_in` decoded by the reference receiver — 0 pad-path mismatches at ±0.25 % drift. Proves the pin path + algorithm, **not** enumeration or a firmware RX path |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
-| gate-level | **57/60 → one root cause fixed (`7d2fb2f`) → re-running** | GL failed because DMEM is zeroed only by a simulation-only `initial` (not synthesised), so unwritten DMEM read X and reached MISO; fixed by `start_loom()` zeroing all 64 DMEM words over the host port. Expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (skips are RTL-backdoor tests) |
+| gate-level | **✅ PASSED — `TESTS=64 PASS=60 FAIL=0 SKIP=4`** | run `44068106013` on `7d2fb2f`, 2 739.85 s; skips are the four RTL-backdoor tests. First run was `57/60`: DMEM was zeroed only by an unsynthesised `initial`, so GL read X and it reached MISO; fixed by `start_loom()` zeroing all 64 DMEM words over the host port. Evidence is `results.xml` + log (no GL FST is produced) |
 | **`gds` + `precheck`** | **✅ PASSED 10/10** | attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations; **658 414 µm² (54.5 % of core), 35 971 instances, timing closed at all three corners (worst setup +1.6 ns slow), 8.60 mW**, DRC/antenna clean — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
@@ -258,8 +258,9 @@ detailed routing converged **28 461 → … → 0** and the full flow finished i
 8.60 mW.** The submitted build is **658 414 µm² (54.5 % of the core, 35 971 instances) at 33.33 MHz**
 with worst setup slack **+1.6 ns** at the slow corner. Gate level was `57/60`, with one root cause
 (DMEM zeroed by an unsynthesised simulation-only `initial`, so GL started undefined and X reached MISO),
-fixed in `7d2fb2f` and re-verifying now; **no silicon measurements exist**. Both build
-configurations pass the full **64/64 simulation matrix (0 skips)**, frozen at `4164c42`. Canonical log:
+fixed in `7d2fb2f`, and the rerun is green at **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** — all four CI jobs
+pass on that SHA. **No silicon measurements exist.** Both build
+configurations pass the full **64/64 simulation matrix (0 skips)**, frozen at `7d2fb2f`. Canonical log:
 [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in [`docs/results.md`](docs/results.md).
 
 ## Documentation

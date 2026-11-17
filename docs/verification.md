@@ -220,10 +220,13 @@ meta-test.
 > `make SRAM_SIM=1024`): **64 tests, 64 PASS, 0 FAIL, 0 SKIP in ≈271 s wall**. The FF regression
 > configuration is also **64/64** (≈271 s) — the two I²C gates skipped during bring-up are closed (§9.2),
 > **USB low-speed TX** is RTL-verified (2 tests), and the **USB-LS RX pin path** plus **Ethernet frame
-> TX** are likewise RTL-verified (§9.1). Frozen revision for citation: `4164c42`.
-> `docs` and `test` GitHub Actions workflows are green and reproduce the matrix on each push.
-> No LibreLane/gate-level/silicon rows are claimed: see [`FLOW_STATUS.md`](FLOW_STATUS.md) and
-> [`results.md`](results.md) §3.
+> TX** are likewise RTL-verified (§9.1). **Design and verification are frozen at `7d2fb2f`.**
+> Gate level on that SHA (run `44068106013`): **`TESTS=64 PASS=60 FAIL=0 SKIP=4` in 2 739.85 s**, module
+> breakdown host 19 / isa 22 / timing 7+1 skip / cosim 3+3 skips / protocols 9 / usb_ls 2 / eth 1 /
+> usb_ls_rx 1; the four skips are exactly the RTL-backdoor-dependent tests. GL is slower than RTL because
+> `start_loom()` now writes all 64 DMEM words through the host port per test. All four CI jobs are green
+> (`gds`, `precheck` 10/10, `viewer`, `gl_test`); `docs` and `test` workflows are green on each push.
+> No silicon measurements exist: see [`FLOW_STATUS.md`](FLOW_STATUS.md) and [`results.md`](results.md) §3.
 
 ### 9.1 Final verification matrix (SRAM candidate configuration)
 
@@ -238,7 +241,7 @@ meta-test.
 | USB-LS RX pin path | **1/1 PASS** | `test/test_usb_ls_rx.py` with **no on-chip RX firmware**: chip high-Z after reset (`PDIR = 0`), testbench drives a real differential LS waveform on D+ = `uio[0]` / D− = `uio[1]` through the open-drain pad model, RTL `pins_in` sampled and decoded by the reference device receiver — **0 pad-path mismatches**; SETUP token + 8-byte DATA0 `GET_DESCRIPTOR` at nominal and **±0.25 % host drift** (recovered 22.2528 / 22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the reference RX algorithm only — not enumeration and not a firmware RX path** |
 | USB low-speed TX | **2/2 PASS** | `usb_ls_tx.asm` single-ended D+ device-mode transmitter: NRZI, 8-bit SYNC, DATA0 PID, 4-byte payload, USB CRC16, bit stuffing after six ones, EOP; decoded by an independent golden-model decoder and on the FF+Loom memory builds (`test_usb_ls.py`) |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
-| **total** | **64 PASS / 0 FAIL / 0 SKIP** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ≈271 s per configuration; frozen at `4164c42` (also 64/64 from a clean clone). Gate-level expectation: `TESTS=64 PASS=60 SKIP=4` — an expectation, not a measured result |
+| **total** | **64 PASS / 0 FAIL / 0 SKIP (RTL)** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ≈271 s per configuration, frozen at `7d2fb2f` (also 64/64 from a clean clone). **Gate level on the same SHA: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s; four skips are RTL-backdoor-dependent) |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
 Python golden model written from the spec) agree on the exact cycle of every pin transition and on
@@ -253,6 +256,11 @@ boundary rule — the target now ACKs the data byte correctly) and VER-006 was a
 artifact (illegal clock-stretch injection, patched in the VIP). Recording both outcomes matters:
 one was a design bug caught by the suite, the other a test bug caught by the same suite, and the
 matrix only returns to green when both are fixed.
+
+> **Power-grid sign-off note:** the flow's PSM connectivity checker flags the SRAM array power rails
+> (`[PSM-0069]`). The SRAM flow config sets `ERROR_ON_PDN_VIOLATIONS: 0` (same as the Tiny Tapeout SRAM
+> example), so this is non-fatal — **not** a claim of clean PDN sign-off. The independent Tiny Tapeout
+> precheck passes all 10 checks (KLayout DRC/layer/pin) and the `gds` job is green by design.
 
 ### 9.3 Sixteen deviations, all closed — the differential methodology working
 
@@ -299,6 +307,6 @@ state is built to catch, and which per-module unit tests cannot see.
 | # | Item | Classification |
 |---|---|---|
 | 1 | I2C 400 kHz and I2C target SKIPped (VER-006/007) | **firmware timing triage**; 100 kHz + clock stretching pass; not a core-architecture gap |
-| 2 | Gate-level protocol suite | pending LibreLane netlist |
+| 2 | Gate-level protocol suite | ✅ **PASSED** — `TESTS=64 PASS=60 FAIL=0 SKIP=4` on `7d2fb2f` |
 | 3 | `waitp` observes `P[7:0]` only | documented limitation (closed) |
 | 4 | Capture/record-replay: RTL complete + unit-verified, silicon integration deferred to revision B | stretch, closed as deferred |
