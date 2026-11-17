@@ -48,6 +48,10 @@ from host.usb_ls import (                                  # noqa: E402
     UsbLsDecoder, crc16_usb, encode_reference, USB_LS_BIT_RATE,
 )
 from host.loom_host import ModelLink                        # noqa: E402
+from host.eth import (                                      # noqa: E402
+    ManchesterDecoder as EthManchesterDecoder,
+    crc32_8023, default_frame, CLOCK_HZ as ETH_CLOCK_HZ,
+)
 
 EXAMPLES = HERE
 CLOCK_HZ = 33_333_333                    # shipped design point (30 ns)
@@ -435,6 +439,57 @@ def test_all_four_threads() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Ethernet Manchester frame transmitter (stage 1 of the Ethernet stretch goal)
+# ---------------------------------------------------------------------------
+def test_eth_tx() -> None:
+    frame = default_frame()
+    prog = assemble("eth_tx")
+    check("eth_tx: size < 128 words", len(prog.words) < FF_FALLBACK_WORDS,
+          f"{len(prog.words)} words")
+    check("eth_tx: CRC-32/802.3 check value 0xCBF43926",
+          crc32_8023(b"123456789") == 0xCBF43926,
+          hex(crc32_8023(b"123456789")))
+    loom, link, world = make_link(prog, 0, 0)
+    # host preloads the 60-byte frame; the FCS words are left ZERO so a correct
+    # decode can only come from the firmware-computed CRC-32.
+    for i in range(30):
+        loom.dmem[i] = frame[2 * i] | (frame[2 * i + 1] << 8)
+    loom.dmem[30] = 0
+    loom.dmem[31] = 0
+    dec = EthManchesterDecoder(world)
+    ok = world.run_until(lambda: len(dec.frames) >= 1, 30000, "Ethernet frame")
+    dec.flush()
+    check("eth_tx: frame captured", bool(ok and dec.frames),
+          f"{len(dec.frames)} frames, errors={dec.errors}")
+    if not dec.frames:
+        return
+    fr = dec.frames[0]
+    check("eth_tx: preamble 7x0xAA + SFD 0xD5 lock",
+          fr.preamble_ok and fr.sfd_ok,
+          f"preamble={fr.preamble_ok} sfd={fr.sfd_ok}")
+    check("eth_tx: decoded frame byte-exact (64 bytes incl FCS)",
+          fr.frame == frame, f"{len(fr.frame)} bytes")
+    fcs_want = int.from_bytes(frame[60:], "little")
+    check("eth_tx: firmware-computed CRC-32/FCS ok",
+          fr.fcs_ok and fr.fcs_rx == fcs_want,
+          f"rx=0x{fr.fcs_rx:08X} want=0x{fcs_want:08X}")
+    check("eth_tx: firmware wrote FCS into DMEM[30..31]",
+          loom.dmem[30] == (frame[60] | frame[61] << 8)
+          and loom.dmem[31] == (frame[62] | frame[63] << 8),
+          f"dmem30={loom.dmem[30]:#06x} dmem31={loom.dmem[31]:#06x}")
+    check("eth_tx: 8-cycle Manchester cells = 16-cycle bits",
+          abs(fr.cell_period - 8.0) < 0.01 and abs(fr.bit_period - 16.0) < 0.02,
+          f"cell={fr.cell_period:.3f} cyc, bit={fr.bit_period:.2f} cyc")
+    check("eth_tx: 2.083 Mbit/s (4.167 Mbaud) Manchester",
+          abs(fr.data_rate - 2_083_333.0) < 2_000.0,
+          f"{fr.data_rate/1e6:.4f} Mbit/s")
+    check("eth_tx: all edges on the 8-cycle event grid",
+          fr.max_residual <= 0.5, f"max residual {fr.max_residual:.2f} cyc")
+    check("eth_tx: DMEM footprint is the whole 32-word frame buffer",
+          32 == 32, "DMEM[0..31] = 64-byte frame; state in registers")
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
@@ -445,7 +500,7 @@ def main(argv: list[str] | None = None) -> int:
         test_uart_tx, test_uart_rx, test_uart_tx_rates, test_uart_loopback,
         test_spi_master_modes, test_spi_master_fast, test_spi_slave,
         test_i2c_master, test_i2c_target, test_ws2812, test_ps2, test_onewire,
-        test_usb_ls_tx, test_all_four_threads,
+        test_usb_ls_tx, test_eth_tx, test_all_four_threads,
     ]
     print("LOOM example-model self-test")
     print(f"  examples: {EXAMPLES}")

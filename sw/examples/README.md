@@ -70,6 +70,7 @@ protocols share one 1-instruction/cycle datapath.
 | `ps2_target.asm` | — | CLK=P[13]=uo[5], DATA=P[14]=uo[6] | 58 | model-verified | 14.28 kHz clock, 11-bit frames + odd parity |
 | `onewire.asm` | — | DQ=P[7]=uio[7] (open-drain) | 91 | model-verified | standard-speed, +25.0 C DS18B20 scratchpad |
 | `usb_ls_tx.asm` (stretch) | — | D+=P[0]=uio[0] | 96 | model-verified (TX only) | 1.4980 Mbit/s (−0.13 %), 22.25 cyc/bit |
+| `eth_tx.asm` (stretch) | — | TXD=P[0]=uio[0] | 97 | model-verified | Manchester 2.083 Mbit/s (4.167 Mbaud), CRC-32 FCS in firmware |
 
 Pin convention: `P[15:10]` = `uo_out[7:2]`, `P[15:11]` = `ui_in[7:3]` readable,
 `P[7:0]` = the bidirectional open-drain `uio` pins (DIR=1 pulls low, DIR=0
@@ -230,6 +231,52 @@ four-program demo needs the 1024-word SRAM build.
   +25.0 C (`0x90 0x01 ...`); the 9th byte is a CRC placeholder (the demo does
   not verify it — a real CRC-8/MAXIM is ~30 extra instructions).
 
+## Ethernet Manchester frame transmitter — stretch (`eth_tx.asm`)
+
+The Ethernet stretch goal: transmit a **complete 64-byte minimum Ethernet frame**
+with IEEE 802.3 Manchester line coding and a **CRC-32 FCS computed by the
+firmware itself**. This is a 10 Mbit/s-*class* framing demo, not 10BASE-T
+compliance — the honest ceiling is quantified below.
+
+* **Pin**: `TXD = P[0] = uio[0]` (push-pull, DIR bit 0). Manchester: 0 → all
+  edge one way (`1,0`), 1 → the other (`0,1`); bytes/bits LSB-first.
+* **Frame**: 7 × `0xAA` preamble → `0xD5` SFD → 64 frame bytes
+  (dst 6 + src 6 + ethertype 2 + payload 46 + FCS 4) → IPG → idle.
+  The host preloads the 60-byte frame into DMEM; the firmware computes
+  CRC-32/802.3 (reflected 0xEDB88320, init/final-XOR 0xFFFFFFFF) and writes the
+  little-endian FCS into the last two DMEM words, then streams all 64 bytes.
+  **DMEM footprint: 32/32 words** — exactly the frame buffer, state in registers.
+* **Timing**: `setp 0x0080` = **8-cycle Manchester cells = 16-cycle bits =
+  4.167 Mbaud = 2.083 Mbit/s**; every cell is one `emit`, so all edges are on
+  the exact event grid. Transmit loop ≈ 9 instructions/bit against 16
+  cycles/bit (56 % IPC). Wire time: (56+8+512) bits × 16 = 9216 cycles = 276 µs
+  per frame; IPG 1536 cycles.
+* **Model evidence** (`model_selftest.py`, 11 checks): the decoded frame is
+  **byte-exact**, preamble/SFD lock, FCS 0xF57743B9 ok (host preloads the FCS
+  words as zero, so the match proves the firmware computed it), 8.000-cycle cells
+  / 16.00-cycle bits, **max edge residual 0.00 cycle**, 2.0833 Mbit/s.
+  `host/eth.py` is the independent receiver (clock recovery, Manchester decode,
+  body+FCS check, `python -m host.eth` passes).
+* **Measured firmware ceiling** (same `eth_tx.asm`, only `CELL_DIV` changed):
+  decode still succeeds at 5.5 cycles/cell = **3.03 Mbit/s**; it fails at 5.0
+  cycles/cell (3.33 Mbit/s, edges fall behind the grid). The loop is
+  ~4.5 instructions/cell, so the IPC bound is 33.33/4.5 = 7.4 M cells/s =
+  3.7 Mbit/s; scheduling slack puts the practical limit at ~3.0 Mbit/s. The
+  shipped 8-cycle point keeps a comfortable margin.
+* **10BASE-T (20 Mbaud) verdict — not feasible, quantified**: a true 10BASE-T
+  cell is 50 ns = **1.6667 cycles** at 33.33 MHz. One cell needs at least an
+  `emit` plus level extraction (≥4 instructions for a data-bearing cell), i.e.
+  20 M cells/s × 4 = **80 M instructions/s against a 33.33 M instr/s chip =
+  2.4× over IPC**; four threads do **not** multiply IPC (work-conserving
+  round-robin shares one instruction/cycle), so 4-thread scheduling only adds
+  merge/ordering risk. Even a degenerate 2-instruction toggler (no frame data)
+  would top out at 33.33/2 = 16.7 M cells/s = 8.3 Mbaud, and pin edges are
+  cycle-quantised: ±0.5 cycle (±15 ns) plus floor-rounding up to 0.69 cycle
+  (±23 ns) against a 50 ns cell and a 10BASE-T TX jitter budget of a few ns
+  (±100 ppm clock). Conclusion: ship the 2.083 Mbit/s Manchester+CRC-32 frame
+  demo with this ceiling documented; 10BASE-T is physically out of reach for
+  cycle-quantised firmware edges.
+
 ## USB 1.1 low-speed device transmitter — stretch (`usb_ls_tx.asm`)
 
 The competition FAQ lists low-speed USB as a stretch goal and rewards protocols
@@ -334,5 +381,9 @@ re-running the 45 checks and the RTL protocol suite.
 * `usb_ls_tx.asm` is a **stretch prototype**: device→host TX only, single-ended
   D+ (external D− tie + 1.5 kΩ are board parts), golden-model-proven; RX/DPLL
   and host enumeration are not implemented.
+* `eth_tx.asm` is a **10 Mbit/s-class Manchester framing demo, not 10BASE-T**:
+  2.083 Mbit/s measured, ~3.0 Mbit/s practical firmware ceiling; true 20 Mbaud
+  needs 2.4× the chip's instruction throughput and ns-class edge jitter (see the
+  Ethernet section for the numbers).
 * External rise times (I2C pull-ups, UART/SPI drivers) are the user's board
   responsibility; the firmware guarantees the 30–70 % point timing.
