@@ -92,7 +92,7 @@ async def _capture_frame(host, mon, frame60: bytes):
         "no TXD edge within 25000 cycles (firmware did not transmit)"
     # frame (9216) + IPG (1536) + margin; the next preamble edge comes after
     # the firmware's post-IPG FCS recompute, so this window sees it too
-    await host._clk(FRAME_CYCLES + 6000)
+    await host._clk(FRAME_CYCLES + 12000)
     await host.stop(0x1)
     t_end = mon.mark()
 
@@ -117,8 +117,9 @@ async def _capture_frame(host, mon, frame60: bytes):
 
 def _check_frame(host, fr, dec, tr, t_first, expected: bytes):
     log = host.log
-    for line in dec.summary():
-        log.info("Ethernet: %s", line)
+    for f in dec.frames:
+        if len(f.frame) >= 64:              # ignore the partial next-frame tail
+            log.info("Ethernet: %r", f)
     for line in v_wave.render(tr, t0=t_first, t1=t_first + 1200, cols=100,
                               label="TXD = uio[0] (Manchester, first 1200 cycles)"
                               ).splitlines():

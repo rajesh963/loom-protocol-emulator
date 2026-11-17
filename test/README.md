@@ -14,6 +14,8 @@ test/
   test_random_cosim.py   differential RTL vs sw/loom_model.py, seeded random programs
   test_protocols.py      independent UART / SPI / I2C VIPs (test/vip/)
   test_usb_ls.py         USB 1.1 low-speed device TX: NRZI, bit stuffing, CRC16
+  test_eth.py            Ethernet 802.3 Manchester frame TX: preamble/SFD/FCS, IPG
+  test_usb_ls_rx.py      USB LS differential-receiver readiness (pin path + decoder)
   known_issues.py        reported deviations; gated tests flip with one flag
   vip/                   pure-Python UART, SPI (modes 0-3), I2C far-end models + waves
 formal/
@@ -174,9 +176,9 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-16)
 
-`make` from `test/`: **62 tests, 62 PASS, 0 FAIL, 0 SKIP, ~155 s wall** (CI budget
+`make` from `test/`: **64 tests, 64 PASS, 0 FAIL, 0 SKIP, ~160 s wall** (CI budget
 < 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
-SRAM build: `make SRAM_SIM=1024` → same 62/62 (RTL behavioural macro model,
+SRAM build: `make SRAM_SIM=1024` → same 64/64 (RTL behavioural macro model,
 no PDK needed); `make SRAM_SIM=512` also runs (host layer verified incl. the
 PMEM depth guard).  A clean clone (`env -i make` with only an installed cocotb
 on `PATH`) reproduces the full matrix, so there is no local-venv or
@@ -202,6 +204,39 @@ every gap is 22/23-cycle quantisation of the event grid or an integer multiple.
 The tests assert SYNC/PID/payload/CRC/EOP, stuffed-bit count, rate within the
 USB LS ±0.25 % budget, `max residual < 1.0 cycle` (no CPU/issue jitter), and the
 gap histogram.  Pin-level only, so they also run in the `gl_test` netlist.
+
+### Ethernet 802.3 Manchester frame TX — `test_eth.py`
+
+`eth_tx.asm` sends a 64-byte minimum frame with firmware-computed CRC-32 FCS on
+single-ended TXD = `uio[0]`.  The host preloads DMEM[0..29] with the 60 data
+bytes (DMEM[30..31] left zero, so a matching CRC proves the firmware computed
+it).  The RTL pin trace is decoded by the independent Manchester receiver in
+`host/eth.py`.  Two host-preloaded frames decode byte-exact on RTL:
+
+| frame | FCS | cells | bits | rate | max edge residual |
+|---|---|---|---|---|---|
+| default (`02:4C:..`, payload `LOOM Ethernet Manchester frame, CRC32 in firmw`) | 0xF57743B9 | 8.000 cyc | 16.00 cyc | 2.0833 Mbit/s | 0.00 cyc |
+| custom (`02:00:00:00:00:01` → `..:02`, payload `LOOM stage-1 RTL Manchester decode test!`) | 0x696CF29E | 8.000 cyc | 16.00 cyc | 2.0833 Mbit/s | 0.00 cyc |
+
+Asserted: 7×0xAA preamble + 0xD5 SFD lock, 64 bytes byte-exact, FCS equal to
+the Python reference (the preloaded zero FCS words are overwritten by firmware),
+cell/bit period exact, `max edge residual 0.00 cycle` (all Manchester edges on
+the event grid), the frame window is exactly 9216 cycles, and TXD stays quiet
+for at least the 1536-cycle IPG afterwards (the firmware also spends untimed
+instructions recomputing the FCS before the next frame, so the frame-to-frame
+gap is IPG + that compute time; 1536 cycles is the asserted quiet floor).
+
+### USB LS differential-receiver readiness — `test_usb_ls_rx.py`
+
+Honest framing: there is **no on-chip USB RX firmware**, so this is a
+*readiness* test, not a device-response test.  It drives an external differential
+LS waveform (D+ = `uio[0]`, D- = `uio[1]`, chip high-Z, tb open-drain pad model)
+and checks that the RTL-visible `pins_in` sequence is decoded by the reference
+device receiver in `host/usb_ls_rx.py` (DPLL from SYNC, NRZI, unstuffing,
+PID+complement, CRC-5/CRC-16, EOP): a SETUP token + 8-byte DATA0
+`GET_DESCRIPTOR` request at nominal and ±0.25 % host clock drift
+(22.186–22.314 cycles/bit), pad-path mismatches 0.  It proves the pin path and
+the RX algorithm; it does **not** prove enumeration or a firmware RX path.
 
 Measured protocol rates at 33.33 MHz, **full protocol period** (UART: start-edge to
 start-edge across frames; I²C: rising-to-rising SCL, i.e. high + low phase,
