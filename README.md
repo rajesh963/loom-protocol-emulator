@@ -203,7 +203,7 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 ## Verification
 
 Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **64 tests, 64 PASS, 0 FAIL, 0 SKIP** —
-both configurations run the matrix in ~159 s on the FF build and ~146 s on SRAM-1024 (`make SRAM_SIM=1024`), and the
+both configurations run the matrix in ≈271 s per configuration (FF build and `make SRAM_SIM=1024`), and the
 counts are frozen at revision `4164c42` (also 64/64 from a clean clone) — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
 claims are CI-verifiable. Two independent implementations — hand-written RTL and a
 Python golden model written from the spec — agree on the exact cycle of every pin transition and on
@@ -222,7 +222,7 @@ artifact (illegal clock-stretch injection).
 | Ethernet frame TX | **1/1 PASS** | 802.3 Manchester, 64-byte minimum frame, firmware CRC-32, cells at exactly 8.000 cycles (2.0833 Mbit/s), 0.00-cycle edge residual — two host-preloaded frames decoded from the RTL pin trace (FCS `0xF57743B9` / `0x696CF29E`) |
 | USB-LS RX pin path | **1/1 PASS** | chip high-Z after reset; testbench drives differential D+/D− through the open-drain pad model, RTL `pins_in` decoded by the reference receiver — 0 pad-path mismatches at ±0.25 % drift. Proves the pin path + algorithm, **not** enumeration or a firmware RX path |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
-| gate-level | **57/60 → fixed → re-running** | first GL run had 3 SRAM-X failures; fixed sim-only in `fd0a67b`, final re-run in progress (expected `PASS=60 SKIP=4`) |
+| gate-level | **57/60 → one root cause fixed (`7d2fb2f`) → re-running** | GL failed because DMEM is zeroed only by a simulation-only `initial` (not synthesised), so unwritten DMEM read X and reached MISO; fixed by `start_loom()` zeroing all 64 DMEM words over the host port. Expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (skips are RTL-backdoor tests) |
 | **`gds` + `precheck`** | **✅ PASSED 10/10** | attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations; **658 414 µm² (54.5 % of core), 35 971 instances, timing closed at all three corners (worst setup +1.6 ns slow), 8.60 mW**, DRC/antenna clean — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,

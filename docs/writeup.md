@@ -220,8 +220,10 @@ pin is exercised at least once with four threads running concurrently.
 > **Status: COMPLETE, VERIFIED TAPE-OUT.** The final build (attempt 8, `d7bec7a`) **passed GDS and
 > precheck 10/10** in ~2.5 h: **658 414 µm² = 54.5 %** of the 4-core (35 971 instances), **DRC/antenna
 > clean**, **timing closed at all three corners** with worst setup slack **+1.6006 ns** at the slow
-> corner (28.4 ns path against 30 ns), **8.60 mW** at 33.33 MHz, VDD 1.2 V. Gate level was `57/60` with
-> three SRAM-X failures, fixed sim-only in `fd0a67b` and re-verifying now. RTL verification is frozen at
+> corner (28.4 ns path against 30 ns), **8.60 mW** at 33.33 MHz, VDD 1.2 V. Gate level was `57/60` and the
+> three failures were one root cause — DMEM is zeroed by an unsynthesised simulation-only `initial`
+> block, so GL started with undefined DMEM and X reached MISO — fixed in `7d2fb2f` and re-verifying now
+> (expected `TESTS=64 PASS=60 FAIL=0 SKIP=4`). RTL verification is frozen at
 > `4164c42`: **64/64 on both memory builds, 0 skips**. **No silicon measurements exist** — these are
 > flow results for the hardened netlist. Canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
@@ -359,7 +361,7 @@ synthesiser has to invent — only the post-synthesis mapped area is the budget.
 ### 7.3 Timed simulation: the tape-out candidate is fully green
 
 The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 33.33 MHz — passes
-**64 of 64 tests, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~146 s; ~159 s on the FF build), including
+**64 of 64 tests, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ≈271 s per configuration), including
 100/100 differential co-sim seeds (the harness backdoor was made SRAM-aware), 2 USB-LS TX tests, the
 USB-LS RX pin-path test and the Ethernet frame TX test. A clean clone reproduces 64/64 (frozen at
 `4164c42`): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
@@ -376,7 +378,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 | **DRC / antenna** | 0 antenna violations, 0 routed DRC, 0 lint errors (52 warnings, 0 inferred latches) |
 | **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
 | **`precheck`** | **PASSED 10/10** |
-| **`gl_test`** | first run `57/60` — three X-propagation failures from the behavioural SRAM array starting as X; fixed in `fd0a67b` (**sim-only** model initialised to `halt` + host `load_program()` pads PMEM with `halt`); **final re-run in progress** (expected `PASS=60 SKIP=4`) |
+| **`gl_test`** | first run `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` block that is **not synthesised**, so the GL netlist started with undefined DMEM; tests reading unwritten DMEM words got X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed in `7d2fb2f`: `start_loom()` writes zeros to all 64 DMEM words over the host port after reset — the firmware contract (DMEM has no reset). **Final run in progress**; expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (skips are RTL-backdoor-dependent) |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
 | `test` / `docs` CI workflows | **green** |
 
@@ -386,8 +388,8 @@ exist**: the numbers above are flow results for the hardened netlist.
 
 ### 7.5 What is already proven by simulation
 
-The SRAM candidate configuration passes **64/64 (0 fail, 0 skip, ~146 s)** and the FF regression
-configuration also passes **64/64 (~159 s)**; the `test` GitHub Actions workflow reproduces the matrix
+The SRAM candidate configuration passes **64/64 (0 fail, 0 skip, ≈271 s)** and the FF regression
+configuration also passes **64/64 (≈271 s)**; the `test` GitHub Actions workflow reproduces the matrix
 on every push:
 
 | Suite | Result |

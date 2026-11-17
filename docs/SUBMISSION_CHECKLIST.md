@@ -23,7 +23,7 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 4 | RTL lint clean (`iverilog -g2012 -I rtl -o /dev/null rtl/*.v`) | CI / local | lead | TBD |
 | 5 | `gds` GitHub Action green (LibreLane, `tt-gds-action@ttihp27a`, `ihp-sg13cmos5l`) | Actions run | lead | **done** — attempt 8 (`d7bec7a`), GDS built in ~2.5 h, DRT 0 violations; 658 414 µm² (54.5 %), timing closed, 8.60 mW |
 | 6 | `precheck` green | Actions run | lead | **done** — **10/10 checks passed** on `d7bec7a` |
-| 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | **in progress** — first run `57/60` (3 SRAM-X failures), fixed sim-only in `fd0a67b`, final re-verification running (expected `PASS=60 SKIP=4`) |
+| 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | **in progress** — first run `57/60`, one root cause (DMEM zeroed by an unsynthesised simulation-only `initial`, so GL read X and it reached MISO), fixed in `7d2fb2f`; final run in progress, expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (skips are RTL-backdoor tests) |
 | 8 | Both build variants buildable (FF fallback and SRAM flagship) | CI matrix | lead | TBD |
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
 | 9b | `test` workflow reproduces the full cocotb matrix on GitHub (64 PASS / 0 SKIP on both build configurations) | Actions run | verify | **done** (green; re-check on the final SHA) |

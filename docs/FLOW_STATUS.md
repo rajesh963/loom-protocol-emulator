@@ -77,7 +77,7 @@ configuration.
 | placement target density / GPL overflow | target 0.6; overflow converged 0.999 → **0.299** |
 | failing step | `OpenRoad.GlobalPlacement` (`gpl.tcl:88`) — **`[GRT-0010] Instance _40267_ is not placed`**, raised inside GPL's *routability-driven* mode (the routability check runs the global router on a mid-placement snapshot). **Root cause later found: that instance was a stray IO-pad cell, not logic** — see “Root cause” below |
 | reached GDS/precheck/GL? | **no** |
-| simulation on this exact RTL | **64/64 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~146 s; ~159 s on FF), frozen at `4164c42` |
+| simulation on this exact RTL | **64/64 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ≈271 s per configuration), frozen at `4164c42` |
 
 **Reading:** the area problem is solved — **−46 % area versus attempt 1** (622 401 / 1 147 604 = 54.2 %), 44.7 % movable-relative utilisation, and the
 failure is a placement-*mode* quirk with a one-line configuration fix, not a design or capacity
@@ -180,8 +180,8 @@ exclusively a **detailed-routing time budget**.
 ## Attempt 8 — reverts the GRT knobs, attacks placement quality · commit `d7bec7a` — ✅ **PASSED: GDS + PRECHECK 10/10**
 
 **The GDS build succeeded.** Full LibreLane flow in **~2.5 h**, both routing stages clean, Tiny Tapeout
-**precheck 10/10**. Only the gate-level job was red (3 X-propagation failures) — fixed in `fd0a67b`, with
-re-verification running.
+**precheck 10/10**. Only the gate-level job was red (`57/60`), for **one** root cause — fixed in
+`7d2fb2f`, with re-verification running.
 
 | Setting | Attempt 6 | **Attempt 8** |
 |---|---|---|
@@ -211,13 +211,16 @@ not by the algorithm) plus a lower target density. GRT returned to its defaults.
 | lint | 0 errors, 52 warnings, 0 inferred latches |
 | precheck | **10/10 PASSED** (KLayout pin-label overlap, KLayout SG13CMOS5L DRC, zero-area, KLayout checks, pin check, boundary check, layer check, cell-name check, analog-pin check, Verilog syntax) |
 
-**Gate-level X story and fix (`fd0a67b`).** The GL run was `TESTS=64 PASS=57 FAIL=3 SKIP=4`. All three
-failures were one X-propagation: the IHP *behavioural* SRAM model starts its array as X, so unwritten
-PMEM words read X in gate-level simulation, while the RTL model and the FF build read `halt`. Fix: the
-GL SRAM model is initialised to `halt` (**sim-only — never synthesised, GDS unaffected**), and
-`host/loom_host.py` gained `load_program()` which pads the image with `halt` to PMEM depth — the
-silicon-correct contract, since real SRAM has no defined contents at power-up. Final GL re-verification
-run in progress; expected `PASS=60 SKIP=4`.
+**Gate-level root cause and fix (`7d2fb2f`).** The first GL run was `TESTS=64 PASS=57 FAIL=3 SKIP=4`. All three
+failures were **one** problem, not three: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only
+`initial` block that is not synthesised**, so the gate-level netlist starts with undefined DMEM. The
+tests that read DMEM words they never wrote got X back through the host bridge, X reached the MISO
+pin, and the cycle monitor's `int()` conversion threw. Initialising the PMEM SRAM behavioural model
+to `halt` (`fd0a67b`) was necessary but not sufficient. Fix (`7d2fb2f`): `start_loom()` writes zeros to
+all 64 DMEM words through the host port after reset, so RTL and GL start from identical defined state —
+which is also the firmware contract (DMEM has no reset; software initialises it). **Expected final GL
+matrix: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (the four skips are RTL-backdoor-dependent tests); the
+count is published only when the run reports.
 
 **Honest footnote:** metrics also list 292 max-fanout / 80 max-slew / 27 max-cap flags — the TT/PDK
 *default limit checks*, not timing violations; the flow does not gate on them.

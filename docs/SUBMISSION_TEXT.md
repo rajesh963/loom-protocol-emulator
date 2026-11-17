@@ -50,7 +50,7 @@ protocols concurrently, with timing that is deterministic by construction.
 ## Verification
 
 - **64-test cocotb suite, 62 PASS / 0 FAIL / 0 SKIP** on both memory configurations (FF and SRAM-1024),
-  reproducible from a clean clone (~159 s (FF) / ~146 s (SRAM-1024)); frozen at `4164c42`.
+  reproducible from a clean clone (≈271 s per configuration); frozen at `4164c42`.
 - **100-seed differential co-simulation** against an independent, spec-derived cycle-accurate model:
   cycle-exact on the full pin trace *and* full architectural state; plus 12/12 generated
   pull/reactive seeds and 6/6 hand-written programs.
@@ -58,7 +58,10 @@ protocols concurrently, with timing that is deterministic by construction.
   (NRZI + sync + DATA0 PID + CRC16 + bit stuffing + EOP, independently decoded), all RTL-verified.
 - **3 formal proofs** (FIFO/queue bounds, reset completeness and event properties, host command
   ordering) via yosys SMT + z3.
-- Gate-level simulation of the hardened netlist in the Tiny Tapeout flow.
+- Gate-level simulation of the hardened netlist in the Tiny Tapeout flow (a real GL-only defect was
+  caught this way: DMEM was zeroed only by an unsynthesised `initial`, so GL started undefined — fixed
+  by having the testbench initialise all 64 DMEM words over the host port, matching the firmware
+  contract).
 - Sixteen RTL deviations found during bring-up and all closed — recorded in `docs/FLOW_STATUS.md`
   and the write-up, including the ones found by the differential model.
 

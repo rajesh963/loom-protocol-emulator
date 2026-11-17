@@ -217,8 +217,8 @@ meta-test.
 
 > **Landed RTL, simulation only — and both configurations are green, including the tape-out one.**
 > On the exact RTL configuration being hardened (`LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 60 MHz,
-> `make SRAM_SIM=1024`): **64 tests, 64 PASS, 0 FAIL, 0 SKIP in ~159 s (FF) / ~146 s (SRAM-1024) wall**. The FF regression
-> configuration is also **64/64** (~159 s (FF) / ~146 s (SRAM-1024)) — the two I²C gates skipped during bring-up are closed (§9.2),
+> `make SRAM_SIM=1024`): **64 tests, 64 PASS, 0 FAIL, 0 SKIP in ≈271 s wall**. The FF regression
+> configuration is also **64/64** (≈271 s) — the two I²C gates skipped during bring-up are closed (§9.2),
 > **USB low-speed TX** is RTL-verified (2 tests), and the **USB-LS RX pin path** plus **Ethernet frame
 > TX** are likewise RTL-verified (§9.1). Frozen revision for citation: `4164c42`.
 > `docs` and `test` GitHub Actions workflows are green and reproduce the matrix on each push.
@@ -238,7 +238,7 @@ meta-test.
 | USB-LS RX pin path | **1/1 PASS** | `test/test_usb_ls_rx.py` with **no on-chip RX firmware**: chip high-Z after reset (`PDIR = 0`), testbench drives a real differential LS waveform on D+ = `uio[0]` / D− = `uio[1]` through the open-drain pad model, RTL `pins_in` sampled and decoded by the reference device receiver — **0 pad-path mismatches**; SETUP token + 8-byte DATA0 `GET_DESCRIPTOR` at nominal and **±0.25 % host drift** (recovered 22.2528 / 22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the reference RX algorithm only — not enumeration and not a firmware RX path** |
 | USB low-speed TX | **2/2 PASS** | `usb_ls_tx.asm` single-ended D+ device-mode transmitter: NRZI, 8-bit SYNC, DATA0 PID, 4-byte payload, USB CRC16, bit stuffing after six ones, EOP; decoded by an independent golden-model decoder and on the FF+Loom memory builds (`test_usb_ls.py`) |
 | formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
-| **total** | **64 PASS / 0 FAIL / 0 SKIP** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ~159 s FF / ~146 s SRAM-1024; frozen at `4164c42` (also 64/64 from a clean clone). Gate-level expectation: `TESTS=64 PASS=60 SKIP=4` — an expectation, not a measured result |
+| **total** | **64 PASS / 0 FAIL / 0 SKIP** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ≈271 s per configuration; frozen at `4164c42` (also 64/64 from a clean clone). Gate-level expectation: `TESTS=64 PASS=60 SKIP=4` — an expectation, not a measured result |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
 Python golden model written from the spec) agree on the exact cycle of every pin transition and on

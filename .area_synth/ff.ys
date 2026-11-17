@@ -1,3 +1,0 @@
-read_verilog -I rtl rtl/loom_host.v
-hierarchy -top loom_host
-proc; opt; ffs
