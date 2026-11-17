@@ -1,6 +1,6 @@
 {
   "//": "LOOM build config (merged by tools/select_build.sh; see flow/README.md for the SRAM flow additions)",
-  "PL_TARGET_DENSITY_PCT": 60,
+  "PL_TARGET_DENSITY_PCT": 50,
   "CLOCK_PERIOD": 30,
   "PL_RESIZER_HOLD_SLACK_MARGIN": 0.1,
   "GRT_RESIZER_HOLD_SLACK_MARGIN": 0.05,
@@ -15,7 +15,7 @@
   "LEFT_MARGIN_MULT": 6,
   "RIGHT_MARGIN_MULT": 6,
   "FP_SIZING": "absolute",
-  "GRT_ALLOW_CONGESTION": false,
+  "GRT_ALLOW_CONGESTION": true,
   "FP_IO_HLENGTH": 2,
   "FP_IO_VLENGTH": 2,
   "RUN_CTS": 1,
@@ -78,10 +78,8 @@
   "ERROR_ON_ILLEGAL_OVERLAPS": 0,
   "FP_PDN_VSPACING": 3.52,
   "FP_PDN_VOFFSET": 6.15,
-  "PL_ROUTABILITY_DRIVEN": false,
+  "PL_ROUTABILITY_DRIVEN": true,
   "EXTRA_EXCLUDED_CELLS": [
     "sg13cmos5l_IOPad*"
-  ],
-  "GRT_ADJUSTMENT": 0.18,
-  "GRT_OVERFLOW_ITERS": 150
+  ]
 }
