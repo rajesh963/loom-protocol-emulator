@@ -30,6 +30,7 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
 | 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **GDS + precheck done** (attempt 8, `d7bec7a`); only `gl_test` re-verification remains (`fd0a67b`) |
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
+| 9h | On the fix commit `7d2fb2f`: `test` ✅, `docs` ✅, `gds` in progress (GDS → precheck → gl_test → viewer) | Actions | lead | in progress |
 | 9g | The GDS run finishes **inside the 6-hour GitHub Actions cap** | Actions run | lead | **done** — attempt 8 completed the whole flow in **~2.5 h** (routability-driven placement + 50 % density); attempts 6/7 had capped at 6 h in DRT. FAQ local-flow/custom-GDS fallback not needed |
 | 9f | Timing tables re-scaled to the shipped 33.33 MHz (architecture §2.1, `isa.md` constants, `examples.md` budgets, SVG diagrams, host-link SCK ceiling) and `info.yaml clock_hz = 33333333` | docs + firmware (`sw/examples/`, `sw/prog/manifest.json`) | docs / firmware | **done** (firmware sweep `fbea876`) |
 

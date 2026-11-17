@@ -256,8 +256,9 @@ detailed routing converged **28 461 → … → 0** and the full flow finished i
 
 **✅ GDS BUILD PASSED · PRECHECK 10/10 · DRC/antenna clean · timing closed at all three corners ·
 8.60 mW.** The submitted build is **658 414 µm² (54.5 % of the core, 35 971 instances) at 33.33 MHz**
-with worst setup slack **+1.6 ns** at the slow corner. Gate level was `57/60` (three SRAM-X failures),
-fixed sim-only in `fd0a67b` and re-verifying now; **no silicon measurements exist**. Both build
+with worst setup slack **+1.6 ns** at the slow corner. Gate level was `57/60`, with one root cause
+(DMEM zeroed by an unsynthesised simulation-only `initial`, so GL started undefined and X reached MISO),
+fixed in `7d2fb2f` and re-verifying now; **no silicon measurements exist**. Both build
 configurations pass the full **64/64 simulation matrix (0 skips)**, frozen at `4164c42`. Canonical log:
 [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in [`docs/results.md`](docs/results.md).
 

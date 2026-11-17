@@ -218,7 +218,7 @@ pin is exercised at least once with four threads running concurrently.
 ## 7. Results
 
 > **Status: COMPLETE, VERIFIED TAPE-OUT.** The final build (attempt 8, `d7bec7a`) **passed GDS and
-> precheck 10/10** in ~2.5 h: **658 414 µm² = 54.5 %** of the 4-core (35 971 instances), **DRC/antenna
+> precheck 10/10** in ~2.5 h: **658 414 µm² = 54.5 %** of the 1 208 170 µm² core (35 971 instances), **DRC/antenna
 > clean**, **timing closed at all three corners** with worst setup slack **+1.6006 ns** at the slow
 > corner (28.4 ns path against 30 ns), **8.60 mW** at 33.33 MHz, VDD 1.2 V. Gate level was `57/60` and the
 > three failures were one root cause — DMEM is zeroed by an unsynthesised simulation-only `initial`

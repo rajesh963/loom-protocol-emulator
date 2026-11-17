@@ -15,8 +15,10 @@ netlist starts with undefined DMEM; tests reading DMEM words they never wrote go
 bridge, X reached MISO, and the cycle monitor's `int()` threw. Fixed in `7d2fb2f` (`start_loom()` writes
 zeros to all 64 DMEM words through the host port after reset, so RTL and GL start from the same defined
 state — mirroring the firmware contract). **Expected final GL: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (the
-four skips are RTL-backdoor-dependent tests); the count is published only when the run reports. RTL verification is frozen at `4164c42`: **64/64 PASS on both memory
-builds, 0 skips, 64/64 from a clean clone.**
+four skips are RTL-backdoor-dependent tests); the count is published only when the run reports.
+
+RTL verification is frozen at `4164c42`: **64/64 PASS on both memory builds, 0 skips, 64/64 from a
+clean clone**, with `test` and `docs` workflows green on the fix commit `7d2fb2f`; the tape-out facts above are unchanged since `d7bec7a` (only test/sim/host files changed).
 
 ---
 
