@@ -64,6 +64,26 @@ input wire                      A_BIST_CLK;
 reg [P_DATA_WIDTH-1:0]    memory [0:2**(P_ADDR_WIDTH)-1]; // memory
 reg [P_DATA_WIDTH-1:0]    dr_r;
 
+  // ---------------------------------------------------------------------
+  // LOOM sim-only addition: initialize the array (and the output register)
+  // to the HALT word 0x0200_0000 instead of X.
+  //
+  // Why: real IHP SRAM has no defined contents at power-up, and this
+  // behavioural model reproduced that as X. LOOM's documented contract is
+  // that unprogrammed PMEM reads HALT (the RTL behavioural model and the
+  // FF build both do this, and the host loader pads its image), so gate-level
+  // simulation must start from the same state or an unwritten fetch word
+  // poisons the whole design with X. This is a simulation accommodation only:
+  // it is NOT synthesised (flow/sram_model is compiled only by the GATES=yes
+  // simulation branch) and it does not change the GDS.
+  // ---------------------------------------------------------------------
+  integer loom_init_i;
+  initial begin
+    for (loom_init_i = 0; loom_init_i < 2**P_ADDR_WIDTH; loom_init_i = loom_init_i + 1)
+      memory[loom_init_i] = 32'h0200_0000;
+    dr_r = 32'h0200_0000;
+  end
+
 
 
 wire  [P_ADDR_WIDTH-1:0]	ADDR_MUX;

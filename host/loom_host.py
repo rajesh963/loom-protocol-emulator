@@ -183,6 +183,28 @@ class ByteTransport:
                           (w & 0xFF, (w >> 8) & 0xFF, (w >> 16) & 0xFF,
                            (w >> 24) & 0xFF))
 
+    # PMEM depth of the shipped build (1024 x 32 SRAM).  `depth` is a parameter
+    # for the 512-word variant.
+    PMEM_WORDS = 1024
+    HALT_WORD = 0x0200_0000
+
+    def load_program(self, words, addr: int = 0, depth: int = PMEM_WORDS) -> None:
+        """Load a program image and pad the rest of PMEM with the HALT word.
+
+        The IHP SRAM macro has no defined contents at power-up (it is only
+        written by the host), so on silicon every address the image does not
+        write is undefined.  The RTL behavioural model, the co-simulation
+        harness and the FF build all assume unwritten PMEM reads HALT
+        (0x0200_0000), and the host loader is what makes that true in silicon:
+        pad the tail of the image with HALT so a thread can never fetch an
+        undefined word.  Costs about 7 ms at the 5.56 MHz host-link ceiling.
+        """
+        words = [int(w) & 0xFFFFFFFF for w in words]
+        self.write_mem(addr, words)
+        end = addr + len(words)
+        if depth > end:
+            self.write_mem(end, [self.HALT_WORD] * (depth - end))
+
     def read_mem(self, addr: int, count: int = 1) -> list[int]:
         """Read `count` 32-bit words starting at `addr` (pointer auto-inc)."""
         self.set_addr(addr)
