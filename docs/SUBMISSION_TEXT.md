@@ -47,6 +47,17 @@ protocols concurrently, with timing that is deterministic by construction.
    revision B because it aliases the wave-player memory. It makes the chip a tool for capturing an
    unknown bus and replaying it as an emulator.
 
+## Explore it without reading Verilog
+
+The repo ships an **interactive RTL module explorer** (`viewer/`, self-contained, no build step):
+top → core → per-thread internals (event queue, wait/issue, timed sample), host bridge, memory and wave
+player, with details, badges and references into the architecture/ISA docs. It is SiliconPulse-compatible
+(`diagram.v1`) and is deployed alongside the 3D GDS viewer:
+
+- 3D GDS viewer: <https://gds-viewer.tinytapeout.com/?pdk=ihp-sg13cmos5l&model=https%3A%2F%2Frajesh963.github.io%2Floom-protocol-emulator%2Ftinytapeout.oas>
+- RTL module explorer: <https://rajesh963.github.io/loom-protocol-emulator/modules/>
+- landing page with both: <https://rajesh963.github.io/loom-protocol-emulator/>
+
 ## Verification
 
 - **64-test cocotb suite, 62 PASS / 0 FAIL / 0 SKIP** on both memory configurations (FF and SRAM-1024),

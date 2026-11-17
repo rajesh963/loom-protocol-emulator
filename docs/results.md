@@ -154,6 +154,10 @@ Honest footnote: the metrics also list 292 max-fanout / 80 max-slew / 27 max-cap
 TT/PDK *default limit checks*, not timing violations, and the flow does not gate on them (they are
 reported here rather than hidden).
 
+**Explore the result yourself:** 3D GDS viewer <https://gds-viewer.tinytapeout.com/?pdk=ihp-sg13cmos5l&model=https%3A%2F%2Frajesh963.github.io%2Floom-protocol-emulator%2Ftinytapeout.oas> · interactive RTL module explorer
+<https://rajesh963.github.io/loom-protocol-emulator/modules/> · landing page <https://rajesh963.github.io/loom-protocol-emulator/>. The explorer is self-contained in `viewer/` (no build step),
+shows nested per-thread internals with `specRef` links into the docs, and is SiliconPulse-compatible.
+
 ## 5. Sign-off
 
 | Check | Result | Artefact |

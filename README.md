@@ -81,7 +81,8 @@ FIFOs, memory, wave player), with per-block details, badges and spec references.
 xdg-open viewer/index.html        # or open the file in any browser
 ```
 
-- **Online:** <https://rajesh963.github.io/loom-protocol-emulator/modules/> (deployed with the 3D GDS viewer)
+- **Online:** <https://rajesh963.github.io/loom-protocol-emulator/modules/> — deployed together with the 3D GDS viewer
+- **The die in 3D:** <https://gds-viewer.tinytapeout.com/?pdk=ihp-sg13cmos5l&model=https%3A%2F%2Frajesh963.github.io%2Floom-protocol-emulator%2Ftinytapeout.oas> · landing page with both: <https://rajesh963.github.io/loom-protocol-emulator/>
 - **Deep links:** `viewer/index.html#/u_core/thread0` opens a specific module
 - **SiliconPulse compatible:** `viewer/loom.diagram.json` uses the
   `diagram.v1` schema and can be loaded into

@@ -32,6 +32,7 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
 | 9h | On the fix commit `7d2fb2f`: **`gds` ✅, `precheck` ✅, `viewer` ✅, `gl_test` ✅, `test` ✅, `docs` ✅** | Actions run `44068106013` | lead | **done** |
 | 9i | Final freeze: design + verification at `7d2fb2f`; submission tree = git tag `submission-1`; one full-pipeline run dispatched on that tree | git tag + Actions | lead | in progress |
+| 9j | **Pages deployment green** and the interactive RTL module explorer loads online alongside the 3D GDS viewer (deep links + SiliconPulse JSON) | viewer job in `.github/workflows/gds.yaml`; <https://rajesh963.github.io/loom-protocol-emulator/modules/> | lead (confirm run) + docs | **pending validation run `44123912681`** |
 | 9g | The GDS run finishes **inside the 6-hour GitHub Actions cap** | Actions run | lead | **done** — attempt 8 completed the whole flow in **~2.5 h** (routability-driven placement + 50 % density); attempts 6/7 had capped at 6 h in DRT. FAQ local-flow/custom-GDS fallback not needed |
 | 9f | Timing tables re-scaled to the shipped 33.33 MHz (architecture §2.1, `isa.md` constants, `examples.md` budgets, SVG diagrams, host-link SCK ceiling) and `info.yaml clock_hz = 33333333` | docs + firmware (`sw/examples/`, `sw/prog/manifest.json`) | docs / firmware | **done** (firmware sweep `fbea876`) |
 
