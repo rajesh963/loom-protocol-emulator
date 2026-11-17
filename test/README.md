@@ -52,12 +52,26 @@ make GATES=yes      # gate-level: netlist + IHP cell models + SRAM macro models
 # that netlist INSTEAD of rtl/*.v (plus the PDK io/stdcell/UDP models and the
 # IHP macro behavioural models from flow/sram_model/ with -DGL_TEST -DFUNCTIONAL
 # -DSIM); SRAM_SIM selects the 1024x32 (default) or 512x32 macro wrapper.
-# Expected gl_test result: TESTS=59 PASS=55 FAIL=0 SKIP=4 — the co-sim layer
+# Expected gl_test result: TESTS=64 PASS=60 FAIL=0 SKIP=4 — the co-sim layer
 # (3 tests, needs the RTL-internal backdoor) and the queue back-pressure test
 # (cycle-accurate internal eq_cnt) are skipped in GL via `export GATES`;
-# everything else (host/ISA/timing/protocols) is pin/host-level and runs.
+# everything else (host/ISA/timing/protocols/USB-LS/Ethernet) is pin/host-level
+# and runs.  GL is X-clean after the DMEM initialisation described below.
 cd .. && ../.venv/bin/python formal/run_formal.py        # bounded formal proofs
 ```
+
+**Memory initialisation is part of the testbench contract.**  DMEM and PMEM
+both start undefined in the gate-level netlist: `rtl/loom_mem.v` zeroes DMEM in
+a **simulation-only `initial` block** that is not synthesised, and the PMEM SRAM
+macro is X in silicon until written.  For GL, the SRAM macro behavioural model
+starts PMEM at its HALT image (`flow/sram_model/`) and `start_loom()` writes
+zeros to all 64 DMEM words through the host port immediately after reset
+(`write_dmem_block(0, [0]*64)`) so RTL and GL start from the **same defined
+state**.  This mirrors the documented firmware contract "DMEM has no reset: zero
+it explicitly"; tests that read DMEM therefore read written data, not X.  The
+earlier PMEM-only HALT init was necessary but not sufficient — the three
+gate-level X failures were DMEM reads (`test_host.test_dmem_rw` and friends)
+returning X through the host bridge onto MISO.
 
 Simulation time scale is a knob, not a claim: `LoomHost` uses
 `clk_ns=10.0` (100 MHz) for CI speed because architectural behaviour is
@@ -174,17 +188,24 @@ PMEM writes are gated on `addr < PMEM_WORDS` by construction; each result is
 bounded to the stated depth (not an unbounded induction proof).  The generated
 SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
-## Status (last full run, 2026-11-16)
+## Status (last full run, 2026-11-17, `7d2fb2f`)
 
-`make` from `test/`: **64 tests, 64 PASS, 0 FAIL, 0 SKIP, ~160 s wall** (CI budget
-< 3 min).  `formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
+`make` from `test/`: **64 tests, 64 PASS, 0 FAIL, 0 SKIP, ~271 s wall** on both
+FF and `SRAM_SIM=1024` (measured on `7d2fb2f`; the GL DMEM-initialisation
+contract adds ~64 host writes per simulated run, so the figure is larger than
+the pre-GL-fix ~160 s and the old "< 3 min" note no longer holds — the full CI
+`test` job still finishes comfortably inside the workflow timeout).
+`formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
 SRAM build: `make SRAM_SIM=1024` → same 64/64 (RTL behavioural macro model,
 no PDK needed); `make SRAM_SIM=512` also runs (host layer verified incl. the
 PMEM depth guard).  A clean clone (`env -i make` with only an installed cocotb
 on `PATH`) reproduces the full matrix, so there is no local-venv or
 untracked-file dependency.  All protocol tests run at the **shipped clock:
 CLOCK_PERIOD 30 ns / 33.33 MHz** (`CLK_NS=30.0`), against the `CLOCK_HZ =
-33_333_333` firmware sweep.
+33_333_333` firmware sweep.  Both builds initialise DMEM explicitly after reset
+(see "Memory initialisation" above), which is what makes the gate-level run
+X-clean: GL expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (the four backdoor-only
+tests skip).
 
 ### USB 1.1 low-speed device TX (stretch) — `test_usb_ls.py`
 
