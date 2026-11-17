@@ -45,3 +45,6 @@ formal/build/
 .reference/
 CI_RESULTS*.md
 .area_synth/
+# local CI watchers (hardcoded run ids)
+tools/*watch*.sh
+tools/ci_diag*.sh
