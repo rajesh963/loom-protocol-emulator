@@ -541,24 +541,65 @@ protocol logic is real firmware; the *bit* timing is the scheduler's.
 | pins | **single-ended prototype**: D+ on `P[0] = uio[0]`, push-pull, NRZI; the chip drives/monitors only the D+ half |
 | external parts | a real board needs a USB connector/Pmod with **D− biased to the LS idle level and a 1.5 kΩ pull-up**; the FAQ allows external parts |
 
-**Status: RTL-verified, not silicon-tested.** `test/test_usb_ls.py` decodes the transmitted packet with
-an independent model on both the FF and SRAM-1024 memory builds (2/2 PASS) and checks SYNC, PID,
-payload, CRC16, stuffing and EOP. USB's own bit-rate tolerance (±0.25 %) is far wider than LOOM's
-period error (≤ 0.09 %), so timing is not the risk; host-side enumeration (control transfers, SETUP
-packets, CRC5 tokens) is the next firmware step and is not claimed here.
+**Status: TX RTL-verified; RX prototype decoder complete; no on-chip RX firmware yet.**
+`test/test_usb_ls.py` decodes the transmitted packet with an independent model on both memory builds
+(2/2 PASS) and checks SYNC, PID, payload, CRC16, stuffing and EOP. On the receive side,
+`host/usb_ls_rx.py` is a validated **differential host transmitter + device decoder**: DPLL clock
+recovery seeded from the KJKJKJKK SYNC pattern, NRZI decode, bit unstuffing, PID+complement, CRC-5 and
+CRC-16, EOP framing; a synthetic SETUP + DATA0 `GET_DESCRIPTOR` decodes correctly across **±0.25 %
+host clock drift** (22.186–22.314 cycles/bit) with payload and CRC ok. That is the algorithm an
+on-chip RX path must implement, and the oracle for it — but **no RX firmware is shipped** (the draft was
+dropped unverified). The budget analysis says RX is **code-size-bound, not timing-bound**: ~150–200
+instructions, i.e. it fits the SRAM-1024 build, not the 128-word FF fallback. So: USB device TX is
+demonstrated, USB enumeration is feasible and planned, and the reference decoder plus cycle budget are
+already in the repo.
 
-## 9. Stretch: 10BASE-T
+## 9. Ethernet frame TX (stage 1, achieved) and why true 10BASE-T is out of reach
 
-10BASE-T is 10 Mbaud Manchester: a 100 ns symbol, 3.33 cycles at 33.33 MHz, with the line state changing
-every half symbol (2 bits per symbol, one transition per bit). At 3.33 cycles per symbol the bit-banger
-would need an event every 6 cycles — possible with `emit` (`PERIOD = 0x0060` = 6.0 cycles) but with
-almost no slack for the encoder. The wave player is the intended tool: precompute 64 symbols
-(384 cycles = 6.4 µs) encoding a preamble/start-of-frame/CRC-32 bit-stream, `WPER = 0x0060`, and
-reload the pattern table from a thread that runs the MAC state machine. Peak sustained rate is
-therefore 16 patterns per 96 cycles of DMEM reads, which fits comfortably inside the 6-cycle
-per-pattern budget at `WLEN ≤ 64`.
+### 9.1 What the chip does emit: IEEE 802.3 Manchester frames at 2.083 Mbit/s
 
----
+`sw/examples/eth_tx.asm` (97 words, fits even the 128-word FF fallback) is a full **Ethernet frame
+transmitter**: 7 × `0xAA` preamble → `0xD5` SFD → a **64-byte minimum frame** (dst 6 + src 6 +
+ethertype 2 + 46-byte payload + 4-byte FCS, LSB-first) → 1536-cycle inter-packet gap, all
+**Manchester-coded** (0 → high,low; 1 → low,high), with the **CRC-32/802.3 FCS computed in firmware**
+(reflected `0xEDB88320`, init/final-XOR `0xFFFFFFFF`).
+
+| Quantity | Value |
+|---|---|
+| Manchester cell | **8.000 cycles exact** (`setp 0x0080`, one `emit` per cell) |
+| bit / rate | 16.00 cycles → 4.167 Mbaud → **2.083 Mbit/s** |
+| frame wire time | (56 + 8 + 512) bits × 16 = **9216 cycles = 276 µs** |
+| inter-packet gap | 1536 cycles (96 bit times) |
+| edge-grid residual | **0.00 cycle** (max), because every cell is a scheduled event |
+| firmware budget | ~9 instructions per bit against 16 cycles → 56 % of the window |
+| DMEM footprint | **32/32 words** (the whole 64-byte frame buffer; state in registers) |
+
+**Status: model-verified.** An independent receiver in `host/eth.py` (edge-clock recovery, Manchester
+decode, preamble/SFD lock, FCS check) decodes the frame **byte-exactly**, reports **FCS `0xF57743B9`
+ok** (the FCS words are preloaded as zero, so the match proves the firmware computed it), and measures
+cells at exactly 8.000 cycles. This is *stage 1*: Manchester line coding + framing + CRC-32 are
+protocol work the chip does itself. **An RTL test is being added** — until it lands, this example is
+described as model-verified, not RTL-verified.
+
+### 9.2 True 10BASE-T: measured arithmetic for why it is not defensible on this build
+
+The FAQ says there are "no fixed speed requirements" and that "the more of the protocol work (line
+coding, CRC, clock recovery) your chip does itself, the better". Stage 1 does that work — at
+2.083 Mbit/s. Pushing the same code to true 10BASE-T fails on arithmetic, not on effort:
+
+| Constraint | 10BASE-T needs | This build provides | Verdict |
+|---|---|---|---|
+| line rate | 20 Mbaud = **1.6667 cycles/cell** at 33.33 MHz | a data-bearing Manchester cell costs ≥ 4 instructions (extract bit, compute level, emit, advance) → **80 M instr/s** required vs **33.33 M instr/s** single-issue IPC | **2.4× over** |
+| more threads? | — | work-conserving round-robin shares *one* instruction per cycle; 4 threads add concurrency, not IPC — and four pin-merge writers add risk | does not help |
+| degenerate toggler | — | a 2-instruction toggler caps at **8.3 Mbaud** (half of 10BASE-T, and no data) | still short |
+| measured ceiling, same code | — | model run with only the cell divider patched: decodes at **5.5 cycles/cell = 3.03 Mbit/s**, fails at 5.0 cycles/cell (3.33 Mbit/s) | ~3 Mbit/s is the real ceiling |
+| TX jitter | a few ns, ±100 ppm | edges are cycle-quantised → **±15–23 ns on a 50 ns cell** | unattainable |
+| pattern buffer | 1024 Manchester half-cells per frame | wave player holds ≤ 64 patterns in a **32-word DMEM** | does not fit |
+
+So: **we did the protocol work (framing, CRC-32, Manchester line coding) in firmware at 2.083 Mbit/s,
+and we can show exactly why 10BASE-T itself is not physically defensible at 33.33 MHz with this
+microarchitecture.** A true 10BASE-T port is a revision-B item: it needs a faster issue path (or a
+dedicated serializer) plus a larger pattern buffer, not a bigger firmware effort.
 
 ## 10. Example program status
 
@@ -578,5 +619,7 @@ for the one-table summary.
 | `i2c_master` | 1 | SCL/SDA | 100 / 400 kHz | `waitd` + `dset`/`dclr` | sketch here, assembles |
 | `i2c_target`, `ps2_device` | 1 each | SCL/SDA, PS2_CLK/DAT | bus rate | `emite` pattern match | planned |
 | `ps2_host`, `onewire`, `ws2812`, `wave_player` | 1 each | see §4–§8 | see §4–§8 | `waitp`/`in`, chained `waitd`, `emitd`, CSRs | sketch here, assembles |
-| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **implemented, RTL-verified** (`sw/examples/usb_ls_tx.asm`, 2 tests) |
-| `uart_echo`, `capture_replay`, `10base_t` | 1–2 | various | various | mixed | planned / stretch |
+| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **implemented, RTL-verified** (`sw/examples/usb_ls_tx.asm`, 2 tests); RX reference decoder in `host/usb_ls_rx.py` |
+| `eth_tx` | 1 | TXD (Manchester) | **2.083 Mbit/s** (4.167 Mbaud) | `setp` + Manchester cells, CRC-32 in firmware | **model-verified** (independent decoder, FCS ok); RTL test in progress (`sw/examples/eth_tx.asm`, 97 words) |
+| `uart_echo`, `capture_replay` | 1–2 | various | various | mixed | planned |
+| true 10BASE-T (20 Mbaud) | — | — | — | — | **out of reach at 33.33 MHz** — see §9.2 arithmetic; revision-B item |

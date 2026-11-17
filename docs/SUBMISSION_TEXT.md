@@ -15,7 +15,7 @@ the chip is fabricated.
 
 ## What is demonstrated
 
-Eleven firmware programs covering nine protocol roles across six families — all run on the same RTL
+Twelve firmware programs covering ten protocol roles across seven families — all run on the same RTL
 and ISA with no per-protocol hardware:
 
 | Protocol | Roles | Measured at 33.33 MHz |
@@ -26,7 +26,8 @@ and ISA with no per-protocol hardware:
 | PS/2 | target | 14.28 kHz |
 | 1-Wire | master | standard speed, DS18B20 +25.0 C |
 | WS2812 | driver | 800 kHz |
-| USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); single-ended D+ prototype, not silicon-tested |
+| USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); RX reference decoder in `host/usb_ls_rx.py` (no on-chip RX firmware yet); single-ended D+ prototype, not silicon-tested |
+| Ethernet (802.3 framing) | frame TX (stretch) | **2.083 Mbit/s**, Manchester + firmware CRC-32; 64-byte minimum frame **model-verified** (RTL test in progress) |
 
 SPI and I2C are demonstrated in **both controller and target roles**; four threads can run
 protocols concurrently, with timing that is deterministic by construction.
@@ -77,9 +78,11 @@ change after a template knob cost the 6-hour CI cap), limitations, and how AI to
   inherited from the TT template (global routing deferred 47 track overflows to DRT). Attempt 7 fixes
   the routing configuration; if it still cannot fit the cap, the FAQ's prescribed fallback is a local
   LibreLane run plus the custom GDS action.
-- SPI is bit-banged in firmware: ~1.06 MHz master. 10BASE-T is not feasible in this build (Manchester
-  needs 1.67 cycles/symbol; the wave player can stream that but the 32-word data memory cannot hold a
-  frame) — documented as a revision-B item requiring a second SRAM.
+- SPI is bit-banged in firmware: ~1.06 MHz master. **True 10BASE-T is not achievable** (20 Mbaud =
+  1.6667 cycles/cell needs ≥4 instructions/cell = 80 M instr/s vs 33.33 M instr/s IPC, 2.4× over;
+  measured same-code ceiling 3.03 Mbit/s; edges are cycle-quantised to ±15–23 ns on a 50 ns cell).
+  We instead do the *protocol work* — 802.3 framing, Manchester, CRC-32 — at 2.083 Mbit/s, and show
+  the arithmetic for why 10BASE-T is revision-B (faster issue path + larger pattern buffer).
 - USB is device-TX-only on a single-ended D+ pin, proven on the golden model; real silicon needs
   external D- termination/pull-up parts and an on-chip RX/DPLL for full enumeration.
 - Capture/record-replay is RTL-complete and unit-verified but not integrated in this revision.
