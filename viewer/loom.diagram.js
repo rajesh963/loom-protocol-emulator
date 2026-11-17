@@ -66,7 +66,7 @@ window.LOOM_DIAGRAM = {
     {
       "id": "u_host",
       "label": "u_host",
-      "kind": "block",
+      "kind": "bridge",
       "x": 70,
       "y": 110,
       "w": 240,
@@ -119,7 +119,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "shifter",
             "label": "8-bit shifter",
-            "kind": "block",
+            "kind": "bridge",
             "x": 70,
             "y": 100,
             "w": 320,
@@ -132,7 +132,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "cs",
             "label": "CS / edge detect",
-            "kind": "block",
+            "kind": "bridge",
             "x": 70,
             "y": 230,
             "w": 320,
@@ -145,7 +145,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "cmddec",
             "label": "command decoder",
-            "kind": "block",
+            "kind": "peripheral",
             "x": 490,
             "y": 100,
             "w": 440,
@@ -161,7 +161,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "fsm",
             "label": "command FSM",
-            "kind": "block",
+            "kind": "peripheral",
             "x": 490,
             "y": 230,
             "w": 440,
@@ -174,7 +174,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "txrx",
             "label": "TX / RX bridge",
-            "kind": "block",
+            "kind": "bridge",
             "x": 70,
             "y": 390,
             "w": 380,
@@ -187,7 +187,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "status",
             "label": "STATUS capture",
-            "kind": "block",
+            "kind": "peripheral",
             "x": 490,
             "y": 390,
             "w": 440,
@@ -241,7 +241,7 @@ window.LOOM_DIAGRAM = {
     {
       "id": "u_core",
       "label": "u_core",
-      "kind": "block",
+      "kind": "cpu",
       "x": 410,
       "y": 110,
       "w": 440,
@@ -303,7 +303,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "thread0",
             "label": "thread0",
-            "kind": "block",
+            "kind": "cpu",
             "x": 70,
             "y": 100,
             "w": 180,
@@ -355,7 +355,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_regs",
                   "label": "registers",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 100,
                   "w": 320,
@@ -371,7 +371,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_pc",
                   "label": "PC + prefetch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 240,
                   "w": 150,
@@ -384,7 +384,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_flags",
                   "label": "flags / status",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 230,
                   "y": 240,
                   "w": 150,
@@ -396,7 +396,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_eq",
                   "label": "event queue",
-                  "kind": "block",
+                  "kind": "clock",
                   "x": 60,
                   "y": 420,
                   "w": 320,
@@ -413,7 +413,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_wait",
                   "label": "wait logic",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 100,
                   "w": 370,
@@ -426,7 +426,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_is",
                   "label": "issue slot",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 230,
                   "w": 370,
@@ -439,7 +439,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_inat",
                   "label": "timed sample",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 360,
                   "w": 370,
@@ -452,7 +452,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_rpt",
                   "label": "repeat / branch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 490,
                   "w": 370,
@@ -513,7 +513,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "thread1",
             "label": "thread1",
-            "kind": "block",
+            "kind": "cpu",
             "x": 270,
             "y": 100,
             "w": 180,
@@ -565,7 +565,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_regs",
                   "label": "registers",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 100,
                   "w": 320,
@@ -581,7 +581,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_pc",
                   "label": "PC + prefetch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 240,
                   "w": 150,
@@ -594,7 +594,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_flags",
                   "label": "flags / status",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 230,
                   "y": 240,
                   "w": 150,
@@ -606,7 +606,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_eq",
                   "label": "event queue",
-                  "kind": "block",
+                  "kind": "clock",
                   "x": 60,
                   "y": 420,
                   "w": 320,
@@ -623,7 +623,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_wait",
                   "label": "wait logic",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 100,
                   "w": 370,
@@ -636,7 +636,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_is",
                   "label": "issue slot",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 230,
                   "w": 370,
@@ -649,7 +649,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_inat",
                   "label": "timed sample",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 360,
                   "w": 370,
@@ -662,7 +662,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_rpt",
                   "label": "repeat / branch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 490,
                   "w": 370,
@@ -723,7 +723,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "thread2",
             "label": "thread2",
-            "kind": "block",
+            "kind": "cpu",
             "x": 470,
             "y": 100,
             "w": 180,
@@ -775,7 +775,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_regs",
                   "label": "registers",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 100,
                   "w": 320,
@@ -791,7 +791,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_pc",
                   "label": "PC + prefetch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 240,
                   "w": 150,
@@ -804,7 +804,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_flags",
                   "label": "flags / status",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 230,
                   "y": 240,
                   "w": 150,
@@ -816,7 +816,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_eq",
                   "label": "event queue",
-                  "kind": "block",
+                  "kind": "clock",
                   "x": 60,
                   "y": 420,
                   "w": 320,
@@ -833,7 +833,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_wait",
                   "label": "wait logic",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 100,
                   "w": 370,
@@ -846,7 +846,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_is",
                   "label": "issue slot",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 230,
                   "w": 370,
@@ -859,7 +859,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_inat",
                   "label": "timed sample",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 360,
                   "w": 370,
@@ -872,7 +872,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_rpt",
                   "label": "repeat / branch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 490,
                   "w": 370,
@@ -933,7 +933,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "thread3",
             "label": "thread3",
-            "kind": "block",
+            "kind": "cpu",
             "x": 670,
             "y": 100,
             "w": 180,
@@ -985,7 +985,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_regs",
                   "label": "registers",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 100,
                   "w": 320,
@@ -1001,7 +1001,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_pc",
                   "label": "PC + prefetch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 60,
                   "y": 240,
                   "w": 150,
@@ -1014,7 +1014,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_flags",
                   "label": "flags / status",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 230,
                   "y": 240,
                   "w": 150,
@@ -1026,7 +1026,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_eq",
                   "label": "event queue",
-                  "kind": "block",
+                  "kind": "clock",
                   "x": 60,
                   "y": 420,
                   "w": 320,
@@ -1043,7 +1043,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_wait",
                   "label": "wait logic",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 100,
                   "w": 370,
@@ -1056,7 +1056,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_is",
                   "label": "issue slot",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 230,
                   "w": 370,
@@ -1069,7 +1069,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_inat",
                   "label": "timed sample",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 360,
                   "w": 370,
@@ -1082,7 +1082,7 @@ window.LOOM_DIAGRAM = {
                 {
                   "id": "t_rpt",
                   "label": "repeat / branch",
-                  "kind": "block",
+                  "kind": "cpu",
                   "x": 470,
                   "y": 490,
                   "w": 370,
@@ -1143,7 +1143,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "eq_row",
             "label": "4 \u00d7 event queue",
-            "kind": "block",
+            "kind": "clock",
             "x": 70,
             "y": 340,
             "w": 520,
@@ -1160,7 +1160,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "arbiter",
             "label": "issue arbiter",
-            "kind": "block",
+            "kind": "accelerator",
             "x": 690,
             "y": 340,
             "w": 420,
@@ -1173,7 +1173,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "decode",
             "label": "decode",
-            "kind": "block",
+            "kind": "cpu",
             "x": 690,
             "y": 420,
             "w": 200,
@@ -1186,7 +1186,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "alu",
             "label": "ALU",
-            "kind": "block",
+            "kind": "accelerator",
             "x": 910,
             "y": 420,
             "w": 200,
@@ -1199,7 +1199,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "csr",
             "label": "CSR bank",
-            "kind": "block",
+            "kind": "peripheral",
             "x": 1070,
             "y": 395,
             "w": 280,
@@ -1216,7 +1216,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "fifos",
             "label": "TX / RX FIFOs",
-            "kind": "block",
+            "kind": "peripheral",
             "x": 1070,
             "y": 500,
             "w": 280,
@@ -1229,7 +1229,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "pinmerge",
             "label": "pin merge (S6)",
-            "kind": "block",
+            "kind": "io",
             "x": 1070,
             "y": 605,
             "w": 280,
@@ -1242,7 +1242,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "hostport",
             "label": "host port",
-            "kind": "block",
+            "kind": "bridge",
             "x": 1070,
             "y": 100,
             "w": 280,
@@ -1255,7 +1255,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "memport",
             "label": "IMEM / DMEM ports",
-            "kind": "block",
+            "kind": "bridge",
             "x": 1070,
             "y": 195,
             "w": 280,
@@ -1268,7 +1268,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "capture",
             "label": "capture engine",
-            "kind": "block",
+            "kind": "debug",
             "x": 1070,
             "y": 280,
             "w": 280,
@@ -1359,7 +1359,7 @@ window.LOOM_DIAGRAM = {
     {
       "id": "u_mem",
       "label": "u_mem",
-      "kind": "block",
+      "kind": "memory",
       "x": 950,
       "y": 110,
       "w": 260,
@@ -1411,7 +1411,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "pmem",
             "label": "loom_pmem_sram",
-            "kind": "block",
+            "kind": "memory",
             "x": 70,
             "y": 100,
             "w": 460,
@@ -1428,7 +1428,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "macro",
             "label": "RM_IHPSG13_1P_1024x32",
-            "kind": "block",
+            "kind": "memory",
             "x": 70,
             "y": 240,
             "w": 460,
@@ -1445,7 +1445,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "dmem",
             "label": "DMEM array",
-            "kind": "block",
+            "kind": "memory",
             "x": 650,
             "y": 100,
             "w": 380,
@@ -1462,7 +1462,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "hostarb",
             "label": "host address decode",
-            "kind": "block",
+            "kind": "bridge",
             "x": 70,
             "y": 460,
             "w": 300,
@@ -1475,7 +1475,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "haltfill",
             "label": "unwritten-word HALT",
-            "kind": "block",
+            "kind": "peripheral",
             "x": 400,
             "y": 460,
             "w": 300,
@@ -1488,7 +1488,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "ports",
             "label": "fetch / data ports",
-            "kind": "block",
+            "kind": "bus",
             "x": 730,
             "y": 460,
             "w": 300,
@@ -1550,7 +1550,7 @@ window.LOOM_DIAGRAM = {
     {
       "id": "u_wave",
       "label": "u_wave",
-      "kind": "block",
+      "kind": "accelerator",
       "x": 430,
       "y": 460,
       "w": 400,
@@ -1602,7 +1602,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "frac",
             "label": "12.4 divider",
-            "kind": "block",
+            "kind": "clock",
             "x": 70,
             "y": 100,
             "w": 360,
@@ -1615,7 +1615,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "addr",
             "label": "pattern address",
-            "kind": "block",
+            "kind": "accelerator",
             "x": 530,
             "y": 100,
             "w": 380,
@@ -1628,7 +1628,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "read",
             "label": "DMEM pattern read",
-            "kind": "block",
+            "kind": "accelerator",
             "x": 530,
             "y": 230,
             "w": 380,
@@ -1641,7 +1641,7 @@ window.LOOM_DIAGRAM = {
           {
             "id": "merge",
             "label": "wave \u2192 pin merge",
-            "kind": "block",
+            "kind": "io",
             "x": 70,
             "y": 360,
             "w": 840,
@@ -1687,7 +1687,7 @@ window.LOOM_DIAGRAM = {
     {
       "id": "pins",
       "label": "pins_out / pins_in / dir",
-      "kind": "block",
+      "kind": "io",
       "x": 70,
       "y": 700,
       "w": 1140,
@@ -1705,7 +1705,7 @@ window.LOOM_DIAGRAM = {
     {
       "id": "capture",
       "label": "u_capture",
-      "kind": "block",
+      "kind": "debug",
       "x": 950,
       "y": 470,
       "w": 260,

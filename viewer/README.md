@@ -41,9 +41,42 @@ python3 viewer/gen_diagram.py
 
 Edit `gen_diagram.py` (not the generated files) when the RTL hierarchy changes.
 
-## SiliconPulse compatible
+## SiliconPulse compatible — how to view LOOM in a siliconpulse-3d fork
 
-The JSON uses the **SiliconPulse `diagram.v1`** schema (the same one used by
-[siliconpulse-3d](https://github.com/rajesh963/siliconpulse-3d)), so
-`viewer/loom.diagram.json` can also be loaded into that application via
-**Architecture → Load JSON** for the full spec/IP-XACT workspace experience.
+`viewer/loom.diagram.json` uses the **SiliconPulse `diagram.v1`** schema and has
+been validated against
+[`public/examples/diagram.schema.json`](https://github.com/rajesh963/siliconpulse-3d/blob/main/public/examples/diagram.schema.json)
+(every nested diagram, including `internal` modules, passes).
+
+**Runtime import (no code changes):**
+
+```bash
+git clone https://github.com/<you>/siliconpulse-3d && cd siliconpulse-3d
+npm install
+npm run dev                       # http://localhost:3000
+# grab the diagram (or download it from the repo's viewer/ folder)
+curl -LO https://raw.githubusercontent.com/rajesh963/loom-protocol-emulator/master/viewer/loom.diagram.json
+```
+
+Then in the app: **Architecture → Load JSON / IP-XACT / CSV → choose
+`loom.diagram.json` → Validate → Load diagram**. Click a block that shows
+internals (e.g. `u_core`) and use **Open internal module** to walk
+`u_core → thread0 → event queue`; use the app's breadcrumb to go back. The
+upload is stored in `localStorage` for the current SoC preset (switching presets
+clears it) and **Export JSON** downloads it again.
+
+**Serve it as a static example in the fork (optional):**
+
+```bash
+cp loom.diagram.json siliconpulse-3d/public/examples/     # then fetch it from the UI
+```
+
+**Add it as a permanent preset (optional, requires a catalog entry):**
+copy the JSON to `src/data/diagrams/loom.ts` as
+`export const LOOM_DIAGRAM: ArchitectureDiagram = {...}`, register it in
+`DIAGRAM_REGISTRY` in `src/data/diagrams/index.ts`, and point a SoC catalog
+entry at it. The runtime import above is the documented "bring your own SoC"
+path and needs no code.
+
+**Zero-install alternative:** open our own `viewer/index.html` — same JSON, no
+Node toolchain, works from `file://`.

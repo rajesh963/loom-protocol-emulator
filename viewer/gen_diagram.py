@@ -23,9 +23,36 @@ CYAN, VIOLET, BLUE, PINK, SLATE, AMBER, EMERALD = (
     "#22d3ee", "#a78bfa", "#3b82f6", "#f472b6", "#64748b", "#f59e0b", "#34d399")
 
 
+
+# SiliconPulse diagram.v1 restricts `kind` to this enum (see siliconpulse-3d
+# public/examples/diagram.schema.json): cpu, bus, crossbar, bridge, memory,
+# peripheral, accelerator, io, security, clock, debug, group.
+KIND = {
+    # top level
+    "u_host": "bridge", "u_core": "cpu", "u_mem": "memory", "u_wave": "accelerator",
+    "pins": "io", "capture": "debug",
+    # core internals
+    "thread0": "cpu", "thread1": "cpu", "thread2": "cpu", "thread3": "cpu",
+    "eq_row": "clock", "arbiter": "accelerator", "decode": "cpu", "alu": "accelerator",
+    "csr": "peripheral", "fifos": "peripheral", "pinmerge": "io",
+    "hostport": "bridge", "memport": "bridge",
+    # thread internals
+    "t_regs": "cpu", "t_pc": "cpu", "t_flags": "cpu", "t_eq": "clock",
+    "t_wait": "cpu", "t_is": "cpu", "t_inat": "cpu", "t_rpt": "cpu",
+    # memory
+    "pmem": "memory", "macro": "memory", "dmem": "memory",
+    "hostarb": "bridge", "haltfill": "peripheral", "ports": "bus",
+    # host bridge
+    "shifter": "bridge", "cs": "bridge", "cmddec": "peripheral",
+    "fsm": "peripheral", "txrx": "bridge", "status": "peripheral",
+    # wave player
+    "frac": "clock", "addr": "accelerator", "read": "accelerator", "merge": "io",
+}
+
+
 def blk(id, label, x, y, w, h, color, *, sublabel=None, kind=None, details=None,
         badges=None, spec=None, internal=None):
-    b = {"id": id, "label": label, "kind": kind or "block",
+    b = {"id": id, "label": label, "kind": kind or KIND.get(id, "peripheral"),
          "x": x, "y": y, "w": w, "h": h, "color": color}
     if sublabel: b["sublabel"] = sublabel
     if details:  b["details"] = details

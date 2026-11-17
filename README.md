@@ -84,10 +84,11 @@ xdg-open viewer/index.html        # or open the file in any browser
 - **Online:** <https://rajesh963.github.io/loom-protocol-emulator/modules/> — deployed together with the 3D GDS viewer
 - **The die in 3D:** <https://gds-viewer.tinytapeout.com/?pdk=ihp-sg13cmos5l&model=https%3A%2F%2Frajesh963.github.io%2Floom-protocol-emulator%2Ftinytapeout.oas> · landing page with both: <https://rajesh963.github.io/loom-protocol-emulator/>
 - **Deep links:** `viewer/index.html#/u_core/thread0` opens a specific module
-- **SiliconPulse compatible:** `viewer/loom.diagram.json` uses the
-  `diagram.v1` schema and can be loaded into
+- **SiliconPulse compatible:** `viewer/loom.diagram.json` uses the `diagram.v1`
+  schema (validated against their schema, nested modules included) and loads into
   [siliconpulse-3d](https://github.com/rajesh963/siliconpulse-3d) via
-  *Architecture → Load JSON*
+  *Architecture → Load JSON* — see [viewer/README.md](viewer/README.md#siliconpulse-compatible--how-to-view-loom-in-a-siliconpulse-3d-fork)
+  for the exact fork-and-import steps
 - regenerate with `python3 viewer/gen_diagram.py` (see [viewer/README.md](viewer/README.md))
 
 ![LOOM module explorer — top level](docs/images/module_explorer_top.png)
