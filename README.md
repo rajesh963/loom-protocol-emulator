@@ -70,6 +70,29 @@ the SRAM instruction-memory macro beside the standard-cell logic:
 Result of attempt 8 (`d7bec7a`): **658 414 µm² instance area (54.5 % of the core), 35 971 instances,
 timing closed at 33.33 MHz with +1.6 ns slow-corner margin, 8.60 mW, precheck 10/10.**
 
+## Explore the design (interactive hierarchy)
+
+`viewer/index.html` is a self-contained module explorer for the RTL — no build
+step, no dependencies. It shows the hierarchy the way the RTL is instantiated
+(top → `u_core`/`u_mem`/`u_host`/`u_wave` → threads, event scheduler, CSRs,
+FIFOs, memory, wave player), with per-block details, badges and spec references.
+
+```bash
+xdg-open viewer/index.html        # or open the file in any browser
+```
+
+- **Online:** <https://rajesh963.github.io/loom-protocol-emulator/modules/> (deployed with the 3D GDS viewer)
+- **Deep links:** `viewer/index.html#/u_core/thread0` opens a specific module
+- **SiliconPulse compatible:** `viewer/loom.diagram.json` uses the
+  `diagram.v1` schema and can be loaded into
+  [siliconpulse-3d](https://github.com/rajesh963/siliconpulse-3d) via
+  *Architecture → Load JSON*
+- regenerate with `python3 viewer/gen_diagram.py` (see [viewer/README.md](viewer/README.md))
+
+![LOOM module explorer — top level](docs/images/module_explorer_top.png)
+
+![LOOM module explorer — loom_core internals](docs/images/module_explorer_core.png)
+
 ## The competition
 
 This is an entry to the [Jane Street × Tiny Tapeout protocol emulator ASIC

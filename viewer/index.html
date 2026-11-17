@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LOOM module explorer — tt_um_rajesh963_loom</title>
+<meta name="description" content="Interactive 2.5D module and submodule view of the LOOM protocol emulator RTL (Tiny Tapeout IHP CMOS5L 8x4).">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div>
+      <h1 id="title">LOOM — module explorer</h1>
+      <div class="sub" id="subtitle">loading…</div>
+    </div>
+    <div class="crumbs" id="crumbs"></div>
+    <div class="spacer"></div>
+    <button class="btn" id="btn-back" title="Back to parent module (Esc)">← back</button>
+    <button class="btn" id="btn-root" title="Back to the top level">top</button>
+    <button class="btn" id="btn-tilt" aria-pressed="false" title="Toggle 2.5D perspective">3D tilt</button>
+    <button class="btn" id="btn-flat" title="Fit the diagram to the window">fit</button>
+  </header>
+
+  <aside>
+    <h2>Hierarchy</h2>
+    <ul class="tree" id="tree"></ul>
+    <h2 style="margin-top:18px">Legend</h2>
+    <div style="font-size:12px;color:#8b9bb4;line-height:1.9;padding:0 8px">
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#22d3ee"></span> host link</div>
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#a78bfa"></span> compute / threads</div>
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#3b82f6"></span> memory</div>
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#f472b6"></span> timing / patterns</div>
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#f59e0b"></span> CSRs / commands</div>
+      <div><span class="dot" style="display:inline-block;width:9px;height:9px;border-radius:3px;background:#64748b"></span> pins / ports</div>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="stage-wrap">
+      <div id="stage">
+        <svg id="wires" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+    <div class="legend" id="legend"></div>
+    <div id="hint">click a block for details · double-click (or “modules” badge) to open its internal diagram · <kbd>Esc</kbd> back</div>
+  </main>
+
+  <section id="details"><div class="empty">Select a block to see what it is, where it lives in the RTL, and which spec section defines it. Drag &amp; drop any SiliconPulse <code>diagram.json</code> to load a different hierarchy.</div></section>
+</div>
+
+<script src="loom.diagram.js"></script>
+<script src="viewer.js"></script>
+</body>
+</html>

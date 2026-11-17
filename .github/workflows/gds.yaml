@@ -53,7 +53,114 @@ jobs:
     needs: gds
     runs-on: ubuntu-24.04
     permissions:
+      contents: read
       pages: write # to deploy to Pages
       id-token: write # to verify the deployment originates from an appropriate source
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: TinyTapeout/tt-gds-action/viewer@ttihp27a
+      - name: checkout repo
+        uses: actions/checkout@v6
+
+      - name: Download Tiny Tapeout submission
+        uses: actions/download-artifact@v7
+        with:
+          name: tt_submission
+
+      - name: Read PDK information from submission
+        shell: bash
+        working-directory: tt_submission
+        run: |
+          PDK=$(jq -r '.PDK' pdk.json)
+          echo "PDK=$PDK" >> $GITHUB_ENV
+
+      - name: Download gds_render (png) artifact
+        uses: actions/download-artifact@v7
+        with:
+          name: gds_render
+          path: gh-pages
+
+      - name: Copy OAS And GDSII
+        shell: bash
+        run: |
+          cp tt_submission/*.gds gh-pages/tinytapeout.gds
+          cp tt_submission/*.oas gh-pages/tinytapeout.oas
+
+      - name: Add the LOOM RTL module explorer
+        shell: bash
+        run: |
+          mkdir -p gh-pages/modules
+          cp -r viewer/. gh-pages/modules/
+
+      - name: Generate the landing page (3D viewer + module explorer)
+        shell: bash
+        run: |
+          cat > gh-pages/index.html << EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>LOOM — GDS and RTL module explorer</title>
+            <style>
+              body { margin:0; font:15px/1.5 ui-sans-serif,system-ui,sans-serif; color:#e6edf7;
+                     background:radial-gradient(1200px 600px at 70% -10%,#12203a,#070b14 60%); }
+              main { max-width: 980px; margin: 6vh auto; padding: 0 24px; }
+              h1 { font-size: 26px; margin: 0 0 6px; }
+              p.sub { color:#8b9bb4; margin: 0 0 28px; }
+              .cards { display:grid; grid-template-columns: 1fr 1fr; gap:18px; }
+              a.card { display:block; padding:20px; border:1px solid #24344e; border-radius:16px;
+                       background:linear-gradient(180deg,#16233a,#0f1828); color:#e6edf7; text-decoration:none; }
+              a.card:hover { border-color:#22d3ee; }
+              .card h2 { font-size:17px; margin:0 0 6px; color:#22d3ee; }
+              .card p { margin:0; color:#8b9bb4; font-size:13.5px; }
+              img { width:100%; border-radius:12px; border:1px solid #24344e; margin-top:26px; }
+              footer { margin-top:22px; color:#64748b; font-size:12px; }
+            </style>
+          </head>
+          <body>
+            <main>
+              <h1>LOOM — programmable protocol emulator</h1>
+              <p class="sub">Tiny Tapeout IHP CMOS5L · 8x4 tiles · 33.33 MHz · GDS + precheck passed</p>
+              <div class="cards">
+                <a class="card" href="https://gds-viewer.tinytapeout.com/?pdk=${PDK}&model="
+                   onclick="this.href='https://gds-viewer.tinytapeout.com/?pdk='+encodeURIComponent('${PDK}')+'&model='+encodeURIComponent(location.href+'/tinytapeout.oas')">
+                  <h2>3D GDS viewer &rarr;</h2>
+                  <p>The hardened die in Tiny Tapeout's 3D viewer (the same model as the submission).</p>
+                </a>
+                <a class="card" href="./modules/">
+                  <h2>RTL module explorer &rarr;</h2>
+                  <p>Interactive hierarchy: top &rarr; core &rarr; threads &rarr; event scheduler, host bridge, memory and wave player.</p>
+                </a>
+              </div>
+              <img src="gds_render.png" alt="GDS render of the LOOM die">
+              <footer>LOOM repo: <a style="color:#22d3ee" href="https://github.com/rajesh963/loom-protocol-emulator">github.com/rajesh963/loom-protocol-emulator</a></footer>
+            </main>
+          </body>
+          </html>
+          EOF
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: 'gh-pages'
+          name: github-pages-${{ github.run_attempt }}
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
+        with:
+          artifact_name: github-pages-${{ github.run_attempt }}
+
+      - name: Display preview in workflow summary
+        shell: bash
+        run: |
+          PAGE_URL=${{ steps.deployment.outputs.page_url }}
+          PAGE_URL=$(echo "$PAGE_URL" | sed -e 's/\/$//')
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          # GDS + module explorer
+          - [3D GDS viewer](https://gds-viewer.tinytapeout.com/?model=$PAGE_URL/tinytapeout.oas&pdk=$PDK)
+          - [LOOM RTL module explorer]($PAGE_URL/modules/)
+          ![png]($PAGE_URL/gds_render.png)
+          EOF
