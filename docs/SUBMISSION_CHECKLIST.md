@@ -15,22 +15,22 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 
 | # | Requirement | Evidence / artefact | Owner | Status |
 |---|---|---|---|---|
-| 1 | Public repository with RTL | this repo, Apache-2.0 (`LICENSE`) | lead | TBD (make public at submission) |
-| 2 | `info.yaml` complete and valid: 8×4, 60 MHz, `tt_um_rajesh963_loom`, source_files, full 24-pin pinout, `yaml_version: 6` | [`info.yaml`](../info.yaml) | docs | **done** |
+| 1 | Public repository with RTL | this repo, Apache-2.0 (`LICENSE`) | lead | **done** — repository is public and GitHub Pages is enabled, so the CI datasheet/preview links work |
+| 2 | `info.yaml` complete and valid: 8×4, **33.33 MHz** (`clock_hz: 33333333`), `tt_um_rajesh963_loom`, source_files, full 24-pin pinout, `yaml_version: 6` | [`info.yaml`](../info.yaml) | docs | **done** |
 | 3 | `src/` contains exactly the build sources (`rtl/` mirrored + the SRAM macro blackbox) | `tools/sync_src.sh`; `info.yaml source_files` = `loom_bus.vh, loom_mem.v, loom_core.v, loom_host.v, loom_wave.v, loom_pmem_sram.v, sram_bb.v, tt_um_rajesh963_loom.v` (`loom_sram_model.v` is SIM-only; `pdn_cfg.tcl` is referenced by `PDN_CFG`, not a Verilog source) | lead | **done** (re-run before submit) |
 | 3b | SRAM flow setup present (`pdn_cfg.tcl` + `Project.ExtendPowerStripes` plugin) and the 512-word reserve path (`tools/select_build.sh sram512`) works | file present, script run | lead | in progress |
 | 3c | **Library hygiene**: `EXTRA_EXCLUDED_CELLS` excludes IO pad cells (`sg13cmos5l_IOPad*`) so ABC cannot map logic nets onto pad drivers | `src/config.json` | lead | **done** (attempt 6) |
 | 4 | RTL lint clean (`iverilog -g2012 -I rtl -o /dev/null rtl/*.v`) | CI / local | lead | TBD |
-| 5 | `gds` GitHub Action green (LibreLane, `tt-gds-action@ttihp27a`, `ihp-sg13cmos5l`) | Actions run | lead | TBD |
-| 6 | `precheck` green | Actions run | lead | TBD |
-| 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | TBD |
+| 5 | `gds` GitHub Action green (LibreLane, `tt-gds-action@ttihp27a`, `ihp-sg13cmos5l`) | Actions run | lead | **done** — attempt 8 (`d7bec7a`), GDS built in ~2.5 h, DRT 0 violations; 658 414 µm² (54.5 %), timing closed, 8.60 mW |
+| 6 | `precheck` green | Actions run | lead | **done** — **10/10 checks passed** on `d7bec7a` |
+| 7 | `gl_test` green (gate-level protocol suite) | Actions run + `test/results.xml` | verify | **in progress** — first run `57/60` (3 SRAM-X failures), fixed sim-only in `fd0a67b`, final re-verification running (expected `PASS=60 SKIP=4`) |
 | 8 | Both build variants buildable (FF fallback and SRAM flagship) | CI matrix | lead | TBD |
 | 9 | No `TODO`/`FIXME` left in delivered RTL or firmware | `grep -rn TODO rtl/ sw/` | all | TBD |
 | 9b | `test` workflow reproduces the full cocotb matrix on GitHub (64 PASS / 0 SKIP on both build configurations) | Actions run | verify | **done** (green; re-check on the final SHA) |
 | 9c | `docs` workflow green (datasheet builds from `docs/info.md`) | Actions run | docs | **done** (green) |
-| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **TBD** — attempts 1/2/2b failed on area; attempt 3 solved area (−46 %); attempts 4/5 were blocked at global routing by **stray IO-pad cells** (57 600 µm²) that ABC mapped from internal nets; **timing closed at 33.33 MHz** in attempt 5 (`RSZ-0098 No setup violations`); attempt 6 excludes `sg13cmos5l_IOPad*` and is running |
+| 9d | A LibreLane attempt reaches **all** of GDS + precheck + gl_test on one commit | Actions run, logged in [`FLOW_STATUS.md`](FLOW_STATUS.md) | lead | **GDS + precheck done** (attempt 8, `d7bec7a`); only `gl_test` re-verification remains (`fd0a67b`) |
 | 9e | [`FLOW_STATUS.md`](FLOW_STATUS.md) updated with the latest attempt (numbers from the CI log, no estimates) | log | docs + lead | in progress |
-| 9g | The GDS run finishes **inside the 6-hour GitHub Actions cap**. Attempt 6 hit the cap in detailed routing (template `GRT_ALLOW_CONGESTION` bug); attempt 7's routing fix should make DRT short. FAQ fallback if it cannot: run LibreLane locally and submit via the custom GDS action (still needs precheck) | Actions run | lead | **pending attempt 7** |
+| 9g | The GDS run finishes **inside the 6-hour GitHub Actions cap** | Actions run | lead | **done** — attempt 8 completed the whole flow in **~2.5 h** (routability-driven placement + 50 % density); attempts 6/7 had capped at 6 h in DRT. FAQ local-flow/custom-GDS fallback not needed |
 | 9f | Timing tables re-scaled to the shipped 33.33 MHz (architecture §2.1, `isa.md` constants, `examples.md` budgets, SVG diagrams, host-link SCK ceiling) and `info.yaml clock_hz = 33333333` | docs + firmware (`sw/examples/`, `sw/prog/manifest.json`) | docs / firmware | **done** (firmware sweep `fbea876`) |
 
 ## 2. Documentation (the write-up is weighted heavily)

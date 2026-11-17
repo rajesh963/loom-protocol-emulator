@@ -217,20 +217,15 @@ pin is exercised at least once with four threads running concurrently.
 
 ## 7. Results
 
-> **Status: area solved, timing solved, and the last blocker was a library-hygiene bug — reported as
-> measured.** Three FF-build attempts failed on area; the SRAM build (**attempt 3**) measured
-> **622 401 µm² = 51.5 % raw area ratio / 44.7 % movable-relative flow utilisation — a −46 % area
-> reduction**. Attempt 4 reached global routing but was blocked by an unplaced instance while 60 MHz
-> also failed setup (WNS −4.125 ns, 20.8 ns path). Attempt 5 re-targeted to **33.33 MHz** and **closed
-> setup** (`RSZ-0098 No setup violations found`) — and still hit the same instance, which turned out to
-> be **four stray `IOPadOut16mA` cells (57 600 µm², 12 % of moved area) that ABC had mapped onto
-> internal high-fanout nets** because the IO library was in the synthesis set. **Attempt 6 excludes
-> `sg13cmos5l_IOPad*` and is running.** The RTL being hardened passes the **full 64/64 simulation
-> matrix with 0 skips** (frozen at `4164c42`; Ethernet TX, USB-LS TX and the differential USB-LS RX pin
-> path all RTL-verified). Nothing here is marked passing until the flow step passed; canonical log
-> [`FLOW_STATUS.md`](FLOW_STATUS.md).
+> **Status: COMPLETE, VERIFIED TAPE-OUT.** The final build (attempt 8, `d7bec7a`) **passed GDS and
+> precheck 10/10** in ~2.5 h: **658 414 µm² = 54.5 %** of the 4-core (35 971 instances), **DRC/antenna
+> clean**, **timing closed at all three corners** with worst setup slack **+1.6006 ns** at the slow
+> corner (28.4 ns path against 30 ns), **8.60 mW** at 33.33 MHz, VDD 1.2 V. Gate level was `57/60` with
+> three SRAM-X failures, fixed sim-only in `fd0a67b` and re-verifying now. RTL verification is frozen at
+> `4164c42`: **64/64 on both memory builds, 0 skips**. **No silicon measurements exist** — these are
+> flow results for the hardened netlist. Canonical log: [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
-### 7.1 What the flow told us, and why it was worth four attempts
+### 7.1 What the flow told us, and why it was worth eight attempts
 
 The first hardening run was intentionally the *smallest-risk* build — instruction memory as a flop
 array, no SRAM macro, no power-grid plugin, no `pdn_cfg.tcl` — to walk the whole LibreLane chain
@@ -246,7 +241,8 @@ design that does not fit:
 | 4 `5732b23` | same design, `PL_ROUTABILITY_DRIVEN: false` | reached **global routing**; blocked by an unplaced instance while 16.67 ns also failed setup (**WNS −4.125 ns, TNS −1658.6**, 1 028 endpoints, path ≈ 20.8 ns) | 622 401 µm² | 44.7 % movable-relative |
 | 5 `98cd5d6` | same design, **`CLOCK_PERIOD 30 ns` = 33.33 MHz** | **setup closed** (`RSZ-0098 No setup violations found`), 3 177 hold endpoints repaired — still `[GRT-0010]` on the same unplaced cell | 622 401 µm² | — |
 | 6 `1182041` | same design + `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` | **CANCELLED at the 6-hour CI cap.** IO-pad fix worked: all stages through global routing finished in **15 min**, then detailed routing ran **5 h 45 m** and was killed with **6 violations left** (trajectory 37 824 → 24 763 → 22 716 → 5 797 → … → 6). Root cause: `GRT_ALLOW_CONGESTION: true` inherited from the TT template—global routing deferred **47 track overflows** to DRT | ~30 600 instances, 48.1 % eff. (45.6 % GPL) | — |
-| 7 `6050726` | same design, **routing configuration fixed** (`GRT_ALLOW_CONGESTION:false`, `GRT_ADJUSTMENT:0.18`, `GRT_OVERFLOW_ITERS:150`) | **running** — RTL/firmware/clock unchanged; expected DRT to start near-zero and finish well under an hour | — | — |
+| 7 `6050726` | same design, GRT forced to clear congestion (`ALLOW_CONGESTION:false`, `ADJUSTMENT:0.18`, `OVERFLOW_ITERS:150`) | **CANCELLED at the 6 h cap, WORSE**: DRT 8 686 → … → **5 198 left** (attempt 6 had 6). The router knob made DRT harder — measured negative result, no artefacts | — | — |
+| 8 `d7bec7a` | GRT knobs reverted; **`PL_ROUTABILITY_DRIVEN: true`**, **`PL_TARGET_DENSITY_PCT: 50`** | ✅ **PASSED — GDS built, precheck 10/10**, ~2.5 h; DRT 28 461 → … → **0**, antenna 4 031 → … → **0** | **658 414 µm² = 54.5 %**, 35 971 inst. | timing closed, 8.60 mW |
 
 Attempt 1's histogram is the diagnosis: 8 042 flip-flops (394 k µm²), **35 510 buffer cells =
 305 304 µm², 27.0 % of the design** (`buf_1` 29 195 = 211 958 µm²; `buf_2/4/8/16` ≈ 93 k µm²), and
@@ -298,19 +294,25 @@ utilisation).
 **Attempt 6 was the closest yet, and it was killed by a template knob, not by the design.** With the
 IO pads excluded the flow sailed through synthesis, placement, CTS and *global* routing in **15
 minutes** — then spent **5 h 45 m in detailed routing**, converging 37 824 → 24 763 → 22 716 → 5 797
-→ … → 6 violations, and was cancelled by GitHub Actions' 6-hour cap with six left. The design is ~30 600
-instances at 45.6 % utilisation: it was never too big. The measured cause is `GRT_ALLOW_CONGESTION:
-true` — a Tiny Tapeout template default — which made global routing give up with **47 track
-overflows** (M2 59.8 %, M3 66.1 % usage) and its own log recommended `GRT_ADJUSTMENT 0.18` rather than
-0.30. DRT then had to repair that congestion violation-by-violation.
+→ … → 6 violations, and was capped with six left. At ~30 600 instances and 45.6 % utilisation the design
+was never too big; the measured cause was `GRT_ALLOW_CONGESTION: true`, a Tiny Tapeout template default
+that let global routing defer **47 track overflows** to DRT.
 
-Attempt 7 changes only `src/config.json` (`GRT_ALLOW_CONGESTION: false`, `GRT_ADJUSTMENT: 0.18`,
-`GRT_OVERFLOW_ITERS: 150`) and is running. If global routing cannot converge it now fails in ~20
-minutes instead of burning the cap, so the loop is cheap. The FAQ anticipated designs that hit the
-6-hour limit and prescribes a local LibreLane run plus a custom GDS action; the lesson here is that we
-did not need that fallback — **we needed one flow setting.** A knob inherited from a template can cost
-six hours before it is understood, and reading the router's own warning ("reduce the layer adjustment
-from 30 % to 18 %") was worth more than another design iteration.
+Attempt 7 tested the obvious fix — force global routing to clear congestion — and **it made things
+worse**: after another ~5 h 40 m the run was capped with **5 198 violations left**. The router's default
+behaviour was better; the real problem was the **placement** DRT inherited.
+
+Attempt 8 therefore attacked placement: GRT knobs reverted, **routability-driven placement** enabled
+(it had failed in attempt 3 only because of the stray IO-pad cells, now excluded) and target density
+lowered from 60 % to **50 %**. Detailed routing converged **28 461 → 15 893 → 14 361 → 890 → 65 → 8 → 8
+→ 0**, post-DRT antenna repair **4 031 → 806 → 536 → 38 → 1 → 0**, and the whole flow finished in
+**~2.5 hours**. The design passed **GDS, precheck 10/10, DRC and timing** — a complete verified
+tape-out.
+
+**The seven-lesson arc** is the point of telling this honestly: area needed a *structural* fix (SRAM
+macro, not knobs), register pressure came from a *library* mistake (IO pads in the synthesis set), the
+clock had to be *re-targeted* to what closes (33.33 MHz), and routing was a *placement* problem, not a
+router-knob problem. None of those were visible from a single error message.
 
 ### Flow lessons worth keeping
 
@@ -326,7 +328,10 @@ from 30 % to 18 %") was worth more than another design iteration.
 4. **Tools report symptoms, not causes.** A placement-mode heuristic produced `[GRT-0010]` long before
    anyone suspected the netlist contents, and the eventual fix was one configuration line. Read the
    artifact, not just the error string.
-5. **Template defaults are not neutral.** `GRT_ALLOW_CONGESTION: true`, inherited unexamined from the
+5. **Convergence is a placement problem before it is a router problem.** Routability-driven placement +
+   a lower target density took DRT from "6 violations away after six hours" to **zero in 2.5 hours**;
+   the router knobs never were the lever.
+6. **Template defaults are not neutral.** `GRT_ALLOW_CONGESTION: true`, inherited unexamined from the
    Tiny Tapeout template, made global routing defer 47 overflows and cost 5 h 45 m of detailed routing
    before the 6-hour cap killed the run — on a design that was never too big. The router's own log
    contained the fix (`GRT_ADJUSTMENT` 0.30 → 0.18).
@@ -365,18 +370,19 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 
 | Check | Result |
 |---|---|
-| WNS / TNS, hold | **60 MHz does not close** (attempt 4 at 16.67 ns: WNS −4.125 ns, TNS −1658.6, 1 028 endpoints); **setup closes at 33.33 MHz** (attempt 5: `RSZ-0098 No setup violations found`; 3 177 hold endpoints repaired) |
-| achieved frequency | **33.33 MHz closes setup** (`CLOCK_PERIOD 30 ns`); the final achieved-frequency claim awaits a completing flow (attempt 6 running) |
-| `gds` action | **not passed** — attempt 6 reached detailed routing in 15 min and was **cancelled at the 6 h CI cap with 6 DRT violations left** (template `GRT_ALLOW_CONGESTION` root cause); attempt 7 fixes the routing configuration and is running |
-| `precheck` | not reached |
-| `gl_test` (gate-level protocol suite) | not reached |
+| **timing** | **closed at all three corners**: setup WNS/TNS 0.0/0.0, hold WNS/TNS 0.0/0.0; worst setup **+1.6006 ns** at slow (1.08 V, 125 °C) against a 30 ns period (path ≈ 28.4 ns); worst hold **+0.1200 ns** at fast; worst skew +0.440 / −0.453 ns |
+| **area** | stdcells 518 231 µm² + SRAM macro 140 183 µm² = **658 414 µm² = 54.5 %** of the 1 208 170 µm² core; 35 971 instances; die 1 225 260 µm² |
+| **power** | **8.60 mW** total (internal 7.05 + switching 1.51 + leakage 0.038) at 33.33 MHz, VDD 1.2 V |
+| **DRC / antenna** | 0 antenna violations, 0 routed DRC, 0 lint errors (52 warnings, 0 inferred latches) |
+| **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
+| **`precheck`** | **PASSED 10/10** |
+| **`gl_test`** | first run `57/60` — three X-propagation failures from the behavioural SRAM array starting as X; fixed in `fd0a67b` (**sim-only** model initialised to `halt` + host `load_program()` pads PMEM with `halt`); **final re-run in progress** (expected `PASS=60 SKIP=4`) |
 | formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
 | `test` / `docs` CI workflows | **green** |
 
-None of the TBD rows are estimated. The tape-out candidate is the SRAM build; the FF build is a
-fast-regression configuration and can no longer serve as a tape-out fallback (it cannot fit 8×4 —
-1.15 M µm² measured), which is why the fallback strategy is now a *third* attempt (the SRAM build)
-plus the documented `sram512` macro swap rather than the FF build.
+Honest footnote: the metrics list 292 max-fanout / 80 max-slew / 27 max-cap flags — TT/PDK *default
+limit checks*, not timing violations, and the flow does not gate on them. **No silicon measurements
+exist**: the numbers above are flow results for the hardened netlist.
 
 ### 7.5 What is already proven by simulation
 

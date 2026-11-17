@@ -73,11 +73,12 @@ change after a template knob cost the 6-hour CI cap), limitations, and how AI to
 ## Honest limitations
 
 - Shipped clock is 33.33 MHz (60 MHz target did not close timing at 130 nm).
-- **GDS is not yet claimed.** Attempt 6 reached detailed routing in 15 min and was cancelled at the
-  6-hour GitHub Actions cap with 6 violations left — root-caused to `GRT_ALLOW_CONGESTION: true`
-  inherited from the TT template (global routing deferred 47 track overflows to DRT). Attempt 7 fixes
-  the routing configuration; if it still cannot fit the cap, the FAQ's prescribed fallback is a local
-  LibreLane run plus the custom GDS action.
+- **GDS and precheck PASSED** (attempt 8, commit `d7bec7a`): Tiny Tapeout **precheck 10/10**, DRC and
+  antenna clean, detailed routing converged to **0 violations** in a ~2.5 h flow. Measured for the
+  hardened image: **658 414 µm²** instance area (**54.5 %** of the 1 208 170 µm² core, 518 231 µm²
+  stdcells + 140 183 µm² SRAM macro, 35 971 instances), **timing closed at all three corners** with
+  worst setup slack **+1.6 ns** at the slow corner (28.4 ns path vs 30 ns period), **8.60 mW** at
+  33.33 MHz / VDD 1.2 V. **No silicon measurements exist** — these are flow results.
 - SPI is bit-banged in firmware: ~1.06 MHz master. **True 10BASE-T is not achievable** (20 Mbaud =
   1.6667 cycles/cell needs ≥4 instructions/cell = 80 M instr/s vs 33.33 M instr/s IPC, 2.4× over;
   measured same-code ceiling 3.03 Mbit/s; edges are cycle-quantised to ±15–23 ns on a 50 ns cell).

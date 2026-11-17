@@ -58,6 +58,18 @@ design uses **one IHP SRAM macro** (`RM_IHPSG13_1P_1024x32`, 1024 × 32) for ins
 the competition FAQ explicitly allows. The program is loaded by the host over SPI — this is the
 "how does the program get loaded" answer in hardware.
 
+### The hardened die
+
+The 8×4 tile as placed and routed (rendered from the flow's own GDS artifact), and a detail view showing
+the SRAM instruction-memory macro beside the standard-cell logic:
+
+![GDS render of the 8×4 LOOM die](docs/images/gds_render.png)
+
+![GDS detail: SRAM macro + logic](docs/images/gds_detail.png)
+
+Result of attempt 8 (`d7bec7a`): **658 414 µm² instance area (54.5 % of the core), 35 971 instances,
+timing closed at 33.33 MHz with +1.6 ns slow-corner margin, 8.60 mW, precheck 10/10.**
+
 ## The competition
 
 This is an entry to the [Jane Street × Tiny Tapeout protocol emulator ASIC
@@ -202,7 +214,7 @@ artifact (illegal clock-stretch injection).
 | Suite | Result | What it proves |
 |---|---|---|
 | host link | **PASS** | all 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
-| ISA | **22/22 PASS** | every mnemonic; coverage meta-test covers all 60 tests |
+| ISA | **22/22 PASS** | every mnemonic; coverage meta-test covers all 64 tests |
 | timing | **7/7 PASS** | drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts |
 | protocol VIPs | **9/9 PASS** | UART TX, UART back-to-back decoder, UART RX, SPI modes 0–3, SPI target, I2C 100 kHz + 400 kHz + clock stretching, I2C target |
@@ -210,8 +222,8 @@ artifact (illegal clock-stretch injection).
 | Ethernet frame TX | **1/1 PASS** | 802.3 Manchester, 64-byte minimum frame, firmware CRC-32, cells at exactly 8.000 cycles (2.0833 Mbit/s), 0.00-cycle edge residual — two host-preloaded frames decoded from the RTL pin trace (FCS `0xF57743B9` / `0x696CF29E`) |
 | USB-LS RX pin path | **1/1 PASS** | chip high-Z after reset; testbench drives differential D+/D− through the open-drain pad model, RTL `pins_in` decoded by the reference receiver — 0 pad-path mismatches at ±0.25 % drift. Proves the pin path + algorithm, **not** enumeration or a firmware RX path |
 | formal | **3/3 PASS** | bounded proofs, `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core reset+event k=6, host command ordering k=6 |
-| gate-level | pending | awaits a routing-clean attempt-7 netlist |
-| sign-off (`gds`/`precheck`) | **attempt 6 running** | area solved (622 401 µm², −46 %); timing solved (**setup closes at 33.33 MHz**, `RSZ-0098`); last blocker was 4 stray IO-pad cells (57 600 µm²) now excluded — see [flow status](docs/FLOW_STATUS.md) |
+| gate-level | **57/60 → fixed → re-running** | first GL run had 3 SRAM-X failures; fixed sim-only in `fd0a67b`, final re-run in progress (expected `PASS=60 SKIP=4`) |
+| **`gds` + `precheck`** | **✅ PASSED 10/10** | attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations; **658 414 µm² (54.5 % of core), 35 971 instances, timing closed at all three corners (worst setup +1.6 ns slow), 8.60 mW**, DRC/antenna clean — see [flow status](docs/FLOW_STATUS.md) |
 
 The bring-up caught **sixteen real deviations** worth reading as evidence the methodology works,
 including a host global-CSR read-path bug (VER-003), unmasked `pins_out[9:8]` (VER-001), a three-way
@@ -237,12 +249,17 @@ IO library was in the synthesis set — and a Tiny Tapeout design owns no pads, 
 placed them. **Attempt 6 excluded `sg13cmos5l_IOPad*`** — the IO-pad fix worked, and every stage through global
 routing finished in **15 minutes**; detailed routing then ran 5 h 45 m and was **cancelled at GitHub
 Actions' 6-hour cap with 6 violations left**, root-caused (measured, not guessed) to the template's
-`GRT_ALLOW_CONGESTION: true` handing 47 track overflows to DRT. **Attempt 7 fixes only the routing
-configuration** (`GRT_ALLOW_CONGESTION:false`, `GRT_ADJUSTMENT:0.18`, `GRT_OVERFLOW_ITERS:150`, commit
-`6050726`) and is running; if GRT cannot converge it now fails in ~20 min instead of burning the cap. Both build configurations pass the full
-**64/64 simulation matrix (0 skips)**. Nothing is marked passing until GDS + precheck + gate-level
-all pass on one commit. Canonical log: [`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in
-[`docs/results.md`](docs/results.md).
+`GRT_ALLOW_CONGESTION: true` handing 47 track overflows to DRT. **Attempt 7 made it worse** (5 198
+violations left) — the router knob was never the lever. **Attempt 8 attacked placement instead**
+(routability-driven placement, now that the stray pads are gone, plus target density 60 → 50 %):
+detailed routing converged **28 461 → … → 0** and the full flow finished in **~2.5 h**.
+
+**✅ GDS BUILD PASSED · PRECHECK 10/10 · DRC/antenna clean · timing closed at all three corners ·
+8.60 mW.** The submitted build is **658 414 µm² (54.5 % of the core, 35 971 instances) at 33.33 MHz**
+with worst setup slack **+1.6 ns** at the slow corner. Gate level was `57/60` (three SRAM-X failures),
+fixed sim-only in `fd0a67b` and re-verifying now; **no silicon measurements exist**. Both build
+configurations pass the full **64/64 simulation matrix (0 skips)**, frozen at `4164c42`. Canonical log:
+[`docs/FLOW_STATUS.md`](docs/FLOW_STATUS.md); tables in [`docs/results.md`](docs/results.md).
 
 ## Documentation
 

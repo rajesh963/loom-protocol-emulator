@@ -53,6 +53,15 @@ Timing vocabulary: a 12.4 period register is `int[15:4].frac[3:0]`, unit 1/16 cy
 look-ahead must stay below 983 µs. An event that is already due fires on the next cycle — an armed
 edge is never dropped.
 
+## Build results (hardened silicon image)
+
+The submitted build is the SRAM 1024×32 + 32-word-DMEM configuration at **33.33 MHz** (`CLOCK_PERIOD`
+30 ns), commit `d7bec7a`. The Tiny Tapeout flow reports: **GDS built, precheck 10/10, DRC/antenna
+clean, timing closed at all three corners** (setup/hold WNS and TNS 0.0; worst setup slack **+1.6 ns**
+at the 1.08 V/125 °C slow corner against a 30 ns period), **658 414 µm²** instance area (**54.5 %** of
+the 1 208 170 µm² core; 518 231 µm² stdcells + a 140 183 µm² SRAM macro; 35 971 stdcell instances),
+**8.60 mW** at VDD 1.2 V. These are flow results for the hardened netlist — **no silicon exists yet**.
+
 ## Program memory (SRAM build)
 
 The tape-out candidate's instruction memory is one **IHP `RM_IHPSG13_1P_1024x32` SRAM macro**

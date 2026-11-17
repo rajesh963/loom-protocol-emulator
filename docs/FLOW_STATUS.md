@@ -156,20 +156,71 @@ before it is understood.** The competition FAQ anticipates the 6-hour GitHub Act
 workaround of a local LibreLane run + custom GDS action); we avoided needing that workaround by
 fixing the configuration instead of the design.
 
-## Attempt 7 — same design, routing configuration fixed · commit `6050726` — **RUNNING**
+## Attempt 7 — same design, routing configuration "fixed" · commit `6050726` — **CANCELLED at the 6 h cap, WORSE than attempt 6**
 
-RTL, firmware and clock are **unchanged**; only `src/config.json` changes:
+The GRT "fix" **backfired**. Stages before detailed routing again finished in ~15–20 min; DRT then ran
+~5 h 40 m and was cancelled at the cap.
 
-| Setting | Was (template default) | Now | Why |
-|---|---|---|---|
-| `GRT_ALLOW_CONGESTION` | `true` | **`false`** | force global routing to converge instead of passing congestion to DRT |
-| `GRT_ADJUSTMENT` | `0.30` | **`0.18`** | the router's own recommendation from attempt 6 |
-| `GRT_OVERFLOW_ITERS` | default | **`150`** | GRT took only ~3 min, so spend it to hand DRT clean guides |
+| Metric | Attempt 6 (`1182041`) | Attempt 7 (`6050726`) |
+|---|---|---|
+| GRT settings | `ALLOW_CONGESTION=true`, `ADJUSTMENT=0.30`, default iters | `ALLOW_CONGESTION=false`, `ADJUSTMENT=0.18`, `OVERFLOW_ITERS=150` |
+| DRT trajectory → end state | 37 824 → … → **6 violations left** | 8 686 → 7 835 → 7 423 → 6 851 → 6 040 → 5 772 → 5 520 → **5 198 left** |
+| verdict | converging, ~1 order from clean | still an order of magnitude away at the cap |
+| artefacts | none (cancel ⇒ no upload) | none |
 
-Expected: DRT starts near-zero violations and finishes in well under an hour. If GRT cannot clear
-congestion it now **fails in ~20 minutes** instead of burning the 6-hour cap, so further iterations
-are cheap. Utilisation/WNS/TNS/DRC/LVS/precheck/GL will be recorded here from its CI log — **not
-estimated**, and **no GDS success is claimed**.
+**Interpretation (measured negative result):** forcing global routing to clear congestion instead of
+deferring it made detailed routing **substantially harder** — 5 198 violations at the cap versus 6.
+The router's default congestion behaviour was better. **The problem is the placement DRT starts from,
+not the quality of the GRT guide.**
+
+**Running total at this point:** attempts 6 and 7 both capped at exactly **6 h**, while the design
+stages (synthesis → floorplan → placement → CTS → GRT) finished in **~15–20 min** in both. The cap is
+exclusively a **detailed-routing time budget**.
+
+## Attempt 8 — reverts the GRT knobs, attacks placement quality · commit `d7bec7a` — ✅ **PASSED: GDS + PRECHECK 10/10**
+
+**The GDS build succeeded.** Full LibreLane flow in **~2.5 h**, both routing stages clean, Tiny Tapeout
+**precheck 10/10**. Only the gate-level job was red (3 X-propagation failures) — fixed in `fd0a67b`, with
+re-verification running.
+
+| Setting | Attempt 6 | **Attempt 8** |
+|---|---|---|
+| `GRT_ALLOW_CONGESTION` | `true` | `true` (reverted) |
+| `GRT_ADJUSTMENT` / `GRT_OVERFLOW_ITERS` | 0.30 / 50 | 0.30 / 50 (PDK defaults) |
+| `PL_ROUTABILITY_DRIVEN` | `true` | **`true`** (now runnable — stray IO pads excluded) |
+| `PL_TARGET_DENSITY_PCT` | 60 | **50** (spread cells, cut local congestion) |
+| design | unchanged | unchanged (SRAM 1024×32, 32-word DMEM, 33.33 MHz, IO pads excluded) |
+
+**The two changes that fixed it:** routability-driven placement (previously blocked by the stray IO pads,
+not by the algorithm) plus a lower target density. GRT returned to its defaults.
+
+| Stage | Trajectory |
+|---|---|
+| detailed routing | **28 461 → 15 893 → 14 361 → 890 → 65 → 8 → 8 → 0** violations |
+| post-DRT antenna repair | **4 031 → 806 → 536 → 38 → 1 → 0** violations |
+
+**Measured sign-off (from `stats/metrics.csv`):**
+
+| Metric | Value |
+|---|---|
+| area | stdcells **518 231 µm²** + SRAM macro **140 183 µm²** = **658 414 µm² = 54.5 %** of the 1 208 170 µm² core (stdcell util 48.5 %); die 1 225 260 µm²; **35 971 stdcell instances** |
+| timing (3 corners) | setup **WNS 0.0 / TNS 0.0**, hold **WNS 0.0 / TNS 0.0**; worst setup **+1.6006 ns** at slow (1.08 V, 125 °C) vs a 30 ns period (path ≈ 28.4 ns); worst hold **+0.1200 ns** at fast |
+| power | **8.60 mW** (internal 7.05 + switching 1.51 + leakage 0.038) |
+| clock skew | worst setup +0.440 ns, worst hold −0.453 ns |
+| antenna / routing | **0 antenna violations**, 0 routed DRC; global-route wirelength 3.32 mm, routed-estimate 2.07 mm |
+| lint | 0 errors, 52 warnings, 0 inferred latches |
+| precheck | **10/10 PASSED** (KLayout pin-label overlap, KLayout SG13CMOS5L DRC, zero-area, KLayout checks, pin check, boundary check, layer check, cell-name check, analog-pin check, Verilog syntax) |
+
+**Gate-level X story and fix (`fd0a67b`).** The GL run was `TESTS=64 PASS=57 FAIL=3 SKIP=4`. All three
+failures were one X-propagation: the IHP *behavioural* SRAM model starts its array as X, so unwritten
+PMEM words read X in gate-level simulation, while the RTL model and the FF build read `halt`. Fix: the
+GL SRAM model is initialised to `halt` (**sim-only — never synthesised, GDS unaffected**), and
+`host/loom_host.py` gained `load_program()` which pads the image with `halt` to PMEM depth — the
+silicon-correct contract, since real SRAM has no defined contents at power-up. Final GL re-verification
+run in progress; expected `PASS=60 SKIP=4`.
+
+**Honest footnote:** metrics also list 292 max-fanout / 80 max-slew / 27 max-cap flags — the TT/PDK
+*default limit checks*, not timing violations; the flow does not gate on them.
 
 ## Area lever still in reserve — `RM_IHPSG13_1P_512x32`
 
@@ -187,10 +238,9 @@ estimated**, and **no GDS success is claimed**.
 * **Budget lesson:** pre-ABC cell counts cannot predict ABC's fanout buffering under a process
   fanout constraint, so only **post-synthesis mapped area** is a usable budget number. That is the
   number attempt 1 produced, and it is now the tracker every attempt is judged against.
-* The submitted build is the SRAM configuration (`35c3c42` onward) **at whatever clock the flow
-  measures green** — 60 MHz failed timing (WNS −4.125 ns, 20.8 ns critical path), attempt 5 targets
-  33.33 MHz; the FF build exists for fast regression and cannot be a tape-out fallback (1.147 M µm²
-  measured — 98.4 %).
+* The submitted build is the SRAM configuration at **33.33 MHz**, and **attempt 8 (`d7bec7a`) is the
+  hardened, precheck-passing build**; the FF build exists for fast regression and cannot be a tape-out
+  fallback (1 147 604 µm² measured — 98.4 %).
 * **A template knob can cost six hours.** `GRT_ALLOW_CONGESTION: true` (inherited from the Tiny
   Tapeout template) let global routing hand 47 track overflows to detailed routing, which then spent
   5 h 45 m repairing them and hit the CI cap with 6 violations left. At 45.6 % utilisation the design
