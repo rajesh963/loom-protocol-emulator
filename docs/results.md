@@ -5,8 +5,8 @@ hardened flow, gate-level and formal results, and the state of Tiny Tapeout sign
 is either measured (with the artefact that produced it) or explicitly `TBD`. Nothing in this file is
 an estimate dressed up as a result.
 
-CI commit: `6050726` (attempt 7; attempt 6 was `1182041`) · **verified state frozen at `a55c1b7`** —
-62/62 on both memory configurations, 62/62 from a clean clone, USB-LS RTL-verified; attempts 6/7
+CI commit: `6050726` (attempt 7; attempt 6 was `1182041`) · **verified state frozen at `4164c42`** —
+64/64 on both memory configurations, 64/64 from a clean clone, USB-LS RTL-verified; attempts 6/7
 change **only flow configuration**, so those remain the citation values. Flow: LibreLane via
 `tt-gds-action@ttihp27a`, PDK `ihp-sg13cmos5l` · clock: **33.33 MHz shipped** (`CLOCK_PERIOD` 30 ns;
 60 MHz failed timing at a 20.8 ns critical path). `docs` and `test` workflows are green on CI.
@@ -37,7 +37,7 @@ fallback only**: it is fast to elaborate and is what most regression runs use, b
 | read latency | 1 cycle (`A_DLY=1`) | combinational | 1 cycle |
 | flow extras | official TT CMOS5L SRAM plugin + `pdn_cfg.tcl` | none | same as SRAM candidate |
 | measured area | fixed 148 563 µm² + movable 473 838 = **622 401 µm²** (51.5 % raw ratio; 44.7 % movable-relative) | **1 147 604 µm² = 98.4 % → placement failed** | **561 938 µm² = 46.5 %** raw ratio (reserve; 512-word limit) |
-| simulation matrix on this exact config | **62 tests, 62 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, ~144 s) | **62/62** (~144 s; earlier I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
+| simulation matrix on this exact config | **64 tests, 64 PASS, 0 FAIL, 0 SKIP** (`make SRAM_SIM=1024`, ~159 s (FF) / ~146 s (SRAM-1024)) | **64/64** (~159 s (FF) / ~146 s (SRAM-1024); earlier I²C skips closed) | same RTL as SRAM candidate, 512-word limit |
 | role | **tape-out candidate** (clock = whichever attempt measures green; 33.33 MHz targeted) | fast regression; **cannot fit 8×4** | documented area lever |
 
 Die budget: 8×4 = 32 tiles × (202 × 155 µm) ≈ **1.0019 mm²** nominal; the core the flow lays out is
@@ -147,7 +147,7 @@ _40267_ is not placed`, raised inside GPL's routability-driven mode at `gpl.tcl:
 the global router on a mid-placement snapshot). At 44.7 % utilisation routability-driven placement
 is unnecessary, so attempt 4 disables it — a one-line `src/config.json` change.
 
-Simulation on this exact RTL configuration: **62/62 PASS, 0 skip** (§5).
+Simulation on this exact RTL configuration: **64/64 PASS, 0 skip** (§5).
 
 ### 3.3 Attempts 4–5 — two problems, and the routing blocker was not timing
 
@@ -224,25 +224,26 @@ matches at `33333333`. 60 MHz was the original target and failed timing (see §3
 ## 5. Verification results (landed RTL, simulation)
 
 **Both configurations are now fully green, including the one headed for tape-out.** On the exact
-RTL configuration being hardened (`make SRAM_SIM=1024`): **62 tests, 62 PASS, 0 FAIL, 0 SKIP**, ~144 s
+RTL configuration being hardened (`make SRAM_SIM=1024`): **64 tests, 64 PASS, 0 FAIL, 0 SKIP**, ~159 s (FF) / ~146 s (SRAM-1024)
 (protocol rates RTL-measured at the shipped clock: UART 289.35 cyc/bit = **115.20 kBd (+0.001 %)**,
 I²C full SCL period → **92.5 / 344.2 kHz**, bit-banged SPI **1.04–1.06 MHz**; I²C and SPI are legal
 because their specs give maxima, not exact rates)
 (incl. 100/100 differential co-sim seeds, harness backdoor made SRAM-aware). The FF regression build
-is also **62/62**, ~144 s — the two I²C gates that were skipped during bring-up are closed (VER-006
+is also **64/64**, ~159 s (FF) / ~146 s (SRAM-1024) — the two I²C gates that were skipped during bring-up are closed (VER-006
 VIP artifact, VER-007 firmware byte-boundary bug).
 Full layer tables and the sixteen-deviation history: [`verification.md` §9](verification.md).
 
 | Suite | Result | Notes |
 |---|---|---|
 | host link | **PASS** | 13 commands, global-CSR read matrix, FIFOs, IRQ/ACK, CS-abort, STATUS |
-| ISA | **22/22 PASS** | every mnemonic; all 62 tests covered by the coverage meta-test |
+| ISA | **22/22 PASS** | every mnemonic; all 64 tests covered by the coverage meta-test |
 | timing | **7/7 PASS** | drift-free fractional stream, UART 115200 (constant sweep at the shipped clock), `waitu` jitter-free, `inat` exact-cycle sample, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) |
 | differential co-sim | **PASS** | 100/100 random programs cycle-exact on full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written programs; 0 artefacts |
 | protocol VIPs | **6/8 PASS** | UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; **I2C 400 kHz and I2C target SKIP** (VER-006/007, firmware-timing triage — 100 kHz passes, so not a core-architecture gap) |
 | formal | **3/3 PASS** | FIFO/queue bounds k=8, core reset+event k=6, host command→effect ordering k=6 (`yosys write_smt2` + `yosys-smtbmc -s z3`) |
-| gate-level protocol suite | TBD | needs the LibreLane netlist |
-| Ethernet frame TX (`eth_tx`, Manchester + firmware CRC-32) | **model-verified** — independent decoder: byte-exact, FCS ok, cells exactly 8.000 cycles, 0.00-cycle edge residual, 32/32 DMEM | RTL test in progress (not yet counted in the 62) |
+| Ethernet frame TX (`eth_tx`, Manchester + firmware CRC-32) | **1/1 PASS (RTL)** | two host-preloaded frames decoded from the RTL pin trace: 64 bytes exact, FCS `0xF57743B9`/`0x696CF29E`, cells 8.000 cycles, 2.0833 Mbit/s, 0.00-cycle edge residual, frame window 9216 cycles; TXD quiet ≥1536 cycles after each frame (measured gaps 8508/8625 cycles — CRC recomputed after the gap) |
+| USB-LS RX pin path | **1/1 PASS (RTL)** | no on-chip RX firmware: chip high-Z after reset, testbench drives differential D+/D− through the pad model, RTL `pins_in` decoded — 0 pad-path mismatches, SETUP+8-byte DATA0 across ±0.25 % drift, DPLL residual ≤0.83 cycle. Proves the pin path + reference algorithm, not enumeration |
+| gate-level protocol suite | TBD | needs the LibreLane netlist; expectation `TESTS=64 PASS=60 SKIP=4` (expectation, not a result) |
 
 Earlier fixed-configuration benches (`CORE_TB`, `JUMP_TB`, `HOST_TB`, `FIFO_TB`, `WAVE_TB`,
 `CAPTURE_TB`, `ITEST`, integration) remain in the suite and in the per-bench table of
@@ -257,6 +258,6 @@ Earlier fixed-configuration benches (`CORE_TB`, `JUMP_TB`, `HOST_TB`, `FIFO_TB`,
 | 3 | capture / record-replay: RTL complete and unit-verified (209 checks), **silicon integration deferred to revision B** because enabling it aliases the 32-word DMEM used by the wave player | not in `source_files`; not in the submitted build | Lead |
 | 4 | **Area**: the FF 128-word build is ~2× the 8×4 budget (1.147 604 µm² measured vs ≤ ~750 k µm²); attempts 1/2/2b failed, and constraint relaxation made it *worse* (1.190 M / 1.224 M µm²) | not a silicon bug — a structural-area problem. Answered by the SRAM 1024×32 + 32-word-DMEM build (**622 401 µm², −46 %**); attempts 6/7 are routing-configuration iterations | Lead |
 | 5 | **Stray IO-pad cells**: ABC mapped four internal high-fanout nets onto `sg13cmos5l_IOPadOut16mA` cells (57 600 µm², 12 % of moved area) because the IO library was in the synthesis set; Tiny Tapeout designs own no pads, so IO placement never placed them and global routing aborted | not an RTL bug — library hygiene; fixed by `EXTRA_EXCLUDED_CELLS=[sg13cmos5l_IOPad*]` (attempt 6) | Lead |
-| 6 | **True 10BASE-T not achievable**: 20 Mbaud = 1.6667 cycles/cell needs ≥4 instr/cell = 80 M instr/s vs 33.33 M instr/s IPC (2.4× over); measured same-code ceiling 3.03 Mbit/s; ±15–23 ns edge quantisation vs a few-ns TX jitter budget; 1024 half-cells/frame exceed the 32-word DMEM | documented, not a defect — revision-B item (faster issue path/serializer + bigger pattern buffer). Ethernet *frame TX* at 2.083 Mbit/s with firmware CRC-32 is model-verified instead (§5) | Lead |
+| 6 | **True 10BASE-T not achievable**: 20 Mbaud = 1.6667 cycles/cell needs ≥4 instr/cell = 80 M instr/s vs 33.33 M instr/s IPC (2.4× over); measured same-code ceiling 3.03 Mbit/s; ±15–23 ns edge quantisation vs a few-ns TX jitter budget; 1024 half-cells/frame exceed the 32-word DMEM | documented, not a defect — revision-B item (faster issue path/serializer + bigger pattern buffer). Ethernet *frame TX* at 2.0833 Mbit/s with firmware CRC-32 is RTL-verified instead (§5) | Lead |
 | 7 | **6-hour GitHub Actions cap** (attempt 6): DRT ran 5 h 45 m and was cancelled with 6 violations left, because `GRT_ALLOW_CONGESTION: true` (template default) passed 47 overflows to DRT | routing-configuration bug, not a size problem; attempt 7 fixes it (`GRT_ALLOW_CONGESTION:false`, `GRT_ADJUSTMENT:0.18`). FAQ fallback if needed: local LibreLane + custom GDS action | Lead |
 | 8 | **No GDS/precheck/gate-level result yet** | tape-out build is configuration-ready but sign-off is incomplete; nothing in this document claims otherwise | Lead |

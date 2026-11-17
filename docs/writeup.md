@@ -225,8 +225,9 @@ pin is exercised at least once with four threads running concurrently.
 > setup** (`RSZ-0098 No setup violations found`) — and still hit the same instance, which turned out to
 > be **four stray `IOPadOut16mA` cells (57 600 µm², 12 % of moved area) that ABC had mapped onto
 > internal high-fanout nets** because the IO library was in the synthesis set. **Attempt 6 excludes
-> `sg13cmos5l_IOPad*` and is running.** The RTL being hardened passes the **full 62/62 simulation
-> matrix with 0 skips** (frozen at `a55c1b7`, USB-LS included). Nothing here is marked passing until the flow step passed; canonical log
+> `sg13cmos5l_IOPad*` and is running.** The RTL being hardened passes the **full 64/64 simulation
+> matrix with 0 skips** (frozen at `4164c42`; Ethernet TX, USB-LS TX and the differential USB-LS RX pin
+> path all RTL-verified). Nothing here is marked passing until the flow step passed; canonical log
 > [`FLOW_STATUS.md`](FLOW_STATUS.md).
 
 ### 7.1 What the flow told us, and why it was worth four attempts
@@ -353,9 +354,10 @@ synthesiser has to invent — only the post-synthesis mapped area is the budget.
 ### 7.3 Timed simulation: the tape-out candidate is fully green
 
 The configuration that is being hardened — `LOOM_PMEM_SRAM` + `LOOM_DMEM_SMALL`, 33.33 MHz — passes
-**62 of 62 tests, 0 fail, 0 skip** in ~144 s (`make SRAM_SIM=1024`), including 100/100 differential
-co-sim seeds (the harness backdoor was made SRAM-aware) and 2 USB-LS TX tests. The FF regression build
-is also **62/62** (~144 s), and a clean clone reproduces 62/62 (frozen at `a55c1b7`): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
+**64 of 64 tests, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~146 s; ~159 s on the FF build), including
+100/100 differential co-sim seeds (the harness backdoor was made SRAM-aware), 2 USB-LS TX tests, the
+USB-LS RX pin-path test and the Ethernet frame TX test. A clean clone reproduces 64/64 (frozen at
+`4164c42`): the two I²C gates that were skipped during bring-up are closed — VER-006 was a VIP artifact
 (illegal clock-stretch injection), VER-007 a real firmware bug (the SCL-first byte-boundary rule).
 This is the first point at which *the artifact we intend to fabricate* has the full green matrix.
 
@@ -378,14 +380,14 @@ plus the documented `sram512` macro swap rather than the FF build.
 
 ### 7.5 What is already proven by simulation
 
-The SRAM candidate configuration passes **62/62 (0 fail, 0 skip, ~144 s)** and the FF regression
-configuration also passes **62/62 (~144 s)**; the `test` GitHub Actions workflow reproduces the matrix
+The SRAM candidate configuration passes **64/64 (0 fail, 0 skip, ~146 s)** and the FF regression
+configuration also passes **64/64 (~159 s)**; the `test` GitHub Actions workflow reproduces the matrix
 on every push:
 
 | Suite | Result |
 |---|---|
 | host link — 13 commands, global-CSR matrix, FIFOs, IRQ/ACK, CS-abort, STATUS | **PASS** |
-| ISA — every mnemonic, coverage meta-test over all 62 tests | **22/22 PASS** |
+| ISA — every mnemonic, coverage meta-test over all 64 tests | **22/22 PASS** |
 | timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
@@ -432,9 +434,9 @@ actually built, because an honest "RTL done, silicon deferred" is worth more tha
 | **Wave player: precomputed waveform streaming** | DMEM holds 16-bit pin patterns; the player emits one per 12.4-fractional symbol period, so any waveform whose encoding is precomputable (Manchester, IR/RF class, bit-stuffed streams) leaves the CPU free to run the state machine | **RTL + unit-verified** (1000 symbols at 1.625 cycles = 1625 cycles exact); up to **33.3 M patterns/s** at the shipped clock |
 | **A protocol workstation, not just a chip** | Host bridge + FIFOs + Python toolchain: assemble, load, run, stream TX/RX from a host script. Programs occupy RAM, so they survive while powered and reload in milliseconds — the chip is re-tasked between protocols without a bitstream | **demonstrated end-to-end** (`host/`, `sw/prog/`, the load-and-run path in `docs/host-protocol.md` §5) |
 | **Deterministic timing as a product feature** | The property that makes protocols exact also makes the part a **test instrument**: repeatable edge placement is exactly what a bus injector or a fault-injection rig needs | **architectural** (event scheduling from `TMR`; ±1 cycle scheduling, non-drifting periods) |
-| **USB 1.1 low-speed device TX (stretch)** | At 33.33 MHz a USB LS bit is **22.2 cycles** and the fractional event scheduler holds the 1.5 Mbit/s grid, so the whole device-mode transmitter is firmware: NRZI, 8-bit SYNC, DATA0 PID, payload, USB CRC16, bit stuffing after six ones, EOP | **TX RTL-verified** (`sw/examples/usb_ls_tx.asm`, 2 tests, independently decoded); **RX reference decoder complete** (`host/usb_ls_rx.py`: DPLL from SYNC, unstuffing, PID+complement, CRC-5/16, EOP — decodes SETUP+DATA0 across ±0.25 % host drift); **no on-chip RX firmware yet** (budget: code-size-bound, ~150–200 instr, fits the SRAM build). Single-ended D+ prototype; real board needs D− bias + 1.5 kΩ pull-up. Not silicon-tested |
-| **Ethernet frame TX — 802.3 Manchester, 2.083 Mbit/s** | The chip does the *protocol work* itself: 7×`0xAA` preamble, SFD, 64-byte minimum frame, **CRC-32/802.3 FCS computed in firmware**, Manchester line coding, one `emit` per 8-cycle cell, ~9 instr/bit inside a 16-cycle budget | **model-verified** (`sw/examples/eth_tx.asm`, 97 words + `host/eth.py` independent receiver: byte-exact decode, FCS ok, cells at exactly 8.000 cycles, 0.00-cycle edge residual, 32/32 DMEM words); **RTL test in progress** — described as model-verified until it lands |
-| **True 10BASE-T — documented as out of reach, with arithmetic** | 20 Mbaud = **1.6667 cycles/cell** at 33.33 MHz, but a data-bearing Manchester cell costs **≥4 instructions = 80 M instr/s against 33.33 M instr/s single-issue IPC — 2.4× over** (four threads share one issue slot, so they do not multiply IPC). Measured same-code ceiling on the model: decodes at 5.5 cycles/cell = **3.03 Mbit/s**, fails at 5.0 cycles/cell. Plus cycle-quantised edges = **±15–23 ns on a 50 ns cell** vs a 10BASE-T TX jitter budget of a few ns at ±100 ppm, and 1024 Manchester half-cells/frame exceed the 32-word DMEM pattern buffer | **not physically defensible on this build** — revision-B item (faster issue/serializer + bigger buffer). The FAQ's framing is met by *stage 1*: we do the framing, CRC-32 and line coding ourselves at 2.083 Mbit/s, and we can show exactly why true 10BASE-T is a different problem |
+| **USB 1.1 low-speed device TX (stretch)** | At 33.33 MHz a USB LS bit is **22.2 cycles** and the fractional event scheduler holds the 1.5 Mbit/s grid, so the whole device-mode transmitter is firmware: NRZI, 8-bit SYNC, DATA0 PID, payload, USB CRC16, bit stuffing after six ones, EOP | **TX RTL-verified** (`test/test_usb_ls.py`, 2 tests, independently decoded). **RX pin-path RTL-verified** (`test/test_usb_ls_rx.py`: chip high-Z after reset, testbench drives differential D+/D− through the open-drain pad model, RTL `pins_in` sampled and decoded — **0 pad-path mismatches**, SETUP + 8-byte DATA0 across ±0.25 % drift, DPLL residual ≤0.83 cycle). **This proves the pin path and reference algorithm only — not enumeration, and no on-chip RX firmware is shipped** (budget: ~150–200 instr, fits the SRAM build). Single-ended D+ TX prototype; real board needs D− bias + 1.5 kΩ pull-up. Not silicon-tested |
+| **Ethernet frame TX — 802.3 Manchester, 2.0833 Mbit/s** | The chip does the *protocol work* itself: 7×`0xAA` preamble, SFD, 64-byte minimum frame, **CRC-32/802.3 FCS computed in firmware**, Manchester line coding, one `emit` per 8-cycle cell, ~9 instr/bit inside a 16-cycle budget | **RTL-verified** (`test/test_eth.py`: two host-preloaded frames decoded from the RTL pin trace by `host/eth.py` — 64 bytes exact, FCS `0xF57743B9` / `0x696CF29E` ok, cells 8.000 cycles, 16.00 cycles/bit = 2.0833 Mbit/s, 0.00-cycle edge residual). TXD is quiet **≥1536 cycles** after each frame; measured frame-edge gaps 8508/8625 cycles because the CRC-32 is recomputed after the gap |
+| **True 10BASE-T — documented as out of reach, with arithmetic** | 20 Mbaud = **1.6667 cycles/cell** at 33.33 MHz, but a data-bearing Manchester cell costs **≥4 instructions = 80 M instr/s against 33.33 M instr/s single-issue IPC — 2.4× over** (four threads share one issue slot, so they do not multiply IPC). Measured same-code ceiling on the model: decodes at 5.5 cycles/cell = **3.03 Mbit/s**, fails at 5.0 cycles/cell. Plus cycle-quantised edges = **±15–23 ns on a 50 ns cell** vs a 10BASE-T TX jitter budget of a few ns at ±100 ppm, and 1024 Manchester half-cells/frame exceed the 32-word DMEM pattern buffer | **not physically defensible on this build** — revision-B item (faster issue/serializer + bigger buffer). The FAQ's framing is met by *stage 1*: we do the framing, CRC-32 and line coding ourselves at 2.0833 Mbit/s, and we can show exactly why true 10BASE-T is a different problem |
 
 
 ## 9. Limitations and an honest comparison
@@ -520,9 +522,9 @@ README:
 | Criterion (FAQ) | How LOOM answers it | Evidence |
 |---|---|---|
 | **Flexibility is the main thing** | no protocol hardblocks — a protocol is a program loaded over SPI after fabrication; the ISA is a timing language (events, fractional periods, absolute waits, timed sampling) and the same datapath runs 10 programs covering 8 protocol roles across 6 families | `sw/examples/`, [`examples.md`](examples.md), [`isa.md`](isa.md) |
-| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** (RX decoder in repo), **Ethernet frame TX** (model-verified, RTL pending) — **12 programs, 10 protocol roles** | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/`, `host/eth.py` |
+| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** + RX pin path, **Ethernet frame TX** (2.0833 Mbit/s) — **12 programs, 10 protocol roles, 64 RTL tests** | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/`, `host/eth.py` |
 | **Anything unique the architecture enables** | absolute-timeline scheduling, 1-cycle timed sampling, wave player, capture/record-replay (RTL done, rev-B silicon), host toolchain — the "Beyond the obvious" table in §8 | §8 above |
-| **How it was designed and verified** | spec-derived golden model, 100/100 differential co-sim (pins **and** architectural state), 62-test cocotb suite on both memory builds (incl. USB-LS), 3 bounded formal proofs, gate-level run, clean-clone reproducible | [`verification.md`](verification.md) |
+| **How it was designed and verified** | spec-derived golden model, 100/100 differential co-sim (pins **and** architectural state), 64-test cocotb suite on both memory builds (incl. USB-LS TX/RX and Ethernet), 3 bounded formal proofs, gate-level run, clean-clone reproducible | [`verification.md`](verification.md) |
 | **Write-up** | this narrative plus the flow-attempt log — every dead end, measured number and one-line fix, including the IO-pad library-hygiene bug | [`FLOW_STATUS.md`](FLOW_STATUS.md), §7 |
 
 **Rules compliance:** the required Tiny Tapeout flow (`tt-gds-action@ttihp27a` / LibreLane, IHP

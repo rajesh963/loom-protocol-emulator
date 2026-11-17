@@ -26,8 +26,8 @@ and ISA with no per-protocol hardware:
 | PS/2 | target | 14.28 kHz |
 | 1-Wire | master | standard speed, DS18B20 +25.0 C |
 | WS2812 | driver | 800 kHz |
-| USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); RX reference decoder in `host/usb_ls_rx.py` (no on-chip RX firmware yet); single-ended D+ prototype, not silicon-tested |
-| Ethernet (802.3 framing) | frame TX (stretch) | **2.083 Mbit/s**, Manchester + firmware CRC-32; 64-byte minimum frame **model-verified** (RTL test in progress) |
+| USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); **RX pin path RTL-verified** (differential D+/D− through the pad model, 0 mismatches, no on-chip RX firmware); single-ended D+ TX prototype, not silicon-tested |
+| Ethernet (802.3 framing) | frame TX (stretch) | **2.0833 Mbit/s**, Manchester + firmware CRC-32; 64-byte minimum frame **RTL-verified** (two frames, independent decoder, FCS ok) |
 
 SPI and I2C are demonstrated in **both controller and target roles**; four threads can run
 protocols concurrently, with timing that is deterministic by construction.
@@ -49,8 +49,8 @@ protocols concurrently, with timing that is deterministic by construction.
 
 ## Verification
 
-- **62-test cocotb suite, 62 PASS / 0 FAIL / 0 SKIP** on both memory configurations (FF and SRAM-1024),
-  reproducible from a clean clone (~144 s); frozen at `a55c1b7`.
+- **64-test cocotb suite, 62 PASS / 0 FAIL / 0 SKIP** on both memory configurations (FF and SRAM-1024),
+  reproducible from a clean clone (~159 s (FF) / ~146 s (SRAM-1024)); frozen at `4164c42`.
 - **100-seed differential co-simulation** against an independent, spec-derived cycle-accurate model:
   cycle-exact on the full pin trace *and* full architectural state; plus 12/12 generated
   pull/reactive seeds and 6/6 hand-written programs.

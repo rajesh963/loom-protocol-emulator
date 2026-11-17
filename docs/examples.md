@@ -541,15 +541,22 @@ protocol logic is real firmware; the *bit* timing is the scheduler's.
 | pins | **single-ended prototype**: D+ on `P[0] = uio[0]`, push-pull, NRZI; the chip drives/monitors only the D+ half |
 | external parts | a real board needs a USB connector/Pmod with **D− biased to the LS idle level and a 1.5 kΩ pull-up**; the FAQ allows external parts |
 
-**Status: TX RTL-verified; RX prototype decoder complete; no on-chip RX firmware yet.**
+**Status: TX RTL-verified; RX pin-path + reference algorithm RTL-verified; no on-chip RX firmware.**
 `test/test_usb_ls.py` decodes the transmitted packet with an independent model on both memory builds
 (2/2 PASS) and checks SYNC, PID, payload, CRC16, stuffing and EOP. On the receive side,
 `host/usb_ls_rx.py` is a validated **differential host transmitter + device decoder**: DPLL clock
 recovery seeded from the KJKJKJKK SYNC pattern, NRZI decode, bit unstuffing, PID+complement, CRC-5 and
 CRC-16, EOP framing; a synthetic SETUP + DATA0 `GET_DESCRIPTOR` decodes correctly across **±0.25 %
 host clock drift** (22.186–22.314 cycles/bit) with payload and CRC ok. That is the algorithm an
-on-chip RX path must implement, and the oracle for it — but **no RX firmware is shipped** (the draft was
-dropped unverified). The budget analysis says RX is **code-size-bound, not timing-bound**: ~150–200
+on-chip RX path must implement, and the oracle for it. `test/test_usb_ls_rx.py` closes the next rung
+honestly: the chip is **high-Z after reset** (`PDIR = 0`), the testbench drives a real differential LS
+waveform on **D+ = `uio[0]`, D− = `uio[1]`** through the open-drain pad model, samples the RTL
+`pins_in` path, and decodes with the reference receiver — **0 pad-path mismatches**, SETUP token +
+8-byte DATA0 `GET_DESCRIPTOR` decoding at nominal and **±0.25 % host drift** (recovered 22.2528 /
+22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), with
+PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the
+reference RX algorithm only — not enumeration and not a firmware RX path.** No RX firmware is shipped
+(the draft was dropped unverified). The budget analysis says RX is **code-size-bound, not timing-bound**: ~150–200
 instructions, i.e. it fits the SRAM-1024 build, not the 128-word FF fallback. So: USB device TX is
 demonstrated, USB enumeration is feasible and planned, and the reference decoder plus cycle budget are
 already in the repo.
@@ -574,12 +581,23 @@ ethertype 2 + 46-byte payload + 4-byte FCS, LSB-first) → 1536-cycle inter-pack
 | firmware budget | ~9 instructions per bit against 16 cycles → 56 % of the window |
 | DMEM footprint | **32/32 words** (the whole 64-byte frame buffer; state in registers) |
 
-**Status: model-verified.** An independent receiver in `host/eth.py` (edge-clock recovery, Manchester
-decode, preamble/SFD lock, FCS check) decodes the frame **byte-exactly**, reports **FCS `0xF57743B9`
-ok** (the FCS words are preloaded as zero, so the match proves the firmware computed it), and measures
-cells at exactly 8.000 cycles. This is *stage 1*: Manchester line coding + framing + CRC-32 are
-protocol work the chip does itself. **An RTL test is being added** — until it lands, this example is
-described as model-verified, not RTL-verified.
+**Status: RTL-verified.** `test/test_eth.py` drives the firmware on the RTL and decodes the actual
+`uio[0]` pin trace with the independent receiver in `host/eth.py` (edge-clock recovery, Manchester
+decode, preamble/SFD lock, FCS check), for **two host-preloaded frames**:
+
+* default frame: preamble/SFD lock, **64 bytes exact**, **FCS `0xF57743B9`** (the preloaded FCS words are
+  zero, so the match proves the firmware computed it), **cells 8.000 cycles**, bits **16.00 cycles →
+  2.0833 Mbit/s**, **max edge residual 0.00 cycle**, frame window exactly **9216 cycles**;
+* custom host-preloaded frame: also **64 bytes exact**, **FCS `0x696CF29E`** (matches the Python
+  reference), same 8.000 / 16.00 / 2.0833 / 0.00.
+
+**IPG nuance, stated precisely:** `eth_tx.asm` recomputes the CRC-32 *after* the gap, so the
+**edge-observable frame-to-frame gap is IPG + untimed compute** — TXD is quiet for **at least 1536
+cycles** after each frame (measured **8508 and 8625 cycles** between frame edges in the two captures).
+1536 cycles is the asserted quiet floor, not the edge-to-edge period.
+
+This is *stage 1* of the Ethernet stretch goal: Manchester line coding + framing + CRC-32 are protocol
+work the chip does itself.
 
 ### 9.2 True 10BASE-T: measured arithmetic for why it is not defensible on this build
 
@@ -619,7 +637,7 @@ for the one-table summary.
 | `i2c_master` | 1 | SCL/SDA | 100 / 400 kHz | `waitd` + `dset`/`dclr` | sketch here, assembles |
 | `i2c_target`, `ps2_device` | 1 each | SCL/SDA, PS2_CLK/DAT | bus rate | `emite` pattern match | planned |
 | `ps2_host`, `onewire`, `ws2812`, `wave_player` | 1 each | see §4–§8 | see §4–§8 | `waitp`/`in`, chained `waitd`, `emitd`, CSRs | sketch here, assembles |
-| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **implemented, RTL-verified** (`sw/examples/usb_ls_tx.asm`, 2 tests); RX reference decoder in `host/usb_ls_rx.py` |
-| `eth_tx` | 1 | TXD (Manchester) | **2.083 Mbit/s** (4.167 Mbaud) | `setp` + Manchester cells, CRC-32 in firmware | **model-verified** (independent decoder, FCS ok); RTL test in progress (`sw/examples/eth_tx.asm`, 97 words) |
+| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **TX RTL-verified** (`test/test_usb_ls.py`, 2 tests); **RX pin-path RTL-verified** via `test/test_usb_ls_rx.py` (differential D+/D− through the pad model, reference decoder; no on-chip RX firmware) |
+| `eth_tx` | 1 | TXD (Manchester) | **2.0833 Mbit/s** (4.167 Mbaud) | `setp` + Manchester cells, CRC-32 in firmware | **RTL-verified** (`test/test_eth.py`, two frames, independent decoder, FCS ok; `sw/examples/eth_tx.asm`, 97 words) |
 | `uart_echo`, `capture_replay` | 1–2 | various | various | mixed | planned |
 | true 10BASE-T (20 Mbaud) | — | — | — | — | **out of reach at 33.33 MHz** — see §9.2 arithmetic; revision-B item |

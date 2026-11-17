@@ -77,7 +77,7 @@ configuration.
 | placement target density / GPL overflow | target 0.6; overflow converged 0.999 → **0.299** |
 | failing step | `OpenRoad.GlobalPlacement` (`gpl.tcl:88`) — **`[GRT-0010] Instance _40267_ is not placed`**, raised inside GPL's *routability-driven* mode (the routability check runs the global router on a mid-placement snapshot). **Root cause later found: that instance was a stray IO-pad cell, not logic** — see “Root cause” below |
 | reached GDS/precheck/GL? | **no** |
-| simulation on this exact RTL | **62/62 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~144 s), frozen at `a55c1b7` |
+| simulation on this exact RTL | **64/64 PASS, 0 fail, 0 skip** (`make SRAM_SIM=1024`, ~146 s; ~159 s on FF), frozen at `4164c42` |
 
 **Reading:** the area problem is solved — **−46 % area versus attempt 1** (622 401 / 1 147 604 = 54.2 %), 44.7 % movable-relative utilisation, and the
 failure is a placement-*mode* quirk with a one-line configuration fix, not a design or capacity
