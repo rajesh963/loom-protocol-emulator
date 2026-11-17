@@ -658,6 +658,13 @@ async def start_loom(dut, clk_ns: float = 10.0, spi_half: int = 4,
     cocotb.start_soon(Clock(dut.clk, clk_ns, unit="ns").start())
     host = LoomHost(dut, clk_ns=clk_ns, spi_half=spi_half)
     await host.reset(cycles=reset_cycles)
+    # Explicitly initialize DMEM.  rtl/loom_mem.v has a simulation-only
+    # `initial` that zeroes it, but that block is not synthesised, so the
+    # gate-level netlist (and real silicon) starts with undefined DMEM contents.
+    # Zeroing it here makes every test start from a defined state on BOTH
+    # builds, and mirrors the documented firmware contract: DMEM has no reset,
+    # so software must initialise it explicitly.
+    await host.write_dmem_block(0, [0] * 64)
     # start the monitor only after reset so it never samples an X state
     monitor = PinMonitor(dut).start()
     return host, monitor
