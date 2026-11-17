@@ -7,6 +7,8 @@ on:
       - 'rtl/**'
       - 'flow/**'
       - 'tools/sync_src.sh'
+      - 'viewer/**'
+      - '.github/workflows/gds.yaml'
       - 'info.yaml'
       - 'librelane_plugin_*.py'
       - 'odb_stripes.py'
