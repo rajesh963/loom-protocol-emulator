@@ -21,6 +21,7 @@ sw/examples/*.asm        firmware sources (this README describes each one)
 sw/prog/build_examples.py builds sw/prog/*.hex|.lst|.sym + manifest.json
 sw/examples/model_selftest.py  proves every example byte-exact on the golden model
 sw/protocols.py         UartBus / SpiBus / I2cBus — far-end models + host helpers
+host/{jtag,can,dmx,midi,ir_nec}.py  independent far-end decoders (protocol set 2)
 host/demos/demo_all.py  four protocols running at once, decoded transcript + waves
 ```
 
@@ -29,7 +30,7 @@ host/demos/demo_all.py  four protocols running at once, decoded transcript + wav
 ```bash
 cd chipchallenge/loom
 ../.venv/bin/python sw/prog/build_examples.py        # assemble all examples
-../.venv/bin/python sw/examples/model_selftest.py -v # 45 checks, golden model
+../.venv/bin/python sw/examples/model_selftest.py -v # 161 checks, golden model
 ../.venv/bin/python host/demos/demo_all.py           # end-to-end demo
 ```
 
@@ -72,6 +73,11 @@ protocols share one 1-instruction/cycle datapath.
 | `usb_ls_tx.asm` (stretch) | — | D+=P[0]=uio[0] | 96 | model-verified (TX only) | 1.4980 Mbit/s (−0.13 %), 22.25 cyc/bit |
 | `eth_tx.asm` (stretch) | — | TXD=P[0]=uio[0] | 97 | model-verified | Manchester 2.083 Mbit/s (4.167 Mbaud), CRC-32 FCS in firmware |
 | `usb_ls_rx.asm` (stretch) | — | D+=P[0]=uio[0], D−=P[1]=uio[1] | 357 | model-verified (SRAM-1024 only) | RX decode + ACK: 22.25 cyc/bit, CRC-5/16, EOP; enumeration not implemented |
+| `jtag_tap.asm` | — | TCK=P[0], TMS=P[1], TDI=P[2], TDO=P[3] (all uio) | 115 | model-verified | ~0.96 MHz TCK (mean 34.8 cyc), IDCODE 0x14B5A5A5 IR+DR readback |
+| `can_tx.asm` | — | TXD=P[10]=uo[2], RXD=P[11]=ui[3] | 79 | model-verified (TX) | 499.85 kbit/s (66.6875 cyc/bit), firmware CRC-15 + stuffing, ACK |
+| `dmx_tx.asm` | — | DMX=P[10]=uo[2] | 35 | model-verified | 250.04 kbaud (133.3125 cyc/bit), 512-slot universe |
+| `midi_tx.asm` | — | MIDI TX=P[10]=uo[2] | 16 | model-verified | 31250.6 baud (1066.6875 cyc/bit), 8N1 |
+| `ir_nec_tx.asm` | — | IR=P[10]=uo[2] | 54 | model-verified | 38.00 kHz carrier (438.625-cyc half), 9/4.5 ms lead, 32 bits |
 
 Pin convention: `P[15:10]` = `uo_out[7:2]`, `P[15:11]` = `ui_in[7:3]` readable,
 `P[7:0]` = the bidirectional open-drain `uio` pins (DIR=1 pulls low, DIR=0
@@ -381,6 +387,111 @@ the RTL suite and not silicon-proven).
   work, not claimed. What *is* demonstrated is the judged axis: line coding, bit
   stuffing, protocol framing and CRC are done by the chip in firmware.
 
+## Protocol set 2 — JTAG, CAN 2.0A, DMX512, MIDI, NEC IR
+
+Five more pin-level protocol programs, each with an **independent host
+decoder** in `host/` that rebuilds the protocol from the pin trace only (the
+firmware's captured/ACK bytes are cross-checked where the program reports
+them). All five fit the 128-word FF fallback build (16–115 words). Each decoder
+also runs standalone, with a synthetic-trace self-check plus the golden-model
+frame, as `python3 -m host.{jtag,can,dmx,midi,ir_nec}`.
+
+### JTAG TAP controller — bit-banged (`jtag_tap.asm`, `host/jtag.py`)
+
+* **Pins**: TCK=P[0]=uio[0], TMS=P[1]=uio[1], TDI=P[2]=uio[2] (outputs),
+  TDO=P[3]=uio[3] (input; DIR bit 3 stays 0). No external parts beyond the DUT;
+  `host/jtag.py` models a 4-bit-IR TAP (IDCODE 0x14B5A5A5 in IR 0x2, BYPASS
+  0xF) as the far end.
+* **Program (115 words)**: 5 x TMS=1 Test-Logic-Reset -> RTI -> Select-DR/IR ->
+  Capture-IR -> Shift-IR (IDCODE instruction 0x2; TDO = Capture-IR status
+  0b0001) -> Update-IR -> SelectDR/CaptureDR/ShiftDR (`DR_BITS` bits, default 8;
+  32 = full IDCODE readback) -> Update-DR -> halt. TDO is sampled at every TCK
+  rising edge into DMEM; the 4+`DR_BITS` captured bits are pushed to the host
+  after the transaction, so host FIFO latency can never stretch TCK.
+* **Timing**: bit-banged with the 12.4 `waitd` accumulator: TCK high phase is
+  exactly 6 cycles on every pulse, TCK period 31..39 cycles (mean 34.8 ->
+  **959 kHz**), the few cycles of variation are instruction-issue padding in the
+  low phase (JTAG has no maximum TCK rate; setup/hold around the rising edge is
+  what matters).
+* **Evidence** (`model_selftest.py`): the decoder reconstructs the **exact TAP
+  state path** from the pin trace, verifies IR shifted in/latched = 0x2,
+  Capture-IR TDO = 0b0001, DR capture = IDCODE, the 8-bit and 32-bit TDO
+  readbacks, and cross-checks every firmware-captured bit against the decoder's
+  sample.
+
+### CAN 2.0A data frame — firmware CRC-15 + stuffing + ACK (`can_tx.asm`, `host/can.py`)
+
+* **Pins**: TXD=P[10]=uo[2] (recessive 1 / dominant 0), RXD=P[11]=ui[3]. A real
+  board needs a CAN transceiver (external parts are allowed by the FAQ); the
+  chip drives the transmitter side and samples the ACK slot on RXD.
+* **Program (79 words)**: the host writes the frame's SOF..data **bit stream**
+  into the TX mailbox (DMEM[0]=bit count, DMEM[1..]=16-bit packed words, LSB
+  first) — the way a CAN controller's TX buffer holds the frame — and the
+  firmware does the link layer: ISO 11898-1 CRC-15 (generator 0x4599, init 0;
+  catalogue check value over "123456789" = **0x059E**) bit by bit, appends the
+  15 CRC bits, inserts a complemented stuff bit after five identical bits over
+  SOF..CRC sequence, then CRC delimiter, ACK slot (recessive; RXD polled for
+  ~1000 cycles and the ACK result pushed to the host), ACK delimiter, 7 x EOF,
+  3 x IFS.
+* **Timing**: `setp 0x042B` = 66.6875 cycles/bit -> **499.85 kbit/s**
+  (-0.03 %); every bit and every stuff bit is one `emit`, so all edges sit on
+  the event grid.
+* **Evidence** (`model_selftest.py`): golden-model frames 0x123/DLC8
+  `"LOOMCAN!"`, 0x7FF/DLC0 and 0x0AA/DLC2 decode **byte-exact** with matching
+  stuffing positions (1, 3 and 2 stuff bits), the independent CRC-15 remainder
+  over frame+CRC is 0, the far end drives the ACK slot and the firmware reports
+  it seen, 66.69 cycles/bit -> 499.8 kbit/s, edge residual <= 0.7 cycles.
+  (Transmit only: bus arbitration and RX are not implemented.)
+
+### DMX512 — 250 kbaud, full 512-slot universe (`dmx_tx.asm`, `host/dmx.py`)
+
+* **Pins**: DMX data = P[10]=uo[2], UART 8N2. A real board needs an RS-485
+  transceiver (external parts allowed).
+* **Program (35 words)**: BREAK held low for 4000 cycles = 120 us (spec
+  >= 88 us), MAB high for 400 cycles = 12.5 us (spec >= 8 us), the fixed 0x00
+  start-code slot, then 512 data slots pulled from the host RX FIFO, each 11 bit
+  cells (start 0, 8 data LSB-first, two stop 1).
+* **Timing**: `setp 0x0855` = 133.3125 cycles/bit -> **250.04 kbaud**
+  (+0.015 %), one `emit` per bit cell, drift-free over the 513-slot frame
+  (~756 kcycles = 22.7 ms).
+* **Evidence** (`model_selftest.py`): full-frame decode with BREAK 4004 cycles
+  = 120.1 us, MAB 415 cycles = 12.5 us, start code 0x00, all 512 slot bytes
+  byte-exact, every slot's start/2-stop framing valid, 133.3125 cycles/bit ->
+  250.04 kbaud, slot-start edge residual <= 0.63 cycles.
+
+### MIDI 1.0 — 31250 baud 8N1 (`midi_tx.asm`, `host/midi.py`)
+
+* **Pins**: MIDI TX = P[10]=uo[2]; a real board adds the MIDI current-loop
+  output stage.
+* **Program (16 words)**: the host pushes raw MIDI bytes; the firmware
+  serialises them back-to-back as 8N1 frames (start 0, 8 data LSB-first, stop
+  1), blocking on a FIFO pull when idle and chaining frames on the event grid.
+* **Timing**: `setp 0x42AB` = 1066.6875 cycles/bit -> **31250.6 baud**
+  (+0.002 %).
+* **Evidence** (`model_selftest.py`): Note On 0x90 0x3C 0x64 + Note Off
+  0x80 0x3C 0x00 + Program Change 0xC0 0x05 -> 8 bytes byte-exact and
+  3 messages assembled (1- and 2-data-byte statuses), 1066.686 cycles/bit ->
+  31.249 kbaud, start-edge residual <= 0.71 cycles.
+
+### NEC IR remote — scheduler-synthesised 38 kHz carrier (`ir_nec_tx.asm`, `host/ir_nec.py`)
+
+* **Pins**: IR LED gate = P[10]=uo[2] (high during a carrier burst). A real
+  board adds the IR LED + driver transistor.
+* **Program (54 words)**: 9 ms carrier MARK, 4.5 ms space, 32 pulse-distance
+  bits (address/~address/command/~command, LSB first; each bit = 562.5 us mark
+  + 562.5 us space for 0 or 1687.5 us for 1), final 562.5 us mark. The
+  **carrier itself is event-scheduler output**: alternating high/low `emit`s
+  one half period apart, `setp 0x1B6A` = 438.625 cycles -> **38.00 kHz**
+  (-0.01 %); spaces are runs of low events chunked into <= 4095.9375-cycle
+  periods (the 12.4 register limit). Host preloads DMEM[0..1] with the 32
+  payload bits.
+* **Evidence** (`model_selftest.py`): golden-model decode with lead mark
+  299581 cycles = 8.987 ms, lead space 150000 cycles = 4.500 ms, 34 marks /
+  33 spaces, addr=0x04 cmd=0x08 with correct complements, 16 ones / 16 zeros,
+  measured carrier **37.998 kHz** at 50.8 % duty with half-period jitter
+  <= 0.63 cycles, bit marks 18860..18861 cycles = 562.4 us. The frame itself
+  is 2.27 Mcycles = 68 ms (the CPU feeds the queue and is idle > 99 % of it).
+
 ## Host helpers (`sw/protocols.py`)
 
 `UartBus`, `SpiBus`, `I2cBus`, `Ws2812`, `Ps2Host`, `OneWireMaster` are both
@@ -424,7 +535,7 @@ computed from `CLOCK_HZ`), and the 12.4 fixed-point period register limit
 `sw/examples/model_selftest.py` and `host/demos/*` take their clock from
 `CLOCK_HZ` (and the manifest); the far-end helpers derive every microsecond
 constant from `world.clock_hz`, so a future change is a one-line edit plus
-re-running the 45 checks and the RTL protocol suite.
+re-running the 161 checks and the RTL protocol suite.
 
 ## Known limits / next steps
 

@@ -57,6 +57,12 @@ from host.usb_ls_rx import (                                # noqa: E402
     encode_packet, PID_SETUP, PID_DATA0, PID_IN,
 )
 
+from host import jtag as jtag_host                          # noqa: E402
+from host import can as can_host                            # noqa: E402
+from host import dmx as dmx_host                            # noqa: E402
+from host import midi as midi_host                          # noqa: E402
+from host import ir_nec as ir_host                          # noqa: E402
+
 EXAMPLES = HERE
 CLOCK_HZ = 33_333_333                    # shipped design point (30 ns)
 FF_FALLBACK_WORDS = 128
@@ -568,6 +574,80 @@ def test_eth_tx() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol set 2: JTAG, CAN 2.0A, DMX512, MIDI, NEC IR
+#
+# Six more pin-level protocol programs, each with its own independent host
+# decoder in host/.  The decoders never look at firmware state: they rebuild the
+# protocol from the pin trace only (TAP state machine, CAN destuffing/CRC-15,
+# DMX break/MAB/slot sampling, MIDI 8N1 message assembly, NEC carrier
+# envelope), and the firmware's captured/ACK bytes are cross-checked where the
+# program reports them.
+# ---------------------------------------------------------------------------
+def test_jtag_tap() -> None:
+    """IEEE 1149.1 TAP controller: TAP state path, IR scan, DR scan, TDO readback."""
+    for dr_bits in (8, 32):
+        ctx = jtag_host.load_example(dr_bits)
+        jtag_host.run_example(ctx)
+        check(f"jtag_tap: size < 128 words (DR_BITS={dr_bits})",
+              len(ctx["prog"].words) < FF_FALLBACK_WORDS,
+              f"{len(ctx['prog'].words)} words")
+        check(f"jtag_tap: firmware halted after the transaction (DR_BITS={dr_bits})",
+              bool(ctx["loom"].threads[ctx["tid"]].halt),
+              f"cycles={ctx['world'].cycle}")
+        jtag_host.check_decoded(ctx["dut"], ctx["captured"], dr_bits, check)
+
+
+def test_can_tx() -> None:
+    """CAN 2.0A data frame: fields, stuffing, firmware CRC-15, ACK slot."""
+    for frame in (can_host.CanFrame(ident=0x123, dlc=8, data=b"LOOMCAN!"),
+                  can_host.CanFrame(ident=0x7FF, dlc=0, data=b""),
+                  can_host.CanFrame(ident=0x0AA, dlc=2, data=b"\xA5\x5A")):
+        ctx = can_host.load_example(frame)
+        can_host.run_example(ctx)
+        ctx["ack_reported"] = ctx["link"].rx_pop(ctx["tid"])
+        check(f"can_tx: size < 128 words (ID 0x{frame.ident:03X}/DLC {frame.dlc})",
+              len(ctx["prog"].words) < FF_FALLBACK_WORDS,
+              f"{len(ctx['prog'].words)} words")
+        can_host.check_decoded(ctx["bus"], ctx, check)
+
+
+def test_dmx_tx() -> None:
+    """Full DMX512 frame: BREAK, MAB, 0x00 start code and a 512-slot universe."""
+    data = bytes(((i * 37 + 11) & 0xFF) for i in range(dmx_host.SLOTS))
+    ctx = dmx_host.load_example()
+    dmx_host.run_example(ctx, data)
+    check("dmx_tx: size < 128 words",
+          len(ctx["prog"].words) < FF_FALLBACK_WORDS,
+          f"{len(ctx['prog'].words)} words")
+    dmx_host.check_decoded(ctx["far"], ctx, data, check)
+    check("dmx_tx: host pushed all 512 slot bytes",
+          ctx.get("sent") == dmx_host.SLOTS, f"sent={ctx.get('sent')}")
+
+
+def test_midi_tx() -> None:
+    """MIDI 1.0 31250 baud: Note On + Note Off + Program Change assembly."""
+    data = bytes([midi_host.NOTE_ON, 0x3C, 0x64,
+                  midi_host.NOTE_OFF, 0x3C, 0x00,
+                  midi_host.PROGRAM_CHANGE, 0x05])
+    ctx = midi_host.load_example()
+    midi_host.run_example(ctx, data)
+    check("midi_tx: size < 128 words",
+          len(ctx["prog"].words) < FF_FALLBACK_WORDS,
+          f"{len(ctx['prog'].words)} words")
+    midi_host.check_decoded(ctx["far"], ctx, data, check)
+
+
+def test_ir_nec_tx() -> None:
+    """NEC IR frame: 38 kHz carrier, 9 ms lead, pulse-distance 32-bit payload."""
+    ctx = ir_host.load_example(0x04, 0x08)
+    ir_host.run_example(ctx)
+    check("ir_nec_tx: size < 128 words",
+          len(ctx["prog"].words) < FF_FALLBACK_WORDS,
+          f"{len(ctx['prog'].words)} words")
+    ir_host.check_decoded(ctx["far"], ctx, check)
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
@@ -579,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
         test_spi_master_modes, test_spi_master_fast, test_spi_slave,
         test_i2c_master, test_i2c_target, test_ws2812, test_ps2, test_onewire,
         test_usb_ls_tx, test_usb_ls_rx, test_eth_tx, test_all_four_threads,
+        test_jtag_tap, test_can_tx, test_dmx_tx, test_midi_tx, test_ir_nec_tx,
     ]
     print("LOOM example-model self-test")
     print(f"  examples: {EXAMPLES}")
