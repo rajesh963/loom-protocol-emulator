@@ -70,8 +70,11 @@ player, with details, badges and references into the architecture/ISA docs. It i
   pull/reactive seeds and 6/6 hand-written programs.
 - Nine protocol-level tests against independent UART/SPI/I2C VIPs plus **two USB low-speed TX tests**
   (NRZI + sync + DATA0 PID + CRC16 + bit stuffing + EOP, independently decoded), all RTL-verified.
-- **4 formal proofs** (FIFO/queue bounds, reset completeness and event properties, host command
-  ordering, and — added post-freeze — **scheduler exactness at bound k=16**) via yosys SMT + z3.
+- **3 bounded formal proofs** (FIFO/queue bounds, reset completeness and event properties, host command
+  ordering) via yosys SMT + z3, plus — added post-freeze — a **bounded scheduler-invariant harness at
+  k=16** that passes but is still **conditional**: its non-vacuity covers are unreached at that bound
+  and a deliberately one-cycle-late mutation is not detected, so it is not yet claimed as an
+  unconditional "no edge is ever late" proof (reachability follow-up in progress).
 - **Gate level on the hardened netlist**: `TESTS=64 PASS=60 FAIL=0 SKIP=4` (four expected skips are
   RTL-backdoor-dependent tests), from the CI artifact's `results.xml` (no GL FST is produced).
 - **All four Tiny Tapeout CI jobs green** on design SHA `7d2fb2f`: `gds`, `precheck` (10/10), `viewer`,
