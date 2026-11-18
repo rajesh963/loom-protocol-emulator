@@ -311,6 +311,7 @@ labelled that way everywhere:
 | `can_tx` (79 words, fits FF build) | **499.85 kbit/s** (−0.03 %), CRC-15 + dynamic stuffing, ACK-slot polling | `host/can.py` (`CanWireDecoder`, CRC-15 check value `0x059E`) | RTL test; CAN FD; error-frame handling |
 | `dmx_tx` (37 words, fits FF build) | **250.03 kbaud** (+0.015 %), BREAK/MAB + 512-slot frame in 22.7 ms | `host/dmx.py` (UART 8N2 receiver + frame decoder) | RTL test; multi-universe; RDM |
 | `midi_tx` (37 words, fits FF build) | **31250.6 baud** (+0.002 %), back-to-back 8N1 frames, message assembly | `host/midi.py` (UART receiver + MIDI message decoder incl. running status) | RTL test; multi-byte system-exclusive streams |
+| `ir_nec_tx` (54 words, fits FF build) | **38.00 kHz** carrier (−0.01 %), 9 ms/4.5 ms lead, 32-bit frame in 67.5 ms | `host/ir_nec.py` (envelope + carrier decoder) | RTL test; RC5/other IR protocols |
 
 ### 9.2 The two I²C gates that closed late
 

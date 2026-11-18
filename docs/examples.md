@@ -672,9 +672,27 @@ message assembly incl. running status).
 | notes | `0x90 0x3C 0x64` (Note On) is a typical job; the far end sees legal 8N1 with no jitter |
 | status | **golden-model verified** with the independent host message decoder; RTL test pending (v2) |
 
-## 13. Ethernet frame TX (stage 1, achieved) and why true 10BASE-T is out of reach
+## 13. NEC infrared remote transmitter *(v2 post-freeze addition; model-verified)*
 
-### 13.1 What the chip does emit: IEEE 802.3 Manchester frames at 2.083 Mbit/s
+`sw/examples/ir_nec_tx.asm` (54 instructions — **fits the FF fallback**) transmits one NEC IR frame
+(pulse-distance coded) with the **38 kHz carrier synthesised entirely by the event scheduler**: marks
+are runs of high/low `emit` half-cells, spaces are runs of low events split into ≤4095.9-cycle chunks
+(the 12.4 period register limit), and the envelope never depends on instruction counting. The pin is
+`uo[2]` (`P[10]`; a real board adds an IR LED + driver transistor). `host/ir_nec.py` builds the payload
+words and **independently decodes both the mark/space envelope and the 38 kHz carrier** from the pin
+trace.
+
+| Element | Implementation |
+|---|---|
+| carrier | `setp 0x1B6A` = 438.625 cycles per half period → **38.00 kHz (−0.01 %**; IR receivers accept ±10 %) |
+| frame | 9 ms lead mark (342 periods = 8.987 ms), 4.5 ms space, **32 bits** `[addr 0x04, ~addr 0xFB, cmd 0x08, ~cmd 0xF7]` LSB-first, end-of-frame mark, idle low |
+| bit | 562.5 µs mark (22 periods = 565.8 µs, +0.6 % inside the NEC marking window) + space 562.5 µs (0) or 1687.5 µs (1) |
+| budget | ~2.25 M cycles = **67.5 ms per frame** (that is the NEC frame length, not CPU time); per-half-cell work is 4 instructions against 877.25 cycles, so the core is idle >99 % of the carrier and still keeps the 4-deep queue fed |
+| status | **golden-model verified** with the independent host decoder; RTL test pending (v2) |
+
+## 14. Ethernet frame TX (stage 1, achieved) and why true 10BASE-T is out of reach
+
+### 14.1 What the chip does emit: IEEE 802.3 Manchester frames at 2.083 Mbit/s
 
 `sw/examples/eth_tx.asm` (97 words, fits even the 128-word FF fallback) is a full **Ethernet frame
 transmitter**: 7 × `0xAA` preamble → `0xD5` SFD → a **64-byte minimum frame** (dst 6 + src 6 +
@@ -710,7 +728,7 @@ cycles** after each frame (measured **8508 and 8625 cycles** between frame edges
 This is *stage 1* of the Ethernet stretch goal: Manchester line coding + framing + CRC-32 are protocol
 work the chip does itself.
 
-### 13.2 True 10BASE-T: measured arithmetic for why it is not defensible on this build
+### 14.2 True 10BASE-T: measured arithmetic for why it is not defensible on this build
 
 The FAQ says there are "no fixed speed requirements" and that "the more of the protocol work (line
 coding, CRC, clock recovery) your chip does itself, the better". Stage 1 does that work — at
@@ -730,11 +748,11 @@ and we can show exactly why 10BASE-T itself is not physically defensible at 33.3
 microarchitecture.** A true 10BASE-T port is a revision-B item: it needs a faster issue path (or a
 dedicated serializer) plus a larger pattern buffer, not a bigger firmware effort.
 
-## 14. Example program status
+## 15. Example program status
 
-The firmware workstream now has **17 programs in `sw/examples/`** covering **12 protocol families**:
-UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet, JTAG, CAN, DMX512 and MIDI (NEC-IR is in
-progress and not counted). Eight of them are exercised by
+The firmware workstream now has **18 programs in `sw/examples/`** covering **13 protocol families**:
+UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet, JTAG, CAN, DMX512, MIDI and NEC-IR (SWD is
+still in progress and not counted). Eight of them are exercised by
 RTL tests (`uart_tx`, `uart_rx`, `spi_master`, `spi_slave`, `i2c_master`, `i2c_target`, `usb_ls_tx`,
 `eth_tx`); the rest — including the three v2 additions below — are **golden-model verified** with
 independent decoders, and their status says so.
@@ -761,7 +779,8 @@ for the one-table summary.
 | `can_tx` **(v2)** | 1 | TXD `uo[2]`, RXD `ui[3]` | **499.85 kbit/s** (−0.03 %) | `setp 0x042B` (66.6875 cyc/bit) + `emit` per bit; CRC-15/stuffing in firmware | **model-verified** with independent CRC/stuffing decoder (79 instructions, fits FF build) |
 | `dmx_tx` **(v2)** | 1 | DMX `uo[2]` (8N2, needs RS-485) | **250.03 kbaud** (+0.015 %) | `setp 0x0855` (133.3125 cyc/bit) + `emit`/bit; BREAK/MAB via `waitd` | **model-verified** with independent host decoder (37 instructions, fits FF build); full 512-slot frame in 22.7 ms |
 | `midi_tx` **(v2)** | 1 | MIDI `uo[2]` (8N1, needs current-loop output) | **31250.6 baud** (+0.002 %) | `setp 0x42AB` (1066.6875 cyc/bit) + `emit`/bit; bytes from the RX FIFO | **model-verified** with independent host message decoder (37 instructions, fits FF build) |
+| `ir_nec_tx` **(v2)** | 1 | IR `uo[2]` (carrier-gated, needs LED driver) | **38.00 kHz** carrier (−0.01 %); 67.5 ms/frame | scheduler-synthesised carrier: `setp 0x1B6A` half-cells + pulse-distance envelope | **model-verified** with independent envelope+carrier decoder (54 instructions, fits FF build) |
 | `eth_tx` | 1 | TXD (Manchester) | **2.0833 Mbit/s** (4.167 Mbaud) | `setp` + Manchester cells, CRC-32 in firmware | **RTL-verified** (`test/test_eth.py`, two frames, independent decoder, FCS ok; `sw/examples/eth_tx.asm`, 97 words) |
 | `uart_loopback`, `ws2812`, `ps2_target`, `onewire`, `spi_slave` | 1 each | see §1–§6 | see §1–§6 | mixed | model-verified (sketch here for the §-documented ones; full programs in `sw/examples/`) |
 | `uart_echo`, `capture_replay` | 1–2 | various | various | mixed | planned |
-| true 10BASE-T (20 Mbaud) | — | — | — | — | **out of reach at 33.33 MHz** — see §13.2 arithmetic; revision-B item |
+| true 10BASE-T (20 Mbaud) | — | — | — | — | **out of reach at 33.33 MHz** — see §14.2 arithmetic; revision-B item |

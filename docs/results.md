@@ -223,7 +223,7 @@ writing (Nov 2026). **No row is a silicon measurement.**
 | sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
 | Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
 | protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
-| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 17 firmware programs / 12 families (5 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 18 firmware programs / 13 families (6 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
 
 LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
 cross-thread pin merge) and methodological (spec-derived golden model + state-level differential
