@@ -184,6 +184,13 @@ from a generated reset:
 | `h_core` | k=6 | reset completeness (TMR/POUT/DIR/threads/queues/FIFOs); event queue depth ≤ 4, head in range; TX/RX counts ≤ 8; DMEM port address in range; POUT changes only via a defined cause (fired event / pin op / CSR POUT / host POUT / wave) |
 | `h_host` | k=6 | reset completeness (MISO/IRQ/FSM/pulses); `mem_we` only for WRITE_MEM; `rx_push` only for TX_PUSH; `tx_pop` only for RX_POP; `csr_wr_en` only for CSR-writing commands; host memory port always inside the 10-bit map |
 
+The scheduler proof (`formal/h_sched.v`, k=16) checks event-scheduler
+exactness (accepted timed events fire exactly on their due cycle, PFRAC/emita/
+emitd due-time exactness, same-cycle pin application); it uses a generated
+read-only observation copy of `rtl/loom_core.v` because yosys does not resolve
+hierarchical references into submodule internals.  `formal/README.md` lists the
+assumptions and the `h_core` hierarchy-reference caveat.
+
 **Assumed** (documented in the harness headers): external responders — SPI
 pins, memory/CSR read data, FIFO pop data, `irq_code` — are arbitrary
 (`(* anyseq *)`); the memory map is 0x000-0x3BF PMEM / 0x3C0-0x3FF DMEM and
@@ -198,7 +205,7 @@ FF and `SRAM_SIM=1024` (measured on `7d2fb2f`; the GL DMEM-initialisation
 contract adds ~64 host writes per simulated run, so the figure is larger than
 the pre-GL-fix ~160 s and the old "< 3 min" note no longer holds — the full CI
 `test` job still finishes comfortably inside the workflow timeout).
-`formal/run_formal.py`: **3/3 proofs PASS** (fifo k=8, core k=6, host k=6).
+`formal/run_formal.py`: **4/4 proofs PASS** (fifo k=8, core k=6, sched k=16, host k=6).
 SRAM build: `make SRAM_SIM=1024` → same 64/64 (RTL behavioural macro model,
 no PDK needed); `make SRAM_SIM=512` also runs (host layer verified incl. the
 PMEM depth guard).  A clean clone (`env -i make` with only an installed cocotb
