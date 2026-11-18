@@ -28,6 +28,28 @@ Run `python -m host.usb_ls_rx` for the rung-1 feasibility self-test: CRC check
 values, then a synthetic differential SETUP token + 8-byte DATA0 (a
 GET_DESCRIPTOR request) decoded at 1.5 Mbit/s nominal and at +/-0.25 % host
 clock offset, reporting recovered period, bit rate, DPLL residual and fields.
+
+NOTE FOR `verify` (RTL cocotb expectations, matching `sw/examples/usb_ls_rx.asm`)
+-------------------------------------------------------------------------------
+* Pins: D+ = uio[0] (P[0]), D- = uio[1] (P[1]); device high-Z (DIR=0) while
+  receiving, both DIR bits set while it drives the ACK.  Line states
+  K=(D+,D-)=(1,0), J=(0,1) idle, SE0=(0,0).
+* Host->device packets used by the model test (bit period 22.25 cycles,
+  1.4981 Mbit/s, from `encode_packet` in this module):
+    SETUP token addr0 ep0: bytes `2D 00 10` (PID 0x2D, ADDR<<0 | ENDP<<7 = 0,
+    CRC-5 0x02 in bits 3..7 of byte 2) -> encoded length 32 bits, EOP at bit 32.
+    DATA0 GET_DESCRIPTOR request: bytes `C3 80 06 00 01 00 00 40 00 DD 94`
+    (PID 0xC3, 8-byte request, CRC-16/USB 0x94DD low-high) -> encoded length
+    96 bits (0 stuffed), EOP at bit 96.
+* Device ACK response (after a valid DATA0 with good CRC): SYNC cells
+  K J K J K J K K + PID 0xD2 NRZI levels J J K J J K K K + EOP SE0 SE0 =
+  18 cells of 22.25 cycles; host-side reference decode:
+  `UsbRxPacket(ack pid=0xD2, pid_ok, eop_ok, period 22.25 cyc)`.
+  Expected latency from the host EOP to the first device-driven cell:
+  ~4400 cycles (~198 bit times) -- functional, NOT the 7.5-bit-time USB limit.
+* Chip <-> host: the decoded summary is pushed as 5 bytes to the thread TX
+  FIFO: `[status (1=token,2=data), pid, addr|endp<<7, crc_ok, eop_ok]`;
+  DMEM map is in the `.asm` header.  Word count 357 -> SRAM-1024 build only.
 """
 
 from __future__ import annotations
@@ -267,8 +289,9 @@ class UsbRxPacket:
             extra = (f" addr={self.addr} endp={self.endp} "
                      f"crc5=0x{self.crc5:02X}({'ok' if self.crc5_ok else 'BAD'})")
         elif self.kind == "data":
-            extra = (f" payload={self.payload.hex()} "
-                     f"crc16=0x{self.crc16:04X}({'ok' if self.crc16_ok else 'BAD'})")
+            crc = ("n/a" if self.crc16 is None
+                   else f"0x{self.crc16:04X}({'ok' if self.crc16_ok else 'BAD'})")
+            extra = f" payload={self.payload.hex()} crc16={crc}"
         return (f"UsbRxPacket({self.kind} pid=0x{self.pid:02X}{extra} "
                 f"stuff={self.stuff_count} EOP={'ok' if self.eop_ok else 'BAD'} "
                 f"P={self.period_cycles:.3f}cyc rate={self.bit_rate/1e6:.4f}Mbit/s "
@@ -460,6 +483,99 @@ class UsbDeviceDecoder:
 # ---------------------------------------------------------------------------
 # Host transmitter as a WireWorld far end
 # ---------------------------------------------------------------------------
+class UsbWireMonitor(FarEnd):
+    """Passive observer of both halves of the differential USB line.
+
+    Records the host-driven levels (world ext pins when the device is
+    high-Z) and the device-driven levels (chip pins while its DIR bits are
+    set), then decodes the device responses with the same `UsbDeviceDecoder`.
+
+    Used by the golden-model test to check ACK / DATA0 descriptor responses
+    and their timing.  Device responses start from idle J; the monitor drops
+    the leading SE0 cycles (the pin is driven low for one cycle between
+    `dset` and the first scheduled event) so the decoder's SYNC lock works.
+    """
+
+    name = "usb-ls-monitor"
+
+    def __init__(self, world: WireWorld, *, dp_pin: int = DP_PIN,
+                 dm_pin: int = DM_PIN, clock_hz: int | None = None):
+        self.world = world
+        self.dp_pin, self.dm_pin = int(dp_pin), int(dm_pin)
+        self.clock_hz = int(clock_hz or world.clock_hz)
+        self.host_wave: list[tuple[int, tuple[int, int]]] = []
+        self.dev_wave: list[tuple[int, tuple[int, int]]] = []
+        self._prev_host = J
+        self._prev_dev = J
+        self._driving = False
+        self.device_drive_cycles = 0
+        world.attach(self)
+
+    def observe(self, cycle: int, pins_out16: int, pins_dir8: int) -> None:
+        ext = self.world.ext16
+        host = ((ext >> self.dp_pin) & 1, (ext >> self.dm_pin) & 1)
+        if host != self._prev_host:
+            self.host_wave.append((cycle, host))
+            self._prev_host = host
+        driven = bool(((pins_dir8 >> self.dp_pin) & 1)
+                      and ((pins_dir8 >> self.dm_pin) & 1))
+        if driven:
+            self.device_drive_cycles += 1
+            level = ((pins_out16 >> self.dp_pin) & 1,
+                     (pins_out16 >> self.dm_pin) & 1)
+            if not self._driving:
+                self._driving = True
+                self._prev_dev = J
+            if level != self._prev_dev:
+                self.dev_wave.append((cycle, level))
+                self._prev_dev = level
+        elif self._driving:
+            self._driving = False
+            self._prev_dev = J
+
+    # -- decoding --------------------------------------------------------
+    def host_transitions(self) -> list[tuple[int, tuple[int, int]]]:
+        """Host-driven transitions, assuming idle J before the first one."""
+        return list(self.host_wave)
+
+    def device_transitions(self) -> list[tuple[int, tuple[int, int]]]:
+        """Device-driven transitions with the leading SE0 pin-turnaround dropped."""
+        out: list[tuple[int, tuple[int, int]]] = []
+        started = False
+        for cycle, level in self.dev_wave:
+            if not started:
+                if level == SE0:
+                    continue
+                started = True
+            out.append((cycle, level))
+        return out
+
+    def decode_host(self) -> list:
+        dec = UsbDeviceDecoder(clock_hz=self.clock_hz)
+        dec.decode_stream(self.host_transitions())
+        return dec.packets
+
+    def decode_device(self) -> list:
+        dec = UsbDeviceDecoder(clock_hz=self.clock_hz)
+        dec.decode_stream(self.device_transitions())
+        return dec.packets
+
+    def response_latency(self) -> int | None:
+        """Cycles from the last host-driven edge to the first device-driven edge."""
+        if not self.host_wave or not self.dev_wave:
+            return None
+        return self.dev_wave[0][0] - self.host_wave[-1][0]
+
+    def waveform(self, chars: int = 96, start: int | None = None,
+                 end: int | None = None) -> dict[str, str]:
+        host = [(c, (dp << self.dp_pin) | (dm << self.dm_pin))
+                for c, (dp, dm) in self.host_wave]
+        dev = [(c, (dp << self.dp_pin) | (dm << self.dm_pin))
+               for c, (dp, dm) in self.dev_wave]
+        return {"host D+/D-": format_wave(host, chars=chars, start=start, end=end),
+                "dev  D+/D-": format_wave(dev, chars=chars, start=start, end=end)}
+
+
 class UsbHostTransmitter(FarEnd):
     """Drives the differential D+/D- pins of a `WireWorld` from packet schedules."""
 
@@ -509,6 +625,13 @@ class UsbHostTransmitter(FarEnd):
                                         addr=addr, endp=endp))
         self._idle(1)
         self.queue_packet(encode_packet("data", pid=PID_DATA0, payload=payload))
+
+    def queue_in(self, *, addr: int = 0, endp: int = 0) -> None:
+        self.queue_packet(encode_packet("token", pid=PID_IN, addr=addr,
+                                        endp=endp))
+
+    def queue_ack(self) -> None:
+        self.queue_packet(encode_packet("ack"))
 
     @property
     def busy(self) -> bool:

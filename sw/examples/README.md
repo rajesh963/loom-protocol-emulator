@@ -71,6 +71,7 @@ protocols share one 1-instruction/cycle datapath.
 | `onewire.asm` | — | DQ=P[7]=uio[7] (open-drain) | 91 | model-verified | standard-speed, +25.0 C DS18B20 scratchpad |
 | `usb_ls_tx.asm` (stretch) | — | D+=P[0]=uio[0] | 96 | model-verified (TX only) | 1.4980 Mbit/s (−0.13 %), 22.25 cyc/bit |
 | `eth_tx.asm` (stretch) | — | TXD=P[0]=uio[0] | 97 | model-verified | Manchester 2.083 Mbit/s (4.167 Mbaud), CRC-32 FCS in firmware |
+| `usb_ls_rx.asm` (stretch) | — | D+=P[0]=uio[0], D−=P[1]=uio[1] | 357 | model-verified (SRAM-1024 only) | RX decode + ACK: 22.25 cyc/bit, CRC-5/16, EOP; enumeration not implemented |
 
 Pin convention: `P[15:10]` = `uo_out[7:2]`, `P[15:11]` = `ui_in[7:3]` readable,
 `P[7:0]` = the bidirectional open-drain `uio` pins (DIR=1 pulls low, DIR=0
@@ -231,6 +232,49 @@ four-program demo needs the 1024-word SRAM build.
   +25.0 C (`0x90 0x01 ...`); the 9th byte is a CRC placeholder (the demo does
   not verify it — a real CRC-8/MAXIM is ~30 extra instructions).
 
+## USB 1.1 low-speed device RX + ACK — stretch (`usb_ls_rx.asm`)
+
+Device-side receive path for the USB LS stretch goal. **Verified on the golden
+model: RX decode + ACK response.** Enumeration is *not* implemented in this
+pass — the honest boundary is stated below.
+
+* **Pins**: D+ = `P[0] = uio[0]`, D− = `P[1] = uio[1]`; line-state value
+  `K=1, J=2 (idle), SE0=0`. The pair is high-Z (DIR=0) while receiving and both
+  lines are driven during the ACK.
+* **Receive pipeline**: poll the J→K SYNC edge, align the sample grid with a
+  measured fixed offset (valid window 6–12 cycles; 9 chosen), then take 104
+  differential samples on an exact **22.25-cycle grid** (`WAITD 7.25` + 15
+  fixed instructions; branchy work padded with NOPs). Post-processing (untimed)
+  validates the SYNC state pattern, NRZI-decodes, bit-unstuffs, checks
+  PID+complement, **CRC-5** for tokens / **CRC-16/USB** for DATA0, finds the
+  EOP as the first double-SE0 sample pair, and pushes
+  `[status, pid, addr|endp<<7, crc_ok, eop_ok]` to the host TX FIFO.
+* **Measured (golden model)**: host bit period recovered **22.249–22.255 cyc**
+  (1.4981–1.4982 Mbit/s); SETUP token addr0/ep0 → PID `0x2D`, ADDR/ENDP 0,
+  CRC-5 `0x02` ok, EOP at sample 32; DATA0 `80 06 00 01 00 00 40 00` (8-byte
+  GET_DESCRIPTOR request) → payload byte-exact, CRC-16 `0x94DD` ok, EOP at
+  sample 96. Decodes at **nominal, +0.25 % and −0.25 % host clock drift**.
+* **ACK response**: after a valid DATA0 the firmware drives the pair with
+  SYNC + PID `0xD2` + EOP (18 cells at 22.25 cycles; the host-side reference
+  decoder reads `ack pid=0xD2, EOP ok, 22.255 cyc/bit`). Honest caveat: the ACK
+  arrives **~4400 cycles (~198 bit times) after the host EOP** because sampling
+  and untimed post-processing are not pipelined; USB LS allows 7.5 bit times,
+  so this is a functional model demo, not a real-host-timing-compliant device.
+* **DMEM map (32/32 words used)**: `[0..12]` 104 sampled states (2 bits each),
+  `[13]` PID / `[14..21]` payload or token fields, `[22..23]` received CRC-16,
+  `[24]` status, `[25]` pid, `[26]` addr|endp<<7, `[27]` crc_ok, `[28]` eop_ok,
+  `[29]` sync_ok, `[30]` byte count, `[31]` EOP sample index.
+* **Size**: 357 instructions → **SRAM-1024 build only**; the 128-word FF
+  fallback cannot hold it. RX is *code-size-bound, not timing-bound*: the
+  sampler costs 16 instructions/bit at IPC 1 (72 % of the 22.25-cycle budget).
+* **Enumeration boundary**: the enumeration state machine (GET_DESCRIPTOR
+  DEVICE response, SET_ADDRESS) is designed but not implemented in this pass.
+  DMEM analysis: the 18-byte device descriptor fits by reusing the dead sample
+  region `[0..8]` at response time (copied from PMEM constants), so
+  "TX+RX+ACK + device descriptor + SET_ADDRESS" is achievable; a full config
+  descriptor (or HID report descriptor) does **not** fit in 32 words. Config
+  descriptors would return STALL.
+
 ## Ethernet Manchester frame transmitter — stretch (`eth_tx.asm`)
 
 The Ethernet stretch goal: transmit a **complete 64-byte minimum Ethernet frame**
@@ -381,6 +425,10 @@ re-running the 45 checks and the RTL protocol suite.
 * `usb_ls_tx.asm` is a **stretch prototype**: device→host TX only, single-ended
   D+ (external D− tie + 1.5 kΩ are board parts), golden-model-proven; RX/DPLL
   and host enumeration are not implemented.
+* `usb_ls_rx.asm` is **RX decode + ACK only** (golden-model verified): the
+  ACK is symbol-correct but ~198 bit times late (not USB real-time compliant),
+  and the enumeration state machine is not implemented; it needs the SRAM-1024
+  build (357 words) and must run single-thread/host-quiet while sampling.
 * `eth_tx.asm` is a **10 Mbit/s-class Manchester framing demo, not 10BASE-T**:
   2.083 Mbit/s measured, ~3.0 Mbit/s practical firmware ceiling; true 20 Mbaud
   needs 2.4× the chip's instruction throughput and ns-class edge jitter (see the

@@ -52,6 +52,10 @@ from host.eth import (                                      # noqa: E402
     ManchesterDecoder as EthManchesterDecoder,
     crc32_8023, default_frame, CLOCK_HZ as ETH_CLOCK_HZ,
 )
+from host.usb_ls_rx import (                                # noqa: E402
+    UsbHostTransmitter, UsbWireMonitor, UsbDeviceDecoder,
+    encode_packet, PID_SETUP, PID_DATA0, PID_IN,
+)
 
 EXAMPLES = HERE
 CLOCK_HZ = 33_333_333                    # shipped design point (30 ns)
@@ -439,6 +443,80 @@ def test_all_four_threads() -> None:
 
 
 # ---------------------------------------------------------------------------
+# USB 1.1 low-speed device receiver (stretch goal)
+# ---------------------------------------------------------------------------
+USB_RX_TOL = 0.0025
+
+
+def _usb_rx_run(prog, pkt, *, clock_scale: float = 1.0, budget: int = 26000):
+    loom, link, world = make_link(prog, 0, 0)
+    mon = UsbWireMonitor(world)
+    host = UsbHostTransmitter(world, clock_scale=clock_scale)
+    host.queue_packet(pkt)
+    world.run(budget)
+    summary = [link.rx_pop(0) for _ in range(5)]
+    return summary, loom, mon
+
+
+def test_usb_ls_rx() -> None:
+    prog = assemble("usb_ls_rx")
+    check("usb_ls_rx: size needs the SRAM-1024 build (not FF-128)",
+          128 <= len(prog.words) < 1024, f"{len(prog.words)} words")
+    # ---------------- SETUP token decode --------------------------------
+    pkt = encode_packet("token", pid=PID_SETUP, addr=0, endp=0)
+    summary, loom, mon = _usb_rx_run(prog, pkt)
+    check("usb_ls_rx: SETUP token decoded",
+          summary == [1, 0x2D, 0x00, 0x01, 0x01],
+          f"summary={[hex(v) for v in summary]}")
+    check("usb_ls_rx: token fields in DMEM",
+          loom.dmem[25] == 0x2D and loom.dmem[26] == 0x00
+          and loom.dmem[29] == 1 and loom.dmem[31] == 32,
+          f"pid={loom.dmem[25]:#x} addr={loom.dmem[26]:#x} "
+          f"sync={loom.dmem[29]} eop_at={loom.dmem[31]}")
+    ref = UsbDeviceDecoder()
+    ref.decode_stream(mon.host_transitions())
+    check("usb_ls_rx: independent host-trace decode matches",
+          len(ref.packets) == 1 and ref.packets[0].kind == "token"
+          and ref.packets[0].crc5_ok, repr(ref.packets))
+    # ---------------- DATA0 decode + ACK response ----------------------
+    payload = bytes([0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x40, 0x00])
+    data_pkt = encode_packet("data", pid=PID_DATA0, payload=payload)
+    summary, loom, mon = _usb_rx_run(prog, data_pkt)
+    data_ref = encode_packet("data", pid=PID_DATA0, payload=payload)
+    check("usb_ls_rx: DATA0 decoded (8-byte SETUP request)",
+          summary == [2, 0xC3, 0x00, 0x01, 0x01],
+          f"summary={[hex(v) for v in summary]}")
+    check("usb_ls_rx: payload bytes + CRC-16 + EOP index",
+          bytes(loom.dmem[14:22]) == payload
+          and loom.dmem[27] == 1 and loom.dmem[28] == 1
+          and loom.dmem[31] == data_ref["encoded_bits"],
+          f"payload={bytes(loom.dmem[14:22]).hex()} "
+          f"crc_ok={loom.dmem[27]} eop_at={loom.dmem[31]} "
+          f"expected={data_ref['encoded_bits']}")
+    dev = mon.decode_device()
+    check("usb_ls_rx: ACK response symbol (SYNC+PID 0xD2+EOP)",
+          len(dev) == 1 and dev[0].kind == "ack" and dev[0].pid == 0xD2
+          and dev[0].pid_ok and dev[0].eop_ok,
+          repr(dev))
+    if dev:
+        check("usb_ls_rx: ACK bit period ~22.25 cycles",
+              abs(dev[0].period_cycles - 22.25) <= 0.05,
+              f"{dev[0].period_cycles:.3f} cyc")
+    check("usb_ls_rx: ACK response latency documented (not USB real-time)",
+          mon.response_latency() is not None and mon.response_latency() > 100,
+          f"{mon.response_latency()} cycles after the host EOP "
+          f"({mon.response_latency()/22.25:.0f} bit times; USB LS allows 7.5)")
+    # ---------------- +/-0.25 % host clock drift ------------------------
+    for scale in (1.0 + USB_RX_TOL, 1.0 - USB_RX_TOL):
+        summary, loom, mon = _usb_rx_run(prog, pkt, clock_scale=scale)
+        check(f"usb_ls_rx: SETUP decode at {100*(scale-1):+.2f} % host drift",
+              summary == [1, 0x2D, 0x00, 0x01, 0x01]
+              and loom.dmem[27] == 1 and loom.dmem[28] == 1,
+              f"summary={[hex(v) for v in summary]} "
+              f"eop_at={loom.dmem[31]}")
+
+
+# ---------------------------------------------------------------------------
 # Ethernet Manchester frame transmitter (stage 1 of the Ethernet stretch goal)
 # ---------------------------------------------------------------------------
 def test_eth_tx() -> None:
@@ -500,7 +578,7 @@ def main(argv: list[str] | None = None) -> int:
         test_uart_tx, test_uart_rx, test_uart_tx_rates, test_uart_loopback,
         test_spi_master_modes, test_spi_master_fast, test_spi_slave,
         test_i2c_master, test_i2c_target, test_ws2812, test_ps2, test_onewire,
-        test_usb_ls_tx, test_eth_tx, test_all_four_threads,
+        test_usb_ls_tx, test_usb_ls_rx, test_eth_tx, test_all_four_threads,
     ]
     print("LOOM example-model self-test")
     print(f"  examples: {EXAMPLES}")
