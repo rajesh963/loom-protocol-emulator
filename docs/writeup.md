@@ -164,7 +164,11 @@ and it is why the examples are the real specification of the architecture.
 | 1-Wire | master | `waitd` for 60 µs–480 µs pulses | 2000 cycles per 60 µs |
 | WS2812 | driver | `emitd` one-shot edge pairs, `waitd` loop pad | 41.7 cycles/bit (T0H 13.3, T1H 26.7) |
 | wave player | generic | DMEM pattern stream | 33.3 M patterns/s |
-| USB low-speed, 10BASE-T | stretch | NRZI/Manchester state machine + scheduler / wave player | 22.2 cycles/bit, 3.33 cycles/symbol |
+| USB low-speed TX, Ethernet frame TX | stretch | NRZI / Manchester state machine + scheduler | 22.2 cycles/bit, 8 cycles/cell (2.0833 Mbit/s) |
+| USB low-speed RX **(v2)** | device RX + ACK | exact 22.25-cycle grid sampler, untimed decode | 22.25 cycles/bit; ACK at **199.8 bit times** (measured ceiling, §9) |
+| JTAG TAP **(v2)** | controller | chained `waitd` pulses + `in` on TDO | TCK 31–39 cycles (mean 959 kHz), 6-cycle HIGH |
+| CAN 2.0A **(v2)** | transmitter | `setp` 66.6875 cycles/bit, one `emit` per bit | **499.85 kbit/s** (−0.03 %), CRC-15/stuffing in firmware |
+| DMX512 **(v2)** | transmitter | `setp` 133.3125 cycles/bit, one `emit` per bit cell | **250.03 kbaud** (+0.015 %), 512-slot frame in 22.7 ms |
 
 Full walkthroughs with verified code for each are in [`examples.md`](examples.md), and the
 assembled versions in [`examples_src/`](examples_src/). Because pins are software-muxed, the same
@@ -441,7 +445,11 @@ actually built, because an honest "RTL done, silicon deferred" is worth more tha
 | **Wave player: precomputed waveform streaming** | DMEM holds 16-bit pin patterns; the player emits one per 12.4-fractional symbol period, so any waveform whose encoding is precomputable (Manchester, IR/RF class, bit-stuffed streams) leaves the CPU free to run the state machine | **RTL + unit-verified** (1000 symbols at 1.625 cycles = 1625 cycles exact); up to **33.3 M patterns/s** at the shipped clock |
 | **A protocol workstation, not just a chip** | Host bridge + FIFOs + Python toolchain: assemble, load, run, stream TX/RX from a host script. Programs occupy RAM, so they survive while powered and reload in milliseconds — the chip is re-tasked between protocols without a bitstream | **demonstrated end-to-end** (`host/`, `sw/prog/`, the load-and-run path in `docs/host-protocol.md` §5) |
 | **Deterministic timing as a product feature** | The property that makes protocols exact also makes the part a **test instrument**: repeatable edge placement is exactly what a bus injector or a fault-injection rig needs | **architectural** (event scheduling from `TMR`; ±1 cycle scheduling, non-drifting periods) |
-| **USB 1.1 low-speed device TX (stretch)** | At 33.33 MHz a USB LS bit is **22.2 cycles** and the fractional event scheduler holds the 1.5 Mbit/s grid, so the whole device-mode transmitter is firmware: NRZI, 8-bit SYNC, DATA0 PID, payload, USB CRC16, bit stuffing after six ones, EOP | **TX RTL-verified** (`test/test_usb_ls.py`, 2 tests, independently decoded). **RX pin-path RTL-verified** (`test/test_usb_ls_rx.py`: chip high-Z after reset, testbench drives differential D+/D− through the open-drain pad model, RTL `pins_in` sampled and decoded — **0 pad-path mismatches**, SETUP + 8-byte DATA0 across ±0.25 % drift, DPLL residual ≤0.83 cycle). **This proves the pin path and reference algorithm only — not enumeration, and no on-chip RX firmware is shipped** (budget: ~150–200 instr, fits the SRAM build). Single-ended D+ TX prototype; real board needs D− bias + 1.5 kΩ pull-up. Not silicon-tested |
+| **USB 1.1 low-speed device — TX (stretch)** | At 33.33 MHz a USB LS bit is **22.2 cycles** and the fractional event scheduler holds the 1.5 Mbit/s grid, so the whole device-mode transmitter is firmware: NRZI, 8-bit SYNC, DATA0 PID, payload, USB CRC16, bit stuffing after six ones, EOP | **TX RTL-verified** (`test/test_usb_ls.py`, 2 tests, independently decoded); single-ended D+ prototype, real board needs D− bias + 1.5 kΩ pull-up. Not silicon-tested |
+| **USB 1.1 low-speed device — RX decode + ACK (v2 post-freeze)** | The same 22.25-cycle grid can *receive*: sample D+/D− every 22.25 cycles, then NRZI/unstuff/CRC-5/CRC-16/EOP in firmware | **golden-model verified**, decode evidence in [`examples.md`](examples.md) §8.1 (SETUP CRC-5 `0x02`, DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`, ±0.25 % drift). ACK is **functional-only**: measured **199.8 bit times** EOP→ACK vs 7.5 allowed — an **architectural ceiling** (decode-during-reception needs ≈34 instr/bit vs 22.25 available), see §9. Enumeration not implemented; single-thread, host-quiet while sampling |
+| **JTAG TAP controller (v2 post-freeze)** | A 4-wire synchronous state machine with its own edge timing is firmware: TCK/TMS/TDI out, TDO sampled with `in`, 12.4 `waitd` accumulator for the pulse grid | **golden-model verified** with an independent host TAP decoder (115 instructions, fits the FF build): IDCODE in IR 0x2, Capture-IR status, TCK mean 959 kHz, 6-cycle HIGH; RTL test pending ([`examples.md`](examples.md) §9) |
+| **CAN 2.0A transmitter (v2 post-freeze)** | Event-scheduler bit timing at 66.6875 cycles/bit, one `emit` per bit (and per stuff bit), CRC-15 + dynamic stuffing in firmware | **golden-model verified** with an independent CRC-15/stuffing decoder: **499.85 kbit/s (−0.03 %)**, ACK-slot polling on RXD (79 instructions, fits the FF build); RTL test pending ([`examples.md`](examples.md) §10) |
+| **DMX512 transmitter (v2 post-freeze)** | A lighting-control frame is just a UART with a break and a fixed slot count: BREAK/MAB from `waitd`, 11-bit cells from `emit` | **golden-model verified** with an independent host decoder: **250.03 kbaud (+0.015 %)**, 512-slot frame in **22.7 ms** (37 instructions, fits the FF build); RTL test pending ([`examples.md`](examples.md) §11) |
 | **Ethernet frame TX — 802.3 Manchester, 2.0833 Mbit/s** | The chip does the *protocol work* itself: 7×`0xAA` preamble, SFD, 64-byte minimum frame, **CRC-32/802.3 FCS computed in firmware**, Manchester line coding, one `emit` per 8-cycle cell, ~9 instr/bit inside a 16-cycle budget | **RTL-verified** (`test/test_eth.py`: two host-preloaded frames decoded from the RTL pin trace by `host/eth.py` — 64 bytes exact, FCS `0xF57743B9` / `0x696CF29E` ok, cells 8.000 cycles, 16.00 cycles/bit = 2.0833 Mbit/s, 0.00-cycle edge residual). TXD is quiet **≥1536 cycles** after each frame; measured frame-edge gaps 8508/8625 cycles because the CRC-32 is recomputed after the gap |
 | **An interactive RTL module explorer ships with the design** | The repo carries a self-contained explorer (`viewer/`, no build step, works from `file://`): the hierarchy as the RTL is instantiated — top → `u_core`/`u_mem`/`u_host`/`u_wave` → per-thread internals (registers, PC, flags, event queue, wait/issue, timed sample), CSRs, FIFOs, memory and wave player — with per-block details, badges, `specRef` pointers into `architecture.md`/`isa.md`, breadcrumbs and deep links (`#/u_core/thread0`). It is **SiliconPulse-compatible** (`diagram.v1` JSON) and is also deployed with the 3D GDS viewer | **shipped and live** — <https://rajesh963.github.io/loom-protocol-emulator/modules/> (landing page with both viewers: <https://rajesh963.github.io/loom-protocol-emulator/>) |
 | **True 10BASE-T — documented as out of reach, with arithmetic** | 20 Mbaud = **1.6667 cycles/cell** at 33.33 MHz, but a data-bearing Manchester cell costs **≥4 instructions = 80 M instr/s against 33.33 M instr/s single-issue IPC — 2.4× over** (four threads share one issue slot, so they do not multiply IPC). Measured same-code ceiling on the model: decodes at 5.5 cycles/cell = **3.03 Mbit/s**, fails at 5.0 cycles/cell. Plus cycle-quantised edges = **±15–23 ns on a 50 ns cell** vs a 10BASE-T TX jitter budget of a few ns at ±100 ppm, and 1024 Manchester half-cells/frame exceed the 32-word DMEM pattern buffer | **not physically defensible on this build** — revision-B item (faster issue/serializer + bigger buffer). The FAQ's framing is met by *stage 1*: we do the framing, CRC-32 and line coding ourselves at 2.0833 Mbit/s, and we can show exactly why true 10BASE-T is a different problem |
@@ -477,6 +485,27 @@ What LOOM does *worse* than the alternatives:
   where the reactive primitives are strongest.
 * **4 threads, 19 pins.** Enough for six concurrent protocols, not enough for a 32-bit bus.
 * **No analog.** The pads are digital; USB and Ethernet need external transceivers regardless.
+
+### Measured architectural ceilings
+
+Two of the stretch protocols turned into *measurements of what this architecture cannot do*, and that
+is more useful to a reader than a success list:
+
+* **True 10BASE-T (20 Mbaud).** A data-bearing Manchester cell is 1.6667 cycles at 33.33 MHz, but
+  costs ≥4 instructions to produce → **80 M instr/s against 33.33 M single-issue IPC, 2.4× over**;
+  edges are cycle-quantised to ±15–23 ns on a 50 ns cell; measured same-code ceiling 3.03 Mbit/s.
+  Full arithmetic in [`examples.md`](examples.md) §11.2.
+* **USB low-speed wire-speed ACK.** The receive loop spends **22.25 of its 22.25 cycles per bit**
+  (72 % of IPC, zero slack); with the packet decoded after capture, EOP→first ACK cell is **4 445
+  cycles = 199.8 bit times** against USB LS's 7.5. Decoding during reception needs ≈34 instructions
+  per bit against 22.25 available (**≈1.5× over IPC**), and even an idealised 8-instruction sampler
+  gives ≈26. So the ACK is symbol-correct but not real-time, and enumeration is out of reach in
+  firmware on this core. Table and breakdown in [`examples.md`](examples.md) §8.1,
+  [`results.md`](results.md) §10.
+
+The honest summary: LOOM does framing, CRC, line coding and bit-exact timing in firmware at rates up
+to ~2 Mbit/s *and* says exactly where the wall is. Both walls are revision-B hardware (a serializer,
+a hardware LS-RX FSM), not tuning.
 
 And an honest comparison on the axes the competition cares about:
 
@@ -517,7 +546,7 @@ in this table is a silicon measurement, ours or anyone's.**
 | [OliverKlug/sophos-protocol-emulator](https://github.com/OliverKlug/sophos-protocol-emulator) | 6×4 | one state machine, 32×16 IMEM, 32-slot capture | UART, SPI, I²C, JTAG, USB-LS TX | flow metrics published (**11.6 k stdcells, 22.2 %, 40 MHz**) |
 | [goutamyadav/Chip-jane-street "Chameleo"](https://github.com/goutamyadav/Chip-jane-street) | — | Hardcaml-generated RTL, OCaml golden ISA + simulator, PIO-like core array | — | model-based generation (host-language golden model) |
 | [WilliamZhang20/protocol-emulator](https://github.com/WilliamZhang20/protocol-emulator) | — | SRAM bytecode engine, 8×16 register file + ALU, two action lanes (shifters, timers, CRC, LFSR), dispatcher | UART, SPI, I²C, JTAG | RTL |
-| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | 12 programs / 10 protocol roles: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (+RX pin path), Ethernet frame TX; true 10BASE-T documented out of reach | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 3 formal proofs, gate-level 60/4, GDS + precheck 10/10** |
+| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | **16 programs / 11 protocol families**: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (RTL) + RX decode/ACK (v2, model), Ethernet frame TX (RTL), JTAG TAP (v2), CAN 2.0A TX (v2), DMX512 TX (v2); true 10BASE-T and wire-speed USB RX ACK documented as measured ceilings | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 3 formal proofs, gate-level 60/4, GDS + precheck 10/10** |
 
 Evidence-level legend: *model* = golden/reference model or host-language simulation; *RTL* = RTL
 simulation test suite; *formal* = formal proofs or equivalence checks; *gate* = gate-level simulation;
@@ -582,8 +611,8 @@ README:
 
 | Criterion (FAQ) | How LOOM answers it | Evidence |
 |---|---|---|
-| **Flexibility is the main thing** | no protocol hardblocks — a protocol is a program loaded over SPI after fabrication; the ISA is a timing language (events, fractional periods, absolute waits, timed sampling) and the same datapath runs 10 programs covering 8 protocol roles across 6 families | `sw/examples/`, [`examples.md`](examples.md), [`isa.md`](isa.md) |
-| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** + RX pin path, **Ethernet frame TX** (2.0833 Mbit/s) — **12 programs, 10 protocol roles, 64 RTL tests** | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/`, `host/eth.py` |
+| **Flexibility is the main thing** | no protocol hardblocks — a protocol is a program loaded over SPI after fabrication; the ISA is a timing language (events, fractional periods, absolute waits, timed sampling) and the same datapath runs **16 programs across 11 protocol families**, including four added after the freeze (USB-LS RX decode/ACK, JTAG TAP, CAN 2.0A TX, DMX512 TX) | `sw/examples/`, [`examples.md`](examples.md), [`isa.md`](isa.md) |
+| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** + RX pin path, **Ethernet frame TX** (2.0833 Mbit/s), and post-freeze firmware: **USB-LS RX decode/ACK**, **JTAG TAP**, **CAN 2.0A TX**, **DMX512 TX** (model-verified) — **16 programs, 11 protocol families, 64 RTL tests** | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/`, `host/eth.py` |
 | **Anything unique the architecture enables** | absolute-timeline scheduling, 1-cycle timed sampling, wave player, capture/record-replay (RTL done, rev-B silicon), host toolchain — the "Beyond the obvious" table in §8 | §8 above |
 | **How it was designed and verified** | spec-derived golden model, 100/100 differential co-sim (pins **and** architectural state), 64-test cocotb suite on both memory builds (incl. USB-LS TX/RX and Ethernet), 3 bounded formal proofs, gate-level run, clean-clone reproducible | [`verification.md`](verification.md) |
 | **Write-up** | this narrative plus the flow-attempt log — every dead end, measured number and one-line fix, including the IO-pad library-hygiene bug | [`FLOW_STATUS.md`](FLOW_STATUS.md), §7 |
@@ -607,8 +636,9 @@ real silicon the way it does in gate-level simulation.
 **The v2 plan is firmware-first (post-freeze note, 2026-11).** The measured build has **35 971
 stdcell instances** (518 231 µm² of stdcells + 140 183 µm² macro = 658 414 µm² = 54.5 % of the core),
 and the binding constraint in the flow was **detailed-routing time**, not area (DRT needed 2.5 h and
-routability-driven placement at 50 % density to converge; 8.6 mW). So the next protocol breadth —
-USB RX/enumeration, JTAG, SWD, CAN, DMX512, MIDI, IR — is planned as **firmware on the existing
+routability-driven placement at 50 % density to converge; 8.6 mW). That plan is already producing firmware: **USB-LS RX decode+ACK, a JTAG TAP controller, a CAN 2.0A
+transmitter and a DMX512 transmitter landed after the freeze** (model-verified, with independent host decoders and their measured
+limits), and **USB enumeration, SWD, MIDI and NEC-IR** remain **firmware on the existing
 machine: zero new cells, no re-harden** ([`results.md`](results.md) §9). RTL changes are reserved for
 small, high-value hardening: 2-FF input synchronisers plus a reset synchroniser (~1 k µm²), and
 possibly enabling the already-verified capture/record-replay engine (RTL exists; it is gated off

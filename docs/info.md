@@ -198,7 +198,11 @@ and cleared only by `ACK_IRQ`; FIFO conditions do not raise it.
 | 1-Wire master | ONEWIRE | standard/fast | chained `waitd` (60 µs units) |
 | WS2812 driver | WS2812_DATA | 800 kHz | `emitd` edge pairs, 75-cycle bit |
 | wave player demo | WAVE_OUT0 | ≤ 33.3 M patterns/s | DMEM pattern stream |
-| USB 1.1 low-speed TX (stretch) | D+ on one pin (single-ended prototype) | 1.5 Mbit/s (22.2 cycles/bit) | periodic `emit` × NRZI/stuffing/CRC16 firmware (RX reference decoder in `host/usb_ls_rx.py`) |
+| USB 1.1 low-speed TX (stretch) | D+ on one pin (single-ended prototype) | 1.5 Mbit/s (22.2 cycles/bit) | periodic `emit` × NRZI/stuffing/CRC16 firmware |
+| USB 1.1 low-speed RX decode + ACK (v2, post-freeze) | D+ / D− (differential) | 1.4981–1.4982 Mbit/s | 22.25-cycle grid sampler + NRZI/unstuff/CRC-5/16/EOP; ACK functional-only (199.8 bit times — measured ceiling); SRAM-1024 build |
+| JTAG TAP controller (v2, post-freeze) | TCK/TMS/TDI out, TDO in | TCK 31–39 cycles (mean 959 kHz) | chained `waitd` pulses, `in` on TDO; 115 instructions |
+| CAN 2.0A transmitter (v2, post-freeze) | TXD, RXD poll | **499.85 kbit/s** (−0.03 %) | `setp` 66.6875 cycles/bit, one `emit`/bit, CRC-15 + stuffing firmware |
+| DMX512 transmitter (v2, post-freeze) | DMX (8N2, needs RS-485) | **250.03 kbaud** (+0.015 %) | `setp` 133.3125 cycles/bit + `emit`/cell; BREAK/MAB via `waitd`; 512 slots / 22.7 ms |
 | Ethernet frame TX (stretch) | TXD on one pin, Manchester | **2.0833 Mbit/s** (4.167 Mbaud) | `setp` 8-cycle cells + firmware CRC-32; RTL-verified, 64-byte minimum frames |
 
 Ready-to-assemble sources are in `docs/examples_src/`; the walkthroughs (with timing budgets and

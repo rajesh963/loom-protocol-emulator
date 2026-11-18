@@ -523,7 +523,7 @@ done:
 
 ---
 
-## 8. USB 1.1 low-speed device TX (stretch — implemented and RTL-verified)
+## 8. USB 1.1 low-speed device — TX and RX decode/ACK (stretch)
 
 USB LS is 1.5 Mbit/s = **22.2 cycles per bit** at 33.33 MHz, NRZI-coded, with bit stuffing after six
 identical bits, an 8-bit SYNC pattern, a PID, USB CRC16 and an EOP. The shipped prototype
@@ -541,29 +541,125 @@ protocol logic is real firmware; the *bit* timing is the scheduler's.
 | pins | **single-ended prototype**: D+ on `P[0] = uio[0]`, push-pull, NRZI; the chip drives/monitors only the D+ half |
 | external parts | a real board needs a USB connector/Pmod with **D− biased to the LS idle level and a 1.5 kΩ pull-up**; the FAQ allows external parts |
 
-**Status: TX RTL-verified; RX pin-path + reference algorithm RTL-verified; no on-chip RX firmware.**
+**Status: TX RTL-verified; RX decode + ACK golden-model verified; RX pin path RTL-verified; enumeration
+not implemented.** (The RX firmware and its ceiling analysis are **v2 post-freeze additions** — the
+hardened design and its claims are unchanged.)
+
 `test/test_usb_ls.py` decodes the transmitted packet with an independent model on both memory builds
-(2/2 PASS) and checks SYNC, PID, payload, CRC16, stuffing and EOP. On the receive side,
-`host/usb_ls_rx.py` is a validated **differential host transmitter + device decoder**: DPLL clock
-recovery seeded from the KJKJKJKK SYNC pattern, NRZI decode, bit unstuffing, PID+complement, CRC-5 and
-CRC-16, EOP framing; a synthetic SETUP + DATA0 `GET_DESCRIPTOR` decodes correctly across **±0.25 %
-host clock drift** (22.186–22.314 cycles/bit) with payload and CRC ok. That is the algorithm an
-on-chip RX path must implement, and the oracle for it. `test/test_usb_ls_rx.py` closes the next rung
-honestly: the chip is **high-Z after reset** (`PDIR = 0`), the testbench drives a real differential LS
-waveform on **D+ = `uio[0]`, D− = `uio[1]`** through the open-drain pad model, samples the RTL
-`pins_in` path, and decodes with the reference receiver — **0 pad-path mismatches**, SETUP token +
-8-byte DATA0 `GET_DESCRIPTOR` decoding at nominal and **±0.25 % host drift** (recovered 22.2528 /
-22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), with
-PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the
-reference RX algorithm only — not enumeration and not a firmware RX path.** No RX firmware is shipped
-(the draft was dropped unverified). The budget analysis says RX is **code-size-bound, not timing-bound**: ~150–200
-instructions, i.e. it fits the SRAM-1024 build, not the 128-word FF fallback. So: USB device TX is
-demonstrated, USB enumeration is feasible and planned, and the reference decoder plus cycle budget are
-already in the repo.
+(2/2 PASS) and checks SYNC, PID, payload, CRC16, stuffing and EOP. `host/usb_ls_rx.py` is a validated
+**differential host transmitter + device decoder**: DPLL clock recovery seeded from the KJKJKJKK SYNC
+pattern, NRZI decode, bit unstuffing, PID+complement, CRC-5 and CRC-16, EOP framing; a synthetic SETUP
++ DATA0 `GET_DESCRIPTOR` decodes correctly across **±0.25 % host clock drift** (22.186–22.314
+cycles/bit). `test/test_usb_ls_rx.py` proves the pin path on the RTL: the chip is **high-Z after reset**
+(`PDIR = 0`), the testbench drives a real differential LS waveform on **D+ = `uio[0]`, D− = `uio[1]`**
+through the open-drain pad model, samples the RTL `pins_in` path, and decodes with the reference
+receiver — **0 pad-path mismatches**, SETUP token + 8-byte DATA0 decoding at nominal and ±0.25 % drift
+(recovered 22.2528 / 22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual
+≤ 0.83 cycle), PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok.
 
-## 9. Ethernet frame TX (stage 1, achieved) and why true 10BASE-T is out of reach
+### 8.1 RX firmware: decode + ACK, and its measured ceiling
 
-### 9.1 What the chip does emit: IEEE 802.3 Manchester frames at 2.083 Mbit/s
+`sw/examples/usb_ls_rx.asm` (**357 instructions → SRAM-1024 build only**, DMEM 32/32 words) runs the
+LS device receiver in one thread: it samples the differential line on the exact 22.25-cycle bit grid,
+NRZI-decodes, validates SYNC, bit-unstuffs, checks PID + complement, CRC-5 (tokens) or CRC-16 (data)
+and the EOP, publishes the decoded packet to the host, and ACKs a valid DATA0.
+
+| Decode evidence (golden model) | Value |
+|---|---|
+| SETUP token | PID `0x2D` + complement, addr 0 / endpoint 0, **CRC-5 = `0x02`** |
+| DATA0 `GET_DESCRIPTOR` | payload `8006000100004000` **byte-exact**, **CRC-16 = `0x94DD`** |
+| EOP | at samples 32 (token) / 96 (data) |
+| bit period | **22.249–22.255 cycles** = 1.4981–1.4982 Mbit/s |
+| host tolerance | decodes at nominal **and ±0.25 % drift** |
+| sampler alignment | fixed 9-cycle offset; valid window 6–12 cycles; **104 samples, none dropped or added** |
+| ACK response | SYNC + PID `0xD2` + EOP, **18 cells @ 22.25 cycles**, host-decoded ok |
+
+**Measured ACK latency (PC-breakpoint breakdown, DATA0 8-byte packet)** — the honest number that matters:
+
+| Stage | Cycles | Bit times |
+|---|---|---|
+| sampler per bit (`WAITD 7.25` + 16 instructions) | 22.25 | 1.0 (72 % of the bit budget, **zero issue slack**) |
+| host EOP → end of the fixed 104-sample window | 198 | 8.9 |
+| NRZI + unstuff + byte assembly | 2 505 | 112.6 |
+| PID + CRC-16 over 8 bytes | 564 | 25.3 |
+| EOP double-SE0 scan | 1 155 | 51.9 |
+| publish + ACK setup/emit | 23 | 1.0 |
+| **EOP → first ACK cell** | **4 445** | **199.8** vs USB LS's **7.5** |
+
+**This is an architectural ceiling, not a tuning problem.** The packet is decoded *after* capture, so
+even perfect post-processing costs hundreds of cycles; wire-speed ACK needs decoding *during*
+reception, at ≈34 instructions per bit (sampler 16 + inline NRZI/unstuff/accumulate ~10 + CRC-16
+~8/bit) against **22.25 available — ≈1.5× over single-issue IPC** (four threads share the one issue
+slot, so more threads do not help). Even an idealised 8-instruction sampler gives ≈26 > 22.25. A
+revision-B option (not built) is a small hardware LS RX FSM (edge detect + DPLL + NRZI/stuffing/CRC-16
++ EOP + byte FIFO/interrupt to firmware).
+
+**Constraints and boundaries, stated plainly:** RX is **single-thread and host-quiet** while a packet
+is sampled (zero issue slack — one stolen cycle shifts the grid by a cycle, tolerated once by the
+6–12-cycle window, but repeated stalls break it); the 104-sample window is **104 × 22.25 = 2 314
+cycles** (do not mistake that window for a rate); **enumeration is not implemented** (no
+GET_DESCRIPTOR response / SET_ADDRESS); a **config descriptor does not fit** in 32 DMEM words (a
+16–18-byte device descriptor would, by reusing the dead sample region DMEM[0..8] at response time), and
+a device that cannot supply one must **STALL** the request. So the honest USB row is: *TX timing-exact
+and RTL-verified; RX decode + ACK functional-only at 199.8 bit times; enumeration not implemented.*
+
+## 9. JTAG TAP controller *(v2 post-freeze addition; model-verified)*
+
+JTAG (IEEE 1149.1) is explicitly named in the competition FAQ, so the bit-banged **TAP controller**
+`sw/examples/jtag_tap.asm` (115 instructions — **fits the 128-word FF fallback**) runs one complete TAP
+transaction per `RUN`. `host/jtag.py` models the far end (a DUT with a 4-bit IR, `IDCODE = 0x14B5A5A5`
+in IR `0x2`, BYPASS in IR `0xF`) and independently decodes the pin trace with its own TAP state
+machine.
+
+| Element | Implementation |
+|---|---|
+| pins | TCK = `uio[0]`, TMS = `uio[1]`, TDI = `uio[2]` (push-pull outputs); **TDO = `uio[3]` stays an input**, sampled with `in` |
+| sequence | Test-Logic-Reset (5×TCK, TMS=1) → Run-Test/Idle → Select-DR/IR → Capture-IR → Shift-IR (IDCODE, 4 bits) → Update-IR → Capture-DR → Shift-DR (`DR_BITS`, 8 by default; 32 reads the full IDCODE) → Update-DR |
+| captured result | 4 IR-scan bits (expect Capture-IR status `0b0001`) then `DR_BITS` DR bits, pushed to the host TX FIFO one byte per bit; the host decoder sees every bit too |
+| timing | 12.4 `waitd` accumulator, no instruction counting: **TCK period 31–39 cycles (mean 34.8 → 959 kHz)**, TCK HIGH exactly **6 cycles**, low phase padded by issue path (±4 cycles = ±127 ns) so the DUT always sees a clean setup/hold window; TDO changes on the falling edge |
+| legality | there is no JTAG maximum TCK rate, so the padded low phase is legal; raise `HALF` (0x0100 → 0x0200 = 512 cycles) for a slow cable |
+
+**Status: golden-model verified** with the independent host TAP decoder; an RTL test for this program
+has not been added yet (v2). The example demonstrates the point of the architecture: a 4-wire
+synchronous state machine with its own edge timing is *firmware*, not a hardblock.
+
+## 10. CAN 2.0A transmitter *(v2 post-freeze addition; model-verified)*
+
+`sw/examples/can_tx.asm` (79 instructions — **fits the FF fallback**) is a CAN **2.0A standard-data-frame
+transmitter**: TXD on `uo[2]` (`P[10]`), RXD polled on `ui[3]` (`P[11]`) after the frame to sample the
+ACK slot. A real board needs a CAN transceiver (external parts are FAQ-allowed); `host/can.py` models
+the far end at the pin level, including driving the ACK slot dominant, and carries an independent
+CRC-15 + stuffing decoder (`CanWireDecoder`, with the ISO 11898-1 CRC-15 check value
+`crc15_can("123456789") = 0x059E` validated).
+
+| Element | Implementation |
+|---|---|
+| frame | SOF → ID[10:0] → RTR=0 → IDE=0 → r0=0 → DLC[3:0] → data (8·DLC bits) → **CRC-15 (0x4599, MSB first)** → CRC delimiter → ACK slot (recessive, then poll RXD ~1000 cycles = 15 bit times for a dominant ACK) → ACK delimiter → EOF ×7 → IFS ×3 |
+| stuffing | dynamic bit stuffing after five identical bits, applied to SOF..end of CRC sequence and never to CRC delimiter/ACK/EOF; the stuff bit is unconditional (the receiver can destuff deterministically) |
+| timing | **500 kbit/s**: 66.6667 cycles/bit, `setp 0x042B` (1067/16 = **66.6875 cycles** → **499.85 kbit/s, −0.03 %**, inside the CAN oscillator tolerance); every bit and stuff bit is one `emit`, so all edges sit on the grid and the 12.4 carry keeps 100+ bits drift-free |
+| host interface | host writes the SOF..data bit stream into the TX mailbox (DMEM[0] = N, DMEM[1..] = bits packed 16/word); firmware does CRC-15, stuffing, framing, ACK sampling and bit timing, then halts (single shot) |
+| status | **golden-model verified** with the independent CRC/stuffing decoder; RTL test not yet added (v2) |
+
+## 11. DMX512 transmitter *(v2 post-freeze addition; model-verified)*
+
+`sw/examples/dmx_tx.asm` (37 instructions — **fits the FF fallback**) transmits one full **DMX512
+frame** on `uo[2]` (`P[10]`, UART-style 8N2; a real board adds an RS-485 transceiver, which the FAQ
+allows): BREAK (line low ≈120 µs, spec ≥88 µs) → MAB (high ≈12 µs, spec ≥8 µs) → start-code slot
+`0x00` → **512 data slots**, one byte per slot pulled from the host RX FIFO. `host/dmx.py` models the
+far end and decodes the stream independently.
+
+| Element | Implementation |
+|---|---|
+| framing | 11 bit cells per slot (start 0, 8 data LSB-first, two stop bits), BREAK/MAB from `waitd` |
+| timing | **250.03 kbaud** (+0.015 %, inside the DMX ±1 % window): 133.3125 cycles/bit from `setp 0x0855`; every bit cell is one `emit`, and the 12.4 carry keeps an 11-bit slot (1 466.4 cycles) drift-free across 513 slots |
+| frame time | break 4 000 + MAB 400 + 513 slots × 1 466.4 ≈ **756 k cycles = 22.7 ms** |
+| first slot | started by `emit`'s behind-schedule clamp (target is in the past after BREAK/MAB), which is exactly the spec's "first slot starts after MAB" |
+| host interface | one data byte per slot through the RX FIFO; a slot is ~1 466 cycles, so a 33 MHz host has >1.4 k cycles per byte to keep the 8-byte FIFO ahead |
+| status | **golden-model verified** with the independent host decoder; RTL test pending (v2) |
+
+## 12. Ethernet frame TX (stage 1, achieved) and why true 10BASE-T is out of reach
+
+### 12.1 What the chip does emit: IEEE 802.3 Manchester frames at 2.083 Mbit/s
 
 `sw/examples/eth_tx.asm` (97 words, fits even the 128-word FF fallback) is a full **Ethernet frame
 transmitter**: 7 × `0xAA` preamble → `0xD5` SFD → a **64-byte minimum frame** (dst 6 + src 6 +
@@ -599,7 +695,7 @@ cycles** after each frame (measured **8508 and 8625 cycles** between frame edges
 This is *stage 1* of the Ethernet stretch goal: Manchester line coding + framing + CRC-32 are protocol
 work the chip does itself.
 
-### 9.2 True 10BASE-T: measured arithmetic for why it is not defensible on this build
+### 12.2 True 10BASE-T: measured arithmetic for why it is not defensible on this build
 
 The FAQ says there are "no fixed speed requirements" and that "the more of the protocol work (line
 coding, CRC, clock recovery) your chip does itself, the better". Stage 1 does that work — at
@@ -619,7 +715,14 @@ and we can show exactly why 10BASE-T itself is not physically defensible at 33.3
 microarchitecture.** A true 10BASE-T port is a revision-B item: it needs a faster issue path (or a
 dedicated serializer) plus a larger pattern buffer, not a bigger firmware effort.
 
-## 10. Example program status
+## 13. Example program status
+
+The firmware workstream now has **16 programs in `sw/examples/`** covering **11 protocol families**:
+UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet, JTAG, CAN and DMX512 (MIDI is in progress and
+not counted). Eight of them are exercised by
+RTL tests (`uart_tx`, `uart_rx`, `spi_master`, `spi_slave`, `i2c_master`, `i2c_target`, `usb_ls_tx`,
+`eth_tx`); the rest — including the three v2 additions below — are **golden-model verified** with
+independent decoders, and their status says so.
 
 "Sketch here, assembles" means the listing in this document is accepted verbatim by
 `sw/loom_asm.py` (and the copies in [`examples_src/`](examples_src/) are the exact files CI
@@ -636,8 +739,13 @@ for the one-table summary.
 | `spi_target` | 1 | re-mux `uio[5..7]` | as master | `setem`/`setec`/`emite` | sketch here, assembles |
 | `i2c_master` | 1 | SCL/SDA | 100 / 400 kHz | `waitd` + `dset`/`dclr` | sketch here, assembles |
 | `i2c_target`, `ps2_device` | 1 each | SCL/SDA, PS2_CLK/DAT | bus rate | `emite` pattern match | planned |
-| `ps2_host`, `onewire`, `ws2812`, `wave_player` | 1 each | see §4–§8 | see §4–§8 | `waitp`/`in`, chained `waitd`, `emitd`, CSRs | sketch here, assembles |
-| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **TX RTL-verified** (`test/test_usb_ls.py`, 2 tests); **RX pin-path RTL-verified** via `test/test_usb_ls_rx.py` (differential D+/D− through the pad model, reference decoder; no on-chip RX firmware) |
+| `ps2_host`, `onewire`, `ws2812`, `wave_player` | 1 each | see §4–§7 | see §4–§7 | `waitp`/`in`, chained `waitd`, `emitd`, CSRs | sketch here, assembles |
+| `usb_ls_tx` | 1 | D+ (single-ended) | 1.5 Mbit/s | `setp` + NRZI/stuffing/CRC16 firmware | **TX RTL-verified** (`test/test_usb_ls.py`, 2 tests) |
+| `usb_ls_rx` **(v2)** | 1 | D+ / D− (differential) | 1.4981–1.4982 Mbit/s | 22.25-cycle grid sampler + NRZI/unstuff/CRC-5/16/EOP firmware | **model-verified decode + ACK** (357 words → SRAM-1024 only; DMEM 32/32); ACK is functional-only at **199.8 bit times** — see §8.1 ceiling |
+| `jtag_tap` **(v2)** | 1 | TCK/TMS/TDI out, TDO in | TCK 31–39 cyc (mean 959 kHz) | chained `waitd` pulses + `in` on TDO | **model-verified** with independent host TAP decoder (115 instructions, fits FF build) |
+| `can_tx` **(v2)** | 1 | TXD `uo[2]`, RXD `ui[3]` | **499.85 kbit/s** (−0.03 %) | `setp 0x042B` (66.6875 cyc/bit) + `emit` per bit; CRC-15/stuffing in firmware | **model-verified** with independent CRC/stuffing decoder (79 instructions, fits FF build) |
+| `dmx_tx` **(v2)** | 1 | DMX `uo[2]` (8N2, needs RS-485) | **250.03 kbaud** (+0.015 %) | `setp 0x0855` (133.3125 cyc/bit) + `emit`/bit; BREAK/MAB via `waitd` | **model-verified** with independent host decoder (37 instructions, fits FF build); full 512-slot frame in 22.7 ms |
 | `eth_tx` | 1 | TXD (Manchester) | **2.0833 Mbit/s** (4.167 Mbaud) | `setp` + Manchester cells, CRC-32 in firmware | **RTL-verified** (`test/test_eth.py`, two frames, independent decoder, FCS ok; `sw/examples/eth_tx.asm`, 97 words) |
+| `uart_loopback`, `ws2812`, `ps2_target`, `onewire`, `spi_slave` | 1 each | see §1–§6 | see §1–§6 | mixed | model-verified (sketch here for the §-documented ones; full programs in `sw/examples/`) |
 | `uart_echo`, `capture_replay` | 1–2 | various | various | mixed | planned |
-| true 10BASE-T (20 Mbaud) | — | — | — | — | **out of reach at 33.33 MHz** — see §9.2 arithmetic; revision-B item |
+| true 10BASE-T (20 Mbaud) | — | — | — | — | **out of reach at 33.33 MHz** — see §12.2 arithmetic; revision-B item |

@@ -205,8 +205,9 @@ pin-path test and the Ethernet frame TX test. Frozen at `7d2fb2f`; a clean clone
 | 2 | Full-duplex SPI above ~2 MHz controller-side needs a queue-synchronised read | documented limitation, see [`writeup.md`](writeup.md) §9 | design |
 | 3 | capture / record-replay: RTL complete and unit-verified (209 checks), **silicon integration deferred to revision B** because enabling it aliases the 32-word DMEM used by the wave player | not in `source_files`; not in the submitted build | Lead |
 | 4 | **True 10BASE-T not achievable**: 20 Mbaud = 1.6667 cycles/cell needs ≥4 instr/cell = 80 M instr/s vs 33.33 M instr/s IPC (2.4× over); measured same-code ceiling 3.03 Mbit/s; ±15–23 ns edge quantisation vs a few-ns TX jitter budget; 1024 half-cells/frame exceed the 32-word DMEM | documented, not a defect — revision-B item. Ethernet *frame TX* at 2.0833 Mbit/s with firmware CRC-32 is RTL-verified instead (§6) | Lead |
-| 5 | **None — all four CI jobs are green.** GDS + precheck 10/10, gate-level `TESTS=64 PASS=60 FAIL=0 SKIP=4` on `7d2fb2f` (run `44068106013`) | design/verification frozen at `7d2fb2f`; submitted tree `352e473` has its own `gds` run pending (`44087988160`). **No silicon measurements exist** | Lead |
+| 5 | **None — all four CI jobs are green.** GDS + precheck 10/10, gate-level `TESTS=64 PASS=60 FAIL=0 SKIP=4` on `7d2fb2f` (run `44068106013`); the viewer-only descendants `2805c5e` (run `44123912681`) and `27bd040` (run `44126150927`) are also all-green (GL `PASS=60 SKIP=4`), and later commits are docs-only | design/verification frozen at `7d2fb2f`. **No silicon measurements exist** | Lead |
 | 6 | The 6-hour CI cap remains a hard limit: attempts 6/7 hit it (design stages are only ~15–20 min; the cap is a DRT budget). Attempt 8 converged in ~2.5 h, so the submitted build is inside it | FAQ fallback (local LibreLane + custom GDS action) not needed | Lead |
+| 7 | **Wire-speed USB LS ACK is not achievable in firmware** *(v2 post-freeze)*: measured EOP→first ACK cell = **4 445 cycles = 199.8 bit times** against USB LS's 7.5; decode-during-reception needs ≈34 instructions/bit vs 22.25 available (≈1.5× over single-issue IPC) | architectural ceiling, not a bug (§10.2) — RX decode + ACK is functional-only and golden-model verified; enumeration not implemented (32-word DMEM also bounds descriptors). Revision-B option: hardware LS RX FSM | Lead |
 
 ## 8. How LOOM compares — summary *(v2 docs addition — post-freeze; design unchanged)*
 
@@ -222,7 +223,7 @@ writing (Nov 2026). **No row is a silicon measurement.**
 | sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
 | Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
 | protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
-| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 3 formal proofs · GL 60/4 · GDS+precheck 10/10** | *deliberately* one uniform machine: no per-protocol datapaths |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 3 formal proofs · GL 60/4 · GDS+precheck 10/10** + 16 firmware programs / 11 families (4 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
 
 LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
 cross-thread pin merge) and methodological (spec-derived golden model + state-level differential
@@ -252,4 +253,49 @@ target density; the hardened die dissipates **8.60 mW**.
 
 The design is frozen and shipped; no second GDS is promised. A v2 harden happens only if the firmware
 work shows it is worth another tape-out, and it would ship on its own green pipeline.
+
+## 10. Measured architectural ceilings *(v2 docs addition — post-freeze; design unchanged)*
+
+The strongest "we measured our limits" artefacts in the project are the two cases where the firmware
+work ran into the microarchitecture. Both are reproducible measurements, not tuning failures, and both
+are revision-B hardware items rather than open bugs.
+
+### 10.1 True 10BASE-T — 2.4× over single-issue IPC
+
+| Quantity | 10BASE-T needs | This build provides | Verdict |
+|---|---|---|---|
+| line rate | 20 Mbaud = **1.6667 cycles/cell** at 33.33 MHz | data-bearing Manchester cell ≥4 instructions → **80 M instr/s** vs **33.33 M instr/s** IPC | **2.4× over** |
+| threads | — | 4 threads share one issue slot: concurrency, not IPC | does not help |
+| measured ceiling, same code | — | decodes at **5.5 cycles/cell = 3.03 Mbit/s**; fails at 5.0 cycles/cell (3.33 Mbit/s) | ~3 Mbit/s is the wall |
+| TX jitter | a few ns at ±100 ppm | cycle-quantised edges: **±15–23 ns on a 50 ns cell** | unattainable |
+| pattern buffer | 1024 half-cells/frame | wave player ≤64 patterns in a **32-word DMEM** | does not fit |
+
+Achieved instead: **Ethernet frame TX at 2.0833 Mbit/s** with Manchester line coding and CRC-32 FCS in
+firmware, RTL-verified (`examples.md` §11, `test/test_eth.py`).
+
+### 10.2 USB low-speed wire-speed ACK — 1.5× over IPC
+
+| Quantity | Measured | USB LS requirement |
+|---|---|---|
+| sampler cost | **22.25 cycles/bit = 22.25 of 22.25 available (72 % of IPC, zero issue slack)** | — |
+| EOP → end of fixed 104-sample window | 198 cycles (8.9 bit times) | — |
+| NRZI + unstuff + assembly | 2 505 cycles (112.6 bit times) | — |
+| PID + CRC-16 (8 bytes) | 564 cycles (25.3 bit times) | — |
+| EOP double-SE0 scan | 1 155 cycles (51.9 bit times) | — |
+| publish + ACK setup/emit | 23 cycles (1.0 bit times) | — |
+| **EOP → first ACK cell** | **4 445 cycles = 199.8 bit times** | **7.5 bit times (167 cycles)** |
+| decode-during-reception cost | ≈34 instructions/bit | 22.25 available → **≈1.5× over IPC** |
+| idealised 8-instruction sampler | ≈26 instructions/bit | still over |
+
+Achieved instead: **USB-LS RX decode + ACK, golden-model verified** (357 words → SRAM-1024 only; DMEM
+32/32; SETUP CRC-5 `0x02`, DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`, ±0.25 % host drift; ACK
+is symbol-correct — SYNC + PID `0xD2` + EOP, 18 cells — but functional-only). RX is single-thread and
+host-quiet while sampling; the 104-sample window is 2 314 cycles, not a rate. Enumeration is not
+implemented, and a config descriptor does not fit in 32 DMEM words (a device descriptor would, by
+reusing the dead sample region at response time); a device with no config descriptor must STALL. Full
+breakdown: [`examples.md`](examples.md) §8.1.
+
+The pair is deliberate: **the same `emit`/`waitd` machinery that makes UART/I²C/SPI bit-exact is what
+tells us, quantitatively, where a 33.33 MHz single-issue datapath stops** — and both ceilings were
+found by writing the firmware, not by guessing.
 

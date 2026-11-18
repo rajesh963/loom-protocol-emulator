@@ -253,6 +253,17 @@ Python golden model written from the spec) agree on the exact cycle of every pin
 every architectural register for 100 random programs. A one-cycle scheduling error, a wrong priority
 resolution or a lost queue event would fail it.
 
+**v2 post-freeze firmware (not in the 64).** Three programs added after the submission freeze are
+**golden-model verified only**, each against an independent host-side protocol decoder, and are
+labelled that way everywhere:
+
+| Program | Evidence | Independent decoder | What is *not* claimed |
+|---|---|---|---|
+| `usb_ls_rx` (357 words, SRAM-1024 only) | SETUP CRC-5 `0x02`; DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`; ±0.25 % host drift; ACK SYNC+PID `0xD2`+EOP | `host/usb_ls_rx.py` (DPLL/NRZI/unstuff/CRC-5/16/EOP) | wire-speed ACK (**199.8** vs 7.5 bit times — measured ceiling), enumeration, config descriptor (32-word DMEM) |
+| `jtag_tap` (115 words, fits FF build) | IDCODE scan in IR `0x2`, Capture-IR status, TCK mean 959 kHz | `host/jtag.py` (TAP state machine) | RTL test; multi-device chains; boundary scan |
+| `can_tx` (79 words, fits FF build) | **499.85 kbit/s** (−0.03 %), CRC-15 + dynamic stuffing, ACK-slot polling | `host/can.py` (`CanWireDecoder`, CRC-15 check value `0x059E`) | RTL test; CAN FD; error-frame handling |
+| `dmx_tx` (37 words, fits FF build) | **250.03 kbaud** (+0.015 %), BREAK/MAB + 512-slot frame in 22.7 ms | `host/dmx.py` (UART 8N2 receiver + frame decoder) | RTL test; multi-universe; RDM |
+
 ### 9.2 The two I²C gates that closed late
 
 During bring-up, **I2C 400 kHz** and **I2C target** were SKIPped pending firmware-timing triage
