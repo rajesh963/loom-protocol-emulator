@@ -594,6 +594,13 @@ slot, so more threads do not help). Even an idealised 8-instruction sampler give
 revision-B option (not built) is a small hardware LS RX FSM (edge detect + DPLL + NRZI/stuffing/CRC-16
 + EOP + byte FIFO/interrupt to firmware).
 
+**model-verified; firmware RTL test pending — blocked on the testbench's host-drive timeline, not on
+an RTL failure** (diagnosed: the host drive releases the line to SE1 where the golden model keeps
+legal idle J, so the firmware sampler correctly captured SE1 and published a garbage summary; the
+fix is a model-derived pin-trace replay of the golden model's exact cycle-by-cycle differential
+waveform). The separate `test/test_usb_ls_rx.py` pin-path check passes — this row is about the RX
+*firmware* RTL test.
+
 **Constraints and boundaries, stated plainly:** RX is **single-thread and host-quiet** while a packet
 is sampled (zero issue slack — one stolen cycle shifts the grid by a cycle, tolerated once by the
 6–12-cycle window, but repeated stalls break it); the 104-sample window is **104 × 22.25 = 2 314

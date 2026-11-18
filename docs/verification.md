@@ -328,14 +328,16 @@ resolution or a lost queue event would fail it.
 
 **v2 post-freeze firmware (not in the 64).** Eight programs added after the submission freeze are
 **model-verified, RTL test pending** — each against an independent host-side protocol decoder — and
-are labelled that way everywhere. As of `90da823` **none of the eight has an RTL test in the tree**;
+are labelled that way everywhere. As of `90da823` **none of the eight has a *firmware* RTL test in the tree**
+(the existing `test/test_usb_ls_rx.py` is a *pin-path/reference-decoder* check, not an RTL run of
+`usb_ls_rx.asm`);
 the `model_selftest.py` golden-model run (186/186 checks) is their current evidence, and adding RTL
 tests is remaining work (the same pattern as `test_usb_ls.py`/`test_eth.py` for the v1 stretch
 programs):
 
 | Program | Evidence | Independent decoder | What is *not* claimed |
 |---|---|---|---|
-| `usb_ls_rx` (357 words, SRAM-1024 only) | SETUP CRC-5 `0x02`; DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`; ±0.25 % host drift; ACK SYNC+PID `0xD2`+EOP | `host/usb_ls_rx.py` (DPLL/NRZI/unstuff/CRC-5/16/EOP) | wire-speed ACK (**199.8** vs 7.5 bit times — measured ceiling), enumeration, config descriptor (32-word DMEM) |
+| `usb_ls_rx` (357 words, SRAM-1024 only) | SETUP CRC-5 `0x02`; DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`; ±0.25 % host drift; ACK SYNC+PID `0xD2`+EOP | `host/usb_ls_rx.py` (DPLL/NRZI/unstuff/CRC-5/16/EOP) | wire-speed ACK (**199.8** vs 7.5 bit times — measured ceiling), enumeration, config descriptor (32-word DMEM); **firmware RTL test blocked on the testbench host-drive timeline (diagnosed, not an RTL failure — host drive releases to SE1 where the model keeps idle J); fix is a model-derived pin-trace replay** |
 | `jtag_tap` (115 words, fits FF build) | IDCODE scan in IR `0x2`, Capture-IR status, TCK mean 959 kHz | `host/jtag.py` (TAP state machine) | RTL test; multi-device chains; boundary scan |
 | `can_tx` (79 words, fits FF build) | **499.85 kbit/s** (−0.03 %), CRC-15 + dynamic stuffing, ACK-slot polling | `host/can.py` (`CanWireDecoder`, CRC-15 check value `0x059E`) | RTL test; CAN FD; error-frame handling |
 | `dmx_tx` (37 words, fits FF build) | **250.03 kbaud** (+0.015 %), BREAK/MAB + 512-slot frame in 22.7 ms | `host/dmx.py` (UART 8N2 receiver + frame decoder) | RTL test; multi-universe; RDM |
