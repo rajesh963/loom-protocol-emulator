@@ -229,7 +229,8 @@ The end-to-end story — load a program, start a thread, watch a protocol appear
 
 Landed RTL, `make` from `test/` (Icarus Verilog 12 + cocotb): **64 tests, 64 PASS, 0 FAIL, 0 SKIP** —
 both configurations run the matrix in ≈271 s per configuration (FF build and `make SRAM_SIM=1024`), and the
-counts are frozen at revision `7d2fb2f` (also 64/64 from a clean clone) — and the `test` GitHub Actions workflow reproduces that matrix on every push, so these
+counts are frozen at revision `7d2fb2f` (also 64/64 from a clean clone) — and the `test` GitHub Actions workflow reproduces that matrix on every push; the golden-model self-test
+(`sw/examples/model_selftest.py`) passes **186/186 checks** over every firmware example, so these
 claims are CI-verifiable. Two independent implementations — hand-written RTL and a
 Python golden model written from the spec — agree on the exact cycle of every pin transition and on
 the full architectural state for 100/100 random programs. The two I²C gates that were skipped during

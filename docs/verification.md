@@ -50,6 +50,11 @@ Two rules hold the pyramid together:
 
 ## 2. L1 — unit tests
 
+The fastest layer is the **golden-model self-test** (`sw/examples/model_selftest.py`): every firmware
+example, including all eight v2 protocol programs, is executed against the Python golden model and
+checked byte-exactly — **186/186 checks PASS** (v2 post-freeze). It is the tool that makes the v2
+programs verifiable without an RTL test each.
+
 | Unit | What it proves | Location |
 |---|---|---|
 | ISA encode/decode | every mnemonic's field mapping round-trips; the assembler and disassembler agree | `sw/isa.py` self-test, `test/unit_sw/` |
