@@ -1,0 +1,125 @@
+; LOOM listing — sw/examples/jtag_tap.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   3400000F  clr 0x000F               clr     0x000F          ; static low: TCK/TMS/TDI, no output enable yet
+0001   3C000007  dset 0x07                dset    0x0007          ; TCK/TMS/TDI are outputs; TDO (bit3) stays input
+0002   4A000000  setm 0x0000              setm    0               ; this program never uses the event scheduler
+0003   04C00002  movi r3, 0x0002          movi    r3, TMS_PIN
+0004   04800005  movi r2, 0x0005          movi    r2, 5
+; --- tlr_loop = 0x005
+0005   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0006   04000052  movi r0, 0x0052          movi    r0, sub_pulse - . + 1
+0007   08380000  add r0, r7               add     r0, r7
+0008   0BC00005  addi r7, 0x0005          addi    r7, 5
+0009   2A000008  csrw tpc, r0             csrw    TPC, r0
+000A   0E800001  subi r2, 0x0001          subi    r2, 1
+000B   8400FFFA  jnz tlr_loop             jnz     tlr_loop
+000C   04C00000  movi r3, 0x0000          movi    r3, 0
+000D   2DC00008  csrr r7, tpc             csrr    r7, TPC
+000E   0400004A  movi r0, 0x004A          movi    r0, sub_pulse - . + 1
+000F   08380000  add r0, r7               add     r0, r7
+0010   0BC00005  addi r7, 0x0005          addi    r7, 5
+0011   2A000008  csrw tpc, r0             csrw    TPC, r0
+0012   04C00002  movi r3, 0x0002          movi    r3, TMS_PIN
+0013   04800002  movi r2, 0x0002          movi    r2, 2
+; --- seldr_loop = 0x014
+0014   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0015   04000043  movi r0, 0x0043          movi    r0, sub_pulse - . + 1
+0016   08380000  add r0, r7               add     r0, r7
+0017   0BC00005  addi r7, 0x0005          addi    r7, 5
+0018   2A000008  csrw tpc, r0             csrw    TPC, r0
+0019   0E800001  subi r2, 0x0001          subi    r2, 1
+001A   8400FFFA  jnz seldr_loop           jnz     seldr_loop
+001B   04C00000  movi r3, 0x0000          movi    r3, 0
+001C   2DC00008  csrr r7, tpc             csrr    r7, TPC
+001D   0400003B  movi r0, 0x003B          movi    r0, sub_pulse - . + 1
+001E   08380000  add r0, r7               add     r0, r7
+001F   0BC00005  addi r7, 0x0005          addi    r7, 5
+0020   2A000008  csrw tpc, r0             csrw    TPC, r0
+0021   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0022   04000036  movi r0, 0x0036          movi    r0, sub_pulse - . + 1
+0023   08380000  add r0, r7               add     r0, r7
+0024   0BC00005  addi r7, 0x0005          addi    r7, 5
+0025   2A000008  csrw tpc, r0             csrw    TPC, r0
+0026   05000000  movi r4, 0x0000          movi    r4, 0           ; DMEM capture index (cleared after Update-DR)
+0027   04400002  movi r1, 0x0002          movi    r1, IR_IDCODE
+0028   04800004  movi r2, 0x0004          movi    r2, 4
+0029   2D800008  csrr r6, tpc             csrr    r6, TPC
+002A   04000036  movi r0, 0x0036          movi    r0, sub_shift - . + 1
+002B   08300000  add r0, r6               add     r0, r6
+002C   0B800005  addi r6, 0x0005          addi    r6, 5
+002D   2A000008  csrw tpc, r0             csrw    TPC, r0
+002E   2DC00008  csrr r7, tpc             csrr    r7, TPC
+002F   04000029  movi r0, 0x0029          movi    r0, sub_pulse - . + 1
+0030   08380000  add r0, r7               add     r0, r7
+0031   0BC00005  addi r7, 0x0005          addi    r7, 5
+0032   2A000008  csrw tpc, r0             csrw    TPC, r0
+0033   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0034   04000024  movi r0, 0x0024          movi    r0, sub_pulse - . + 1
+0035   08380000  add r0, r7               add     r0, r7
+0036   0BC00005  addi r7, 0x0005          addi    r7, 5
+0037   2A000008  csrw tpc, r0             csrw    TPC, r0        ; ; Select-DR   (r3 still TMS_PIN)
+0038   04C00000  movi r3, 0x0000          movi    r3, 0
+0039   2DC00008  csrr r7, tpc             csrr    r7, TPC
+003A   0400001E  movi r0, 0x001E          movi    r0, sub_pulse - . + 1
+003B   08380000  add r0, r7               add     r0, r7
+003C   0BC00005  addi r7, 0x0005          addi    r7, 5
+003D   2A000008  csrw tpc, r0             csrw    TPC, r0        ; ; Capture-DR
+003E   2DC00008  csrr r7, tpc             csrr    r7, TPC
+003F   04000019  movi r0, 0x0019          movi    r0, sub_pulse - . + 1
+0040   08380000  add r0, r7               add     r0, r7
+0041   0BC00005  addi r7, 0x0005          addi    r7, 5
+0042   2A000008  csrw tpc, r0             csrw    TPC, r0        ; ; Shift-DR
+0043   04400000  movi r1, 0x0000          movi    r1, 0
+0044   04800008  movi r2, 0x0008          movi    r2, DR_BITS
+0045   2D800008  csrr r6, tpc             csrr    r6, TPC
+0046   0400001A  movi r0, 0x001A          movi    r0, sub_shift - . + 1
+0047   08300000  add r0, r6               add     r0, r6
+0048   0B800005  addi r6, 0x0005          addi    r6, 5
+0049   2A000008  csrw tpc, r0             csrw    TPC, r0
+004A   2DC00008  csrr r7, tpc             csrr    r7, TPC
+004B   0400000D  movi r0, 0x000D          movi    r0, sub_pulse - . + 1
+004C   08380000  add r0, r7               add     r0, r7
+004D   0BC00005  addi r7, 0x0005          addi    r7, 5
+004E   2A000008  csrw tpc, r0             csrw    TPC, r0
+004F   05000000  movi r4, 0x0000          movi    r4, 0
+0050   0480000C  movi r2, 0x000C          movi    r2, 4 + DR_BITS
+; --- tx_loop = 0x051
+0051   65600000  ldi r5, r4               ldi     r5, r4
+0052   71400000  push r5                  push    r5
+0053   0B000001  addi r4, 0x0001          addi    r4, 1
+0054   0E800001  subi r2, 0x0001          subi    r2, 1
+0055   8400FFFC  jnz tx_loop              jnz     tx_loop
+0056   02000000  halt                     halt
+; --- sub_pulse = 0x057
+0057   2A180010  csrw pout, r3            csrw    POUT, r3        ; TMS/TDI set while TCK is low
+0058   32000001  set 0x0001               set     TCK_PIN         ; TCK rising edge (the TAP samples TMS/TDI here)
+0059   54000040  waitd 0x0040             waitd   TSU             ; let TDO settle; sample at the eye centre
+005A   39400000  in r5                    in      r5
+005B   34000001  clr 0x0001               clr     TCK_PIN         ; TCK falling edge: DUT updates TDO
+005C   13400008  andi r5, 0x0008          andi    r5, TDO_PIN
+005D   54000100  waitd 0x0100             waitd   HALF            ; TCK low phase
+005E   2A380008  csrw tpc, r7             csrw    TPC, r7
+; --- sub_shift = 0x05F
+; --- ss_loop = 0x05F
+005F   06C80000  mov r3, r1               mov     r3, r1
+0060   12C00001  andi r3, 0x0001          andi    r3, 1           ; TDI bit
+0061   1EC00002  shl r3, 2                shl     r3, 2           ; -> TDI_PIN (P[2]) of the pin value
+0062   28800001  cmpi r2, 0x0001          cmpi    r2, 1
+0063   84000002  jnz ss_notlast           jnz     ss_notlast
+0064   16C00002  ori r3, 0x0002           ori     r3, TMS_PIN     ; last shift bit also exits to Exit1-xx
+; --- ss_notlast = 0x065
+0065   2A180010  csrw pout, r3            csrw    POUT, r3
+0066   32000001  set 0x0001               set     TCK_PIN
+0067   54000040  waitd 0x0040             waitd   TSU
+0068   39400000  in r5                    in      r5
+0069   34000001  clr 0x0001               clr     TCK_PIN         ; falling edge: keep the high phase uniform
+006A   13400008  andi r5, 0x0008          andi    r5, TDO_PIN
+006B   21400003  shr r5, 3                shr     r5, 3           ; captured TDO bit -> 0/1
+006C   67280000  sti r5, r4               sti     r5, r4          ; DMEM[r4] = bit (no FIFO back-pressure on TCK)
+006D   0B000001  addi r4, 0x0001          addi    r4, 1
+006E   54000100  waitd 0x0100             waitd   HALF
+006F   20400001  shr r1, 1                shr     r1, 1
+0070   0E800001  subi r2, 0x0001          subi    r2, 1
+0071   8400FFEE  jnz sub_shift            jnz     ss_loop
+0072   2A300008  csrw tpc, r6             csrw    TPC, r6

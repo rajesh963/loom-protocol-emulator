@@ -1,0 +1,13 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+slot_loop                = 0x000D  ; label
+sub_slot                 = 0x0016  ; label
+bit_loop                 = 0x001A  ; label
+drive                    = 0x001E  ; label
+SLOTS                    = 0x0200  ; equ
+TX_PIN                   = 0x0400  ; equ
+BITPER                   = 0x0855  ; equ
+MAB_DIV                  = 0x1900  ; equ
+BREAK_DIV                = 0xFA00  ; equ
+DMX_BAUD                 = 0x3D090  ; equ
+CLOCK_HZ                 = 0x1FCA055  ; equ

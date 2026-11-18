@@ -1,0 +1,22 @@
+; LOOM listing — sw/examples/midi_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000400  setm 0x0400              setm    TX_PIN          ; this thread only drives the MIDI TX pin
+0001   480042AB  setp 0x42AB              setp    BITPER          ; 1066.6875 cycles/bit -> 31250.6 baud
+0002   32000400  set 0x0400               set     TX_PIN          ; 8N1 idle is high
+; --- main = 0x003
+0003   72000000  pull r0                  pull    r0              ; block until the host pushes a byte
+0004   1E000001  shl r0, 1                shl     r0, 1           ; b0 = start bit (0), b1..b8 = data LSB first
+0005   16000200  ori r0, 0x0200           ori     r0, 0x0200      ; b9 = stop bit (1)
+0006   0440000A  movi r1, 0x000A          movi    r1, 10          ; 10 bit cells per 8N1 frame
+; --- bit_loop = 0x007
+0007   06800000  mov r2, r0               mov     r2, r0
+0008   12800001  andi r2, 0x0001          andi    r2, 1           ; Z = 1 when the bit is 0
+0009   82000002  jz drive                 jz      drive
+000A   04800400  movi r2, 0x0400          movi    r2, TX_PIN
+; --- drive = 0x00B
+000B   40800000  emit r2                  emit    r2              ; one bit cell: NEXTT + BITPER
+000C   20000001  shr r0, 1                shr     r0, 1
+000D   0E400001  subi r1, 0x0001          subi    r1, 1
+000E   8400FFF9  jnz bit_loop             jnz     bit_loop
+000F   8000FFF4  jmp main                 jmp     main

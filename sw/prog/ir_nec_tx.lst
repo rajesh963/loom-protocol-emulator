@@ -1,0 +1,64 @@
+; LOOM listing — sw/examples/ir_nec_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000400  setm 0x0400              setm    IR_PIN
+0001   34000400  clr 0x0400               clr     IR_PIN          ; idle: LED off
+0002   04400400  movi r1, 0x0400          movi    r1, IR_PIN      ; carrier high value
+0003   05800000  movi r6, 0x0000          movi    r6, 0           ; carrier low value
+0004   60000000  ld r0, 0x00              ld      r0, 0           ; r0 = bits 0..15 (address, ~address)
+0005   04C00001  movi r3, 0x0001          movi    r3, 1           ; DMEM word pointer for the second half
+0006   04800010  movi r2, 0x0010          movi    r2, 16          ; bits left in r0
+0007   05C00020  movi r7, 0x0020          movi    r7, 32          ; 32 payload bits
+0008   48001B6A  setp 0x1B6A              setp    HALF
+0009   05000156  movi r4, 0x0156          movi    r4, LEAD_CNT
+; --- lead_mark = 0x00A
+000A   40400000  emit r1                  emit    r1              ; carrier high half cell
+000B   41800000  emit r6                  emit    r6              ; carrier low half cell
+000C   0F000001  subi r4, 0x0001          subi    r4, 1
+000D   8400FFFD  jnz lead_mark            jnz     lead_mark
+000E   4800FFFF  setp 0xFFFF              setp    CHUNK
+000F   90000023  rpt 35                   rpt     35
+0010   41800000  emit r6                  emit    r6
+0011   480083BA  setp 0x83BA              setp    LEAD_REM
+0012   41800000  emit r6                  emit    r6
+; --- bit_loop = 0x013
+0013   48001B6A  setp 0x1B6A              setp    HALF
+0014   05000016  movi r4, 0x0016          movi    r4, MARK_CNT
+; --- bit_mark = 0x015
+0015   40400000  emit r1                  emit    r1
+0016   41800000  emit r6                  emit    r6
+0017   0F000001  subi r4, 0x0001          subi    r4, 1
+0018   8400FFFD  jnz bit_mark             jnz     bit_mark
+0019   07400000  mov r5, r0               mov     r5, r0
+001A   13400001  andi r5, 0x0001          andi    r5, 1           ; Z = 1 for a 0 bit
+001B   82000007  jz space0                jz      space0
+001C   4800FFFF  setp 0xFFFF              setp    CHUNK
+001D   9000000C  rpt 12                   rpt     12
+001E   41800000  emit r6                  emit    r6
+001F   4800A043  setp 0xA043              setp    SP1_REM
+0020   41800000  emit r6                  emit    r6
+0021   80000006  jmp bit_next             jmp     bit_next
+; --- space0 = 0x022
+0022   4800FFFF  setp 0xFFFF              setp    CHUNK
+0023   90000003  rpt 3                    rpt     3
+0024   41800000  emit r6                  emit    r6
+0025   4800787A  setp 0x787A              setp    SP0_REM
+0026   41800000  emit r6                  emit    r6
+; --- bit_next = 0x027
+0027   20000001  shr r0, 1                shr     r0, 1
+0028   0E800001  subi r2, 0x0001          subi    r2, 1
+0029   84000004  jnz have_bits            jnz     have_bits
+002A   64180000  ldi r0, r3               ldi     r0, r3          ; load the second 16-bit payload word
+002B   0AC00001  addi r3, 0x0001          addi    r3, 1
+002C   04800010  movi r2, 0x0010          movi    r2, 16
+; --- have_bits = 0x02D
+002D   0FC00001  subi r7, 0x0001          subi    r7, 1
+002E   8400FFE5  jnz bit_loop             jnz     bit_loop
+002F   48001B6A  setp 0x1B6A              setp    HALF
+0030   05000016  movi r4, 0x0016          movi    r4, MARK_CNT
+; --- final_mark = 0x031
+0031   40400000  emit r1                  emit    r1
+0032   41800000  emit r6                  emit    r6
+0033   0F000001  subi r4, 0x0001          subi    r4, 1
+0034   8400FFFD  jnz final_mark           jnz     final_mark
+0035   02000000  halt                     halt

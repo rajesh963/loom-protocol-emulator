@@ -1,0 +1,93 @@
+; LOOM listing — sw/examples/can_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000400  setm 0x0400              setm    TX_PIN          ; this thread only drives TXD
+0001   4800042B  setp 0x042B              setp    BITPER          ; 66.6875-cycle CAN bit -> 499.85 kbit/s
+0002   32000400  set 0x0400               set     TX_PIN          ; idle recessive
+0003   61800000  ld r6, 0x00              ld      r6, 0           ; r6 = N (SOF..last data bit)
+0004   0B80000F  addi r6, 0x000F          addi    r6, 15          ; + 15 CRC-sequence bits
+0005   04C00001  movi r3, 0x0001          movi    r3, 1           ; DMEM read pointer (bit words start at 1)
+0006   64580000  ldi r1, r3               ldi     r1, r3          ; r1 = current bit word, bit 0 first
+0007   0AC00001  addi r3, 0x0001          addi    r3, 1
+0008   04800010  movi r2, 0x0010          movi    r2, 16          ; bits left in r1
+0009   05000000  movi r4, 0x0000          movi    r4, 0           ; CRC-15 register
+000A   05400000  movi r5, 0x0000          movi    r5, 0           ; run length of identical bits
+000B   04000002  movi r0, 0x0002          movi    r0, 2           ; impossible "last bit" before the SOF
+000C   62000028  st 0x28, r0              st      LAST_ADDR, r0
+; --- loop = 0x00D
+000D   29800010  cmpi r6, 0x0010          cmpi    r6, 16
+000E   86000014  jc crc_bit               jc      crc_bit         ; <=15 bits left -> CRC sequence
+000F   07C80000  mov r7, r1               mov     r7, r1
+0010   13C00001  andi r7, 0x0001          andi    r7, 1
+0011   20400001  shr r1, 1                shr     r1, 1
+0012   0E800001  subi r2, 0x0001          subi    r2, 1
+0013   84000004  jnz fb_ok                jnz     fb_ok
+0014   64580000  ldi r1, r3               ldi     r1, r3          ; load the next bit word
+0015   0AC00001  addi r3, 0x0001          addi    r3, 1
+0016   04800010  movi r2, 0x0010          movi    r2, 16
+; --- fb_ok = 0x017
+0017   06200000  mov r0, r4               mov     r0, r4
+0018   2000000E  shr r0, 14               shr     r0, 14
+0019   18380000  xor r0, r7               xor     r0, r7
+001A   84000004  jnz crc_poly             jnz     crc_poly
+001B   1F000001  shl r4, 1                shl     r4, 1
+001C   13007FFF  andi r4, 0x7FFF          andi    r4, 0x7FFF
+001D   80000009  jmp tx_bit               jmp     tx_bit
+; --- crc_poly = 0x01E
+001E   1F000001  shl r4, 1                shl     r4, 1
+001F   13007FFF  andi r4, 0x7FFF          andi    r4, 0x7FFF
+0020   1B004599  xori r4, 0x4599          xori    r4, 0x4599
+0021   80000005  jmp tx_bit               jmp     tx_bit
+; --- crc_bit = 0x022
+0022   07E00000  mov r7, r4               mov     r7, r4
+0023   21C0000E  shr r7, 14               shr     r7, 14
+0024   1F000001  shl r4, 1                shl     r4, 1
+0025   13007FFF  andi r4, 0x7FFF          andi    r4, 0x7FFF
+; --- tx_bit = 0x026
+0026   60000028  ld r0, 0x28              ld      r0, LAST_ADDR   ; r0 = previous wire bit
+0027   29400005  cmpi r5, 0x0005          cmpi    r5, 5
+0028   84000006  jnz tx_no_stuff          jnz     tx_no_stuff
+0029   1A000001  xori r0, 0x0001          xori    r0, 1           ; stuff bit = complement of the five-bit run
+002A   1E00000A  shl r0, 10               shl     r0, 10
+002B   40000000  emit r0                  emit    r0              ; one extra bit cell
+002C   05400000  movi r5, 0x0000          movi    r5, 0
+002D   60000028  ld r0, 0x28              ld      r0, LAST_ADDR
+; --- tx_no_stuff = 0x02E
+002E   29400000  cmpi r5, 0x0000          cmpi    r5, 0
+002F   82000005  jz tx_run1               jz      tx_run1
+0030   27C00000  cmp r7, r0               cmp     r7, r0
+0031   84000003  jnz tx_run1              jnz     tx_run1
+0032   0B400001  addi r5, 0x0001          addi    r5, 1
+0033   80000002  jmp tx_send              jmp     tx_send
+; --- tx_run1 = 0x034
+0034   05400001  movi r5, 0x0001          movi    r5, 1
+; --- tx_send = 0x035
+0035   62380028  st 0x28, r7              st      LAST_ADDR, r7
+0036   06380000  mov r0, r7               mov     r0, r7
+0037   1E00000A  shl r0, 10               shl     r0, 10          ; bit -> P[10]
+0038   40000000  emit r0                  emit    r0
+0039   0F800001  subi r6, 0x0001          subi    r6, 1
+003A   8400FFD3  jnz loop                 jnz     loop
+003B   04000400  movi r0, 0x0400          movi    r0, TX_PIN
+003C   40000000  emit r0                  emit    r0              ; CRC delimiter (recessive)
+003D   40000000  emit r0                  emit    r0              ; ACK slot (transmitter sends recessive)
+003E   04C000C8  movi r3, 0x00C8          movi    r3, ACK_POLL
+; --- ack_poll = 0x03F
+003F   38000000  in r0                    in      r0
+0040   12000800  andi r0, 0x0800          andi    r0, RXD_PIN     ; 0 = dominant = a receiver ACKed the frame
+0041   82000005  jz ack_seen              jz      ack_seen
+0042   0EC00001  subi r3, 0x0001          subi    r3, 1
+0043   8400FFFC  jnz ack_poll             jnz     ack_poll
+0044   04800000  movi r2, 0x0000          movi    r2, 0
+0045   80000002  jmp ack_report           jmp     ack_report
+; --- ack_seen = 0x046
+0046   04800001  movi r2, 0x0001          movi    r2, 1
+; --- ack_report = 0x047
+0047   70800000  push r2                  push    r2              ; 1 = ACK seen -> host; 0 = no ACK
+0048   04000400  movi r0, 0x0400          movi    r0, TX_PIN
+0049   40000000  emit r0                  emit    r0              ; ACK delimiter
+004A   90000006  rpt 6                    rpt     6
+004B   40000000  emit r0                  emit    r0              ; 7 x EOF (recessive, not stuffed)
+004C   90000002  rpt 2                    rpt     2
+004D   40000000  emit r0                  emit    r0              ; 3 x IFS / intermission
+004E   02000000  halt                     halt

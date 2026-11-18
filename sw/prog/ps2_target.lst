@@ -1,4 +1,4 @@
-; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/ps2_target.asm
+; LOOM listing — sw/examples/ps2_target.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   32002000  set 0x2000               set     CLK_PIN         ; idle: clock high, data high

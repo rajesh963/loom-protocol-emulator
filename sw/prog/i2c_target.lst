@@ -1,4 +1,4 @@
-; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/i2c_target.asm
+; LOOM listing — sw/examples/i2c_target.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   340000C0  clr 0x00C0               clr     SCL_PIN | SDA_PIN   ; pin values 0: only visible while driving

@@ -1,4 +1,4 @@
-; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/uart_tx.asm
+; LOOM listing — sw/examples/uart_tx.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   32000400  set 0x0400               set     TX_PIN          ; idle line = mark (1), OR-only: other pins safe

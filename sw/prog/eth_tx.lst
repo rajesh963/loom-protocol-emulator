@@ -1,0 +1,110 @@
+; LOOM listing — sw/examples/eth_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000001  setm 0x0001              setm    TXD_PIN          ; this thread's events drive P[0]
+0001   3C000001  dset 0x01                dset    TXD_PIN          ; output enable
+0002   34000001  clr 0x0001               clr     TXD_PIN          ; idle low
+0003   48000080  setp 0x0080              setp    CELL_DIV         ; 8-cycle Manchester cell clock
+; --- crc_start = 0x004
+0004   0500FFFF  movi r4, 0xFFFF          movi    r4, 0xFFFF       ; CRC low 16 bits
+0005   0540FFFF  movi r5, 0xFFFF          movi    r5, 0xFFFF       ; CRC high 16 bits
+0006   05800000  movi r6, 0x0000          movi    r6, 0            ; DMEM word address
+0007   0440001E  movi r1, 0x001E          movi    r1, 30           ; 30 words = 60 bytes
+; --- crc_word = 0x008
+0008   65F00000  ldi r7, r6               ldi     r7, r6
+0009   0B800001  addi r6, 0x0001          addi    r6, 1
+000A   04000002  movi r0, 0x0002          movi    r0, 2            ; two bytes per word
+; --- crc_byte = 0x00B
+000B   06B80000  mov r2, r7               mov     r2, r7
+000C   128000FF  andi r2, 0x00FF          andi    r2, 0x00FF       ; low byte first (little endian)
+000D   19100000  xor r4, r2               xor     r4, r2
+000E   04C00008  movi r3, 0x0008          movi    r3, 8            ; 8 CRC bit steps
+; --- crc_bit = 0x00F
+000F   06A00000  mov r2, r4               mov     r2, r4
+0010   12800001  andi r2, 0x0001          andi    r2, 1
+0011   8200000C  jz crc_shift             jz      crc_shift
+0012   06A80000  mov r2, r5               mov     r2, r5
+0013   12800001  andi r2, 0x0001          andi    r2, 1
+0014   1E80000F  shl r2, 15               shl     r2, 15
+0015   21000001  shr r4, 1                shr     r4, 1
+0016   15100000  or r4, r2                or      r4, r2
+0017   21400001  shr r5, 1                shr     r5, 1
+0018   04808320  movi r2, 0x8320          movi    r2, FCS_LO
+0019   19100000  xor r4, r2               xor     r4, r2
+001A   0480EDB8  movi r2, 0xEDB8          movi    r2, FCS_HI
+001B   19500000  xor r5, r2               xor     r5, r2
+001C   80000007  jmp crc_next             jmp     crc_next
+; --- crc_shift = 0x01D
+001D   06A80000  mov r2, r5               mov     r2, r5
+001E   12800001  andi r2, 0x0001          andi    r2, 1
+001F   1E80000F  shl r2, 15               shl     r2, 15
+0020   21000001  shr r4, 1                shr     r4, 1
+0021   15100000  or r4, r2                or      r4, r2
+0022   21400001  shr r5, 1                shr     r5, 1
+; --- crc_next = 0x023
+0023   0EC00001  subi r3, 0x0001          subi    r3, 1
+0024   8400FFEB  jnz crc_bit              jnz     crc_bit
+0025   21C00008  shr r7, 8                shr     r7, 8
+0026   0E000001  subi r0, 0x0001          subi    r0, 1
+0027   8400FFE4  jnz crc_byte             jnz     crc_byte
+0028   0E400001  subi r1, 0x0001          subi    r1, 1
+0029   8400FFDF  jnz crc_word             jnz     crc_word
+002A   0480FFFF  movi r2, 0xFFFF          movi    r2, 0xFFFF
+002B   19100000  xor r4, r2               xor     r4, r2
+002C   19500000  xor r5, r2               xor     r5, r2
+002D   0580001E  movi r6, 0x001E          movi    r6, 30
+002E   67A00000  sti r4, r6               sti     r4, r6           ; bytes 60..61 (FCS little-endian)
+002F   0B800001  addi r6, 0x0001          addi    r6, 1
+0030   67A80000  sti r5, r6               sti     r5, r6           ; bytes 62..63
+0031   05800007  movi r6, 0x0007          movi    r6, 7
+; --- pre_loop = 0x032
+0032   044000AA  movi r1, 0x00AA          movi    r1, 0x00AA
+0033   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0034   04000023  movi r0, 0x0023          movi    r0, send_byte - . + 1
+0035   08380000  add r0, r7               add     r0, r7
+0036   0BC00005  addi r7, 0x0005          addi    r7, 5
+0037   2A000008  csrw tpc, r0             csrw    TPC, r0
+0038   0F800001  subi r6, 0x0001          subi    r6, 1
+0039   8400FFF9  jnz pre_loop             jnz     pre_loop
+003A   044000D5  movi r1, 0x00D5          movi    r1, 0x00D5       ; SFD
+003B   2DC00008  csrr r7, tpc             csrr    r7, TPC
+003C   0400001B  movi r0, 0x001B          movi    r0, send_byte - . + 1
+003D   08380000  add r0, r7               add     r0, r7
+003E   0BC00005  addi r7, 0x0005          addi    r7, 5
+003F   2A000008  csrw tpc, r0             csrw    TPC, r0
+0040   05800000  movi r6, 0x0000          movi    r6, 0
+; --- tx_word = 0x041
+0041   64B00000  ldi r2, r6               ldi     r2, r6
+0042   06500000  mov r1, r2               mov     r1, r2
+0043   124000FF  andi r1, 0x00FF          andi    r1, 0x00FF       ; byte 2i
+0044   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0045   04000012  movi r0, 0x0012          movi    r0, send_byte - . + 1
+0046   08380000  add r0, r7               add     r0, r7
+0047   0BC00005  addi r7, 0x0005          addi    r7, 5
+0048   2A000008  csrw tpc, r0             csrw    TPC, r0
+0049   20800008  shr r2, 8                shr     r2, 8
+004A   06500000  mov r1, r2               mov     r1, r2
+004B   124000FF  andi r1, 0x00FF          andi    r1, 0x00FF       ; byte 2i+1
+004C   2DC00008  csrr r7, tpc             csrr    r7, TPC
+004D   0400000A  movi r0, 0x000A          movi    r0, send_byte - . + 1
+004E   08380000  add r0, r7               add     r0, r7
+004F   0BC00005  addi r7, 0x0005          addi    r7, 5
+0050   2A000008  csrw tpc, r0             csrw    TPC, r0
+0051   0B800001  addi r6, 0x0001          addi    r6, 1
+0052   29800020  cmpi r6, 0x0020          cmpi    r6, 32
+0053   8400FFEE  jnz tx_word              jnz     tx_word
+0054   54006000  waitd 0x6000             waitd   IPG_DIV
+0055   8000FFAF  jmp crc_start            jmp     crc_start
+; --- send_byte = 0x056
+0056   04C00008  movi r3, 0x0008          movi    r3, 8
+; --- sb_loop = 0x057
+0057   07080000  mov r4, r1               mov     r4, r1
+0058   13000001  andi r4, 0x0001          andi    r4, 1            ; data bit
+0059   20400001  shr r1, 1                shr     r1, 1
+005A   07600000  mov r5, r4               mov     r5, r4
+005B   1B400001  xori r5, 0x0001          xori    r5, 1            ; first half-cell = 1-bit
+005C   41400000  emit r5                  emit    r5               ; cell 2k   (target = NEXTT + 8)
+005D   41000000  emit r4                  emit    r4               ; cell 2k+1 (target = NEXTT + 8)
+005E   0EC00001  subi r3, 0x0001          subi    r3, 1
+005F   8400FFF8  jnz sb_loop              jnz     sb_loop
+0060   2A380008  csrw tpc, r7             csrw    TPC, r7          ; return

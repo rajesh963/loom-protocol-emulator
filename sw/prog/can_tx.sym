@@ -1,0 +1,20 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+loop                     = 0x000D  ; label
+fb_ok                    = 0x0017  ; label
+crc_poly                 = 0x001E  ; label
+crc_bit                  = 0x0022  ; label
+tx_bit                   = 0x0026  ; label
+LAST_ADDR                = 0x0028  ; equ
+tx_no_stuff              = 0x002E  ; label
+tx_run1                  = 0x0034  ; label
+tx_send                  = 0x0035  ; label
+ack_poll                 = 0x003F  ; label
+ack_seen                 = 0x0046  ; label
+ack_report               = 0x0047  ; label
+ACK_POLL                 = 0x00C8  ; equ
+TX_PIN                   = 0x0400  ; equ
+BITPER                   = 0x042B  ; equ
+RXD_PIN                  = 0x0800  ; equ
+CAN_BAUD                 = 0x7A120  ; equ
+CLOCK_HZ                 = 0x1FCA055  ; equ

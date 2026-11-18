@@ -1,0 +1,21 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+DP_PIN                   = 0x0001  ; equ
+main                     = 0x0004  ; label
+wait4                    = 0x0004  ; label
+crc_byte                 = 0x0016  ; label
+crc_bit                  = 0x0019  ; label
+crc_shift                = 0x0020  ; label
+crc_next                 = 0x0021  ; label
+sync_loop                = 0x002F  ; label
+sync_zero                = 0x0036  ; label
+sync_next                = 0x003A  ; label
+byte_loop                = 0x003F  ; label
+bit_loop                 = 0x0042  ; label
+no_stuff                 = 0x0049  ; label
+bit_zero                 = 0x0051  ; label
+bit_next                 = 0x0056  ; label
+PID_DATA0                = 0x00C3  ; equ
+BIT_DIV                  = 0x0164  ; equ
+POLL_DIV                 = 0x1000  ; equ
+IDLE_DIV                 = 0xD055  ; equ

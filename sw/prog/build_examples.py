@@ -105,8 +105,16 @@ def build(out_dir: pathlib.Path, *, quiet: bool = False) -> dict:
     ok = True
     for src in sources:
         name = src.stem
+        # Assemble with a repo-relative source name: listings must be identical
+        # on every machine (no absolute build paths), so rebuilding a tracked
+        # image set never depends on where the checkout lives.
         try:
-            result = loom_asm.assemble_file(src)
+            source_name = src.relative_to(REPO).as_posix()
+        except ValueError:  # tree copied outside the repo root
+            source_name = src.name
+        try:
+            result = loom_asm.assemble(
+                src.read_text(encoding="utf-8"), filename=source_name)
         except loom_asm.AsmError as exc:
             print(f"FAIL {name}: {exc}", file=sys.stderr)
             ok = False

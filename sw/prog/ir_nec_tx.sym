@@ -1,0 +1,18 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+lead_mark                = 0x000A  ; label
+bit_loop                 = 0x0013  ; label
+bit_mark                 = 0x0015  ; label
+MARK_CNT                 = 0x0016  ; equ
+space0                   = 0x0022  ; label
+bit_next                 = 0x0027  ; label
+have_bits                = 0x002D  ; label
+final_mark               = 0x0031  ; label
+LEAD_CNT                 = 0x0156  ; equ
+IR_PIN                   = 0x0400  ; equ
+HALF                     = 0x1B6A  ; equ
+SP0_REM                  = 0x787A  ; equ
+LEAD_REM                 = 0x83BA  ; equ
+SP1_REM                  = 0xA043  ; equ
+CHUNK                    = 0xFFFF  ; equ
+CLOCK_HZ                 = 0x1FCA055  ; equ

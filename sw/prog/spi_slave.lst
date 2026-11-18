@@ -1,4 +1,4 @@
-; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/spi_slave.asm
+; LOOM listing — sw/examples/spi_slave.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   3C000001  dset 0x01                dset    MISO_PIN        ; MISO is an output; SCK/MOSI/CS stay inputs

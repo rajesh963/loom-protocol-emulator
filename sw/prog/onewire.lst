@@ -1,4 +1,4 @@
-; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/onewire.asm
+; LOOM listing — sw/examples/onewire.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   34000080  clr 0x0080               clr     DQ_PIN          ; pin value 0: only visible while driving low

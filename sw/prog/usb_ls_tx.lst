@@ -1,0 +1,113 @@
+; LOOM listing — sw/examples/usb_ls_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   3C000001  dset 0x01                dset    DP_PIN          ; uio[0] is an output (push-pull)
+0001   34000001  clr 0x0001               clr     DP_PIN          ; idle J (D+ low, D- tied high externally)
+0002   4A000001  setm 0x0001              setm    DP_PIN          ; this thread's events drive P[0] only (value=level)
+0003   48000164  setp 0x0164              setp    BIT_DIV         ; 22.25-cycle bit clock, drift-free 12.4
+; --- main = 0x004
+; --- wait4 = 0x004
+0004   54001000  waitd 0x1000             waitd   POLL_DIV
+0005   2DC00003  csrr r7, tfifo           csrr    r7, TFIFO
+0006   13C00F00  andi r7, 0x0F00          andi    r7, 0x0F00      ; rx_cnt[3:0]
+0007   29C00400  cmpi r7, 0x0400          cmpi    r7, 0x0400      ; fewer than 4 bytes -> keep waiting
+0008   8600FFFC  jc main                  jc      wait4
+0009   044000C3  movi r1, 0x00C3          movi    r1, PID_DATA0
+000A   62080000  st 0x00, r1              st      0, r1
+000B   72400000  pull r1                  pull    r1
+000C   62080001  st 0x01, r1              st      1, r1
+000D   72400000  pull r1                  pull    r1
+000E   62080002  st 0x02, r1              st      2, r1
+000F   72400000  pull r1                  pull    r1
+0010   62080003  st 0x03, r1              st      3, r1
+0011   72400000  pull r1                  pull    r1
+0012   62080004  st 0x04, r1              st      4, r1
+0013   0480FFFF  movi r2, 0xFFFF          movi    r2, 0xFFFF
+0014   04400001  movi r1, 0x0001          movi    r1, 1
+0015   05800004  movi r6, 0x0004          movi    r6, 4
+; --- crc_byte = 0x016
+0016   64C80000  ldi r3, r1               ldi     r3, r1
+0017   18980000  xor r2, r3               xor     r2, r3
+0018   04C00008  movi r3, 0x0008          movi    r3, 8
+; --- crc_bit = 0x019
+0019   07100000  mov r4, r2               mov     r4, r2
+001A   13000001  andi r4, 0x0001          andi    r4, 1
+001B   82000005  jz crc_shift             jz      crc_shift
+001C   20800001  shr r2, 1                shr     r2, 1
+001D   0500A001  movi r4, 0xA001          movi    r4, 0xA001
+001E   18A00000  xor r2, r4               xor     r2, r4
+001F   80000002  jmp crc_next             jmp     crc_next
+; --- crc_shift = 0x020
+0020   20800001  shr r2, 1                shr     r2, 1
+; --- crc_next = 0x021
+0021   0EC00001  subi r3, 0x0001          subi    r3, 1
+0022   8400FFF7  jnz crc_bit              jnz     crc_bit
+0023   0A400001  addi r1, 0x0001          addi    r1, 1
+0024   0F800001  subi r6, 0x0001          subi    r6, 1
+0025   8400FFF1  jnz crc_byte             jnz     crc_byte
+0026   04C0FFFF  movi r3, 0xFFFF          movi    r3, 0xFFFF
+0027   18980000  xor r2, r3               xor     r2, r3          ; final XOR (CRC-16/USB)
+0028   06D00000  mov r3, r2               mov     r3, r2
+0029   12C000FF  andi r3, 0x00FF          andi    r3, 0x00FF
+002A   62180005  st 0x05, r3              st      5, r3           ; CRC low byte
+002B   20800008  shr r2, 8                shr     r2, 8
+002C   62100006  st 0x06, r2              st      6, r2           ; CRC high byte
+002D   05000080  movi r4, 0x0080          movi    r4, 0x80
+002E   05800008  movi r6, 0x0008          movi    r6, 8
+; --- sync_loop = 0x02F
+002F   07E00000  mov r7, r4               mov     r7, r4
+0030   21000001  shr r4, 1                shr     r4, 1
+0031   13C00001  andi r7, 0x0001          andi    r7, 1           ; Z = !bit
+0032   82000004  jz sync_zero             jz      sync_zero
+0033   07C00000  mov r7, r0               mov     r7, r0          ; bit 1: no transition
+0034   41C00000  emit r7                  emit    r7
+0035   80000005  jmp sync_next            jmp     sync_next
+; --- sync_zero = 0x036
+0036   05C00001  movi r7, 0x0001          movi    r7, 1
+0037   18380000  xor r0, r7               xor     r0, r7          ; bit 0: toggle (NRZI)
+0038   07C00000  mov r7, r0               mov     r7, r0
+0039   41C00000  emit r7                  emit    r7
+; --- sync_next = 0x03A
+003A   0F800001  subi r6, 0x0001          subi    r6, 1
+003B   8400FFF4  jnz sync_loop            jnz     sync_loop
+003C   05400000  movi r5, 0x0000          movi    r5, 0           ; consecutive-ones counter
+003D   04400000  movi r1, 0x0000          movi    r1, 0           ; DMEM byte index
+003E   05800007  movi r6, 0x0007          movi    r6, 7           ; PID + 4 data + 2 CRC bytes
+; --- byte_loop = 0x03F
+003F   65080000  ldi r4, r1               ldi     r4, r1
+0040   0A400001  addi r1, 0x0001          addi    r1, 1
+0041   04C00008  movi r3, 0x0008          movi    r3, 8
+; --- bit_loop = 0x042
+0042   29400006  cmpi r5, 0x0006          cmpi    r5, 6           ; six 1s seen -> insert a 0 first
+0043   84000006  jnz no_stuff             jnz     no_stuff
+0044   05C00001  movi r7, 0x0001          movi    r7, 1
+0045   18380000  xor r0, r7               xor     r0, r7
+0046   07C00000  mov r7, r0               mov     r7, r0
+0047   41C00000  emit r7                  emit    r7
+0048   05400000  movi r5, 0x0000          movi    r5, 0
+; --- no_stuff = 0x049
+0049   07E00000  mov r7, r4               mov     r7, r4
+004A   21000001  shr r4, 1                shr     r4, 1
+004B   13C00001  andi r7, 0x0001          andi    r7, 1
+004C   82000005  jz bit_zero              jz      bit_zero
+004D   07C00000  mov r7, r0               mov     r7, r0          ; bit 1: no transition
+004E   41C00000  emit r7                  emit    r7
+004F   0B400001  addi r5, 0x0001          addi    r5, 1
+0050   80000006  jmp bit_next             jmp     bit_next
+; --- bit_zero = 0x051
+0051   05C00001  movi r7, 0x0001          movi    r7, 1
+0052   18380000  xor r0, r7               xor     r0, r7          ; bit 0: toggle
+0053   05400000  movi r5, 0x0000          movi    r5, 0
+0054   07C00000  mov r7, r0               mov     r7, r0
+0055   41C00000  emit r7                  emit    r7
+; --- bit_next = 0x056
+0056   0EC00001  subi r3, 0x0001          subi    r3, 1
+0057   8400FFEB  jnz bit_loop             jnz     bit_loop
+0058   0F800001  subi r6, 0x0001          subi    r6, 1
+0059   8400FFE6  jnz byte_loop            jnz     byte_loop
+005A   04000000  movi r0, 0x0000          movi    r0, 0
+005B   05C00000  movi r7, 0x0000          movi    r7, 0
+005C   41C00000  emit r7                  emit    r7
+005D   41C00000  emit r7                  emit    r7
+005E   5400D055  waitd 0xD055             waitd   IDLE_DIV
+005F   8000FFA5  jmp main                 jmp     main

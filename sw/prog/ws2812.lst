@@ -1,4 +1,4 @@
-; LOOM listing — /home/rajesh/Documents/deepseek-harness/default-workspace/chipchallenge/loom/sw/examples/ws2812.asm
+; LOOM listing — sw/examples/ws2812.asm
 ; addr   word      disassembly               source
 ; --- start = 0x000
 0000   34001000  clr 0x1000               clr     DATA_PIN

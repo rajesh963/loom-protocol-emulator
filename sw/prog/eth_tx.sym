@@ -1,0 +1,17 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+TXD_PIN                  = 0x0001  ; equ
+crc_start                = 0x0004  ; label
+crc_word                 = 0x0008  ; label
+crc_byte                 = 0x000B  ; label
+crc_bit                  = 0x000F  ; label
+crc_shift                = 0x001D  ; label
+crc_next                 = 0x0023  ; label
+pre_loop                 = 0x0032  ; label
+tx_word                  = 0x0041  ; label
+send_byte                = 0x0056  ; label
+sb_loop                  = 0x0057  ; label
+CELL_DIV                 = 0x0080  ; equ
+IPG_DIV                  = 0x6000  ; equ
+FCS_LO                   = 0x8320  ; equ
+FCS_HI                   = 0xEDB8  ; equ

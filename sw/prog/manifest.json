@@ -5,6 +5,33 @@
   "ff_fallback_words": 128,
   "target": "tt_um_rajesh963_loom",
   "programs": {
+    "can_tx": {
+      "source": "sw/examples/can_tx.asm",
+      "image": "sw/prog/can_tx.hex",
+      "words": 79,
+      "relocatable": true,
+      "relocs": 13,
+      "symbols": 19,
+      "base": null
+    },
+    "dmx_tx": {
+      "source": "sw/examples/dmx_tx.asm",
+      "image": "sw/prog/dmx_tx.hex",
+      "words": 35,
+      "relocatable": true,
+      "relocs": 3,
+      "symbols": 12,
+      "base": null
+    },
+    "eth_tx": {
+      "source": "sw/examples/eth_tx.asm",
+      "image": "sw/prog/eth_tx.hex",
+      "words": 97,
+      "relocatable": true,
+      "relocs": 9,
+      "symbols": 16,
+      "base": null
+    },
     "i2c_master": {
       "thread": 3,
       "evt_bit": 3,
@@ -41,6 +68,33 @@
       "relocatable": true,
       "relocs": 18,
       "symbols": 24,
+      "base": null
+    },
+    "ir_nec_tx": {
+      "source": "sw/examples/ir_nec_tx.asm",
+      "image": "sw/prog/ir_nec_tx.hex",
+      "words": 54,
+      "relocatable": true,
+      "relocs": 7,
+      "symbols": 17,
+      "base": null
+    },
+    "jtag_tap": {
+      "source": "sw/examples/jtag_tap.asm",
+      "image": "sw/prog/jtag_tap.hex",
+      "words": 115,
+      "relocatable": true,
+      "relocs": 5,
+      "symbols": 17,
+      "base": null
+    },
+    "midi_tx": {
+      "source": "sw/examples/midi_tx.asm",
+      "image": "sw/prog/midi_tx.hex",
+      "words": 16,
+      "relocatable": true,
+      "relocs": 3,
+      "symbols": 8,
       "base": null
     },
     "onewire": {
@@ -176,6 +230,24 @@
       "relocs": 7,
       "symbols": 14,
       "base": 0
+    },
+    "usb_ls_rx": {
+      "source": "sw/examples/usb_ls_rx.asm",
+      "image": "sw/prog/usb_ls_rx.hex",
+      "words": 357,
+      "relocatable": true,
+      "relocs": 52,
+      "symbols": 53,
+      "base": null
+    },
+    "usb_ls_tx": {
+      "source": "sw/examples/usb_ls_tx.asm",
+      "image": "sw/prog/usb_ls_tx.hex",
+      "words": 96,
+      "relocatable": true,
+      "relocs": 14,
+      "symbols": 20,
+      "base": null
     },
     "ws2812": {
       "thread": 0,

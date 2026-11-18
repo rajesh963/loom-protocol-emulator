@@ -1,0 +1,42 @@
+; LOOM listing — sw/examples/dmx_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000400  setm 0x0400              setm    TX_PIN
+0001   48000855  setp 0x0855              setp    BITPER          ; 133.3125 cycles/bit -> 250.03 kbaud
+0002   34000400  clr 0x0400               clr     TX_PIN          ; BREAK: line low
+0003   5400FA00  waitd 0xFA00             waitd   BREAK_DIV
+0004   32000400  set 0x0400               set     TX_PIN          ; MAB: line high
+0005   54001900  waitd 0x1900             waitd   MAB_DIV
+0006   05000000  movi r4, 0x0000          movi    r4, 0
+0007   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0008   0400000F  movi r0, 0x000F          movi    r0, sub_slot - . + 1
+0009   08380000  add r0, r7               add     r0, r7
+000A   0BC00005  addi r7, 0x0005          addi    r7, 5
+000B   2A000008  csrw tpc, r0             csrw    TPC, r0
+000C   04C00200  movi r3, 0x0200          movi    r3, SLOTS
+; --- slot_loop = 0x00D
+000D   73000000  pull r4                  pull    r4              ; block until the host supplies the next byte
+000E   2DC00008  csrr r7, tpc             csrr    r7, TPC
+000F   04000008  movi r0, 0x0008          movi    r0, sub_slot - . + 1
+0010   08380000  add r0, r7               add     r0, r7
+0011   0BC00005  addi r7, 0x0005          addi    r7, 5
+0012   2A000008  csrw tpc, r0             csrw    TPC, r0
+0013   0EC00001  subi r3, 0x0001          subi    r3, 1
+0014   8400FFF9  jnz slot_loop            jnz     slot_loop
+0015   02000000  halt                     halt
+; --- sub_slot = 0x016
+0016   06200000  mov r0, r4               mov     r0, r4
+0017   1E000001  shl r0, 1                shl     r0, 1           ; data in b1..b8 (LSB first), start bit b0 = 0
+0018   16000600  ori r0, 0x0600           ori     r0, 0x0600      ; two stop bits (b9, b10)
+0019   0440000B  movi r1, 0x000B          movi    r1, 11
+; --- bit_loop = 0x01A
+001A   06800000  mov r2, r0               mov     r2, r0
+001B   12800001  andi r2, 0x0001          andi    r2, 1           ; Z = 1 when the bit is 0
+001C   82000002  jz drive                 jz      drive
+001D   04800400  movi r2, 0x0400          movi    r2, TX_PIN
+; --- drive = 0x01E
+001E   40800000  emit r2                  emit    r2              ; one bit cell: NEXTT + BITPER
+001F   20000001  shr r0, 1                shr     r0, 1
+0020   0E400001  subi r1, 0x0001          subi    r1, 1
+0021   8400FFF9  jnz bit_loop             jnz     bit_loop
+0022   2A380008  csrw tpc, r7             csrw    TPC, r7

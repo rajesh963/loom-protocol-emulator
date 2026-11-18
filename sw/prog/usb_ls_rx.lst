@@ -1,0 +1,406 @@
+; LOOM listing — sw/examples/usb_ls_rx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000003  setm 0x0003              setm    TMASK            ; response events drive both USB lines
+0001   3E000003  dclr 0x03                dclr    TMASK            ; high-Z while receiving (host drives)
+0002   48000164  setp 0x0164              setp    BIT_DIV          ; LS bit clock for sampler / responses
+; --- main = 0x003
+; --- poll = 0x003
+0003   38400000  in r1                    in      r1
+0004   12400001  andi r1, 0x0001          andi    r1, 1            ; D+ (idle J = 0)
+0005   8200FFFE  jz TMASK                 jz      poll
+0006   54000090  waitd 0x0090             waitd   0x0090
+0007   04000067  movi r0, 0x0067          movi    r0, NSAMP - 1
+0008   04C00002  movi r3, 0x0002          movi    r3, 2            ; previous line state = J
+0009   05000000  movi r4, 0x0000          movi    r4, 0            ; packed sample word
+000A   05400008  movi r5, 0x0008          movi    r5, 8            ; samples left in this word
+000B   05800000  movi r6, 0x0000          movi    r6, 0            ; sample-word DMEM address
+000C   38400000  in r1                    in      r1
+000D   12400003  andi r1, 0x0003          andi    r1, 3
+000E   06880000  mov r2, r1               mov     r2, r1
+000F   1E80000E  shl r2, 14               shl     r2, 14
+0010   21000002  shr r4, 2                shr     r4, 2
+0011   15100000  or r4, r2                or      r4, r2
+0012   0F400001  subi r5, 0x0001          subi    r5, 1
+0013   84000005  jnz first_no_store       jnz     first_no_store
+0014   67A00000  sti r4, r6               sti     r4, r6
+0015   0B800001  addi r6, 0x0001          addi    r6, 1
+0016   05000000  movi r4, 0x0000          movi    r4, 0
+0017   05400008  movi r5, 0x0008          movi    r5, 8
+; --- first_no_store = 0x018
+; --- sample = 0x018
+0018   54000074  waitd 0x0074             waitd   SAMPLE_DIV       ; 7.25 cycles + 15 instructions = 22.25
+0019   38400000  in r1                    in      r1
+001A   12400003  andi r1, 0x0003          andi    r1, 3
+001B   06880000  mov r2, r1               mov     r2, r1
+001C   1E80000E  shl r2, 14               shl     r2, 14
+001D   21000002  shr r4, 2                shr     r4, 2
+001E   15100000  or r4, r2                or      r4, r2
+001F   0F400001  subi r5, 0x0001          subi    r5, 1
+0020   84000006  jnz no_store             jnz     no_store
+0021   67A00000  sti r4, r6               sti     r4, r6
+0022   0B800001  addi r6, 0x0001          addi    r6, 1
+0023   05000000  movi r4, 0x0000          movi    r4, 0
+0024   05400008  movi r5, 0x0008          movi    r5, 8
+0025   80000006  jmp stored               jmp     stored
+; --- no_store = 0x026
+0026   00000000  nop                      nop
+0027   00000000  nop                      nop
+0028   00000000  nop                      nop
+0029   00000000  nop                      nop
+002A   00000000  nop                      nop
+; --- stored = 0x02B
+002B   0E000001  subi r0, 0x0001          subi    r0, 1
+002C   8400FFEC  jnz first_no_store       jnz     sample
+002D   29400008  cmpi r5, 0x0008          cmpi    r5, 8
+002E   82000002  jz all_stored            jz      all_stored
+002F   67A00000  sti r4, r6               sti     r4, r6           ; final partial sample word
+; --- all_stored = 0x030
+0030   04000000  movi r0, 0x0000          movi    r0, 0
+0031   64400000  ldi r1, r0               ldi     r1, r0
+0032   04805999  movi r2, 0x5999          movi    r2, SYNC_WORD
+0033   04C00001  movi r3, 0x0001          movi    r3, 1
+0034   26500000  cmp r1, r2               cmp     r1, r2
+0035   82000002  jz sync_ok1              jz      sync_ok1
+0036   04C00000  movi r3, 0x0000          movi    r3, 0
+; --- sync_ok1 = 0x037
+0037   0400001D  movi r0, 0x001D          movi    r0, 29
+0038   66180000  sti r3, r0               sti     r3, r0           ; DMEM[29] = sync_ok
+0039   04000001  movi r0, 0x0001          movi    r0, 1            ; sample-word address
+003A   64400000  ldi r1, r0               ldi     r1, r0
+003B   04800008  movi r2, 0x0008          movi    r2, 8            ; states left in word
+003C   04C00000  movi r3, 0x0000          movi    r3, 0            ; (bits_in_acc << 8) | byte_ptr
+003D   05000001  movi r4, 0x0001          movi    r4, 1            ; previous state = last SYNC state K
+003E   05400000  movi r5, 0x0000          movi    r5, 0            ; consecutive-ones counter
+003F   05800000  movi r6, 0x0000          movi    r6, 0            ; byte accumulator (LSB first)
+; --- dec_loop = 0x040
+0040   07C80000  mov r7, r1               mov     r7, r1
+0041   13C00003  andi r7, 0x0003          andi    r7, 3            ; line state
+0042   20400002  shr r1, 2                shr     r1, 2
+0043   0E800001  subi r2, 0x0001          subi    r2, 1            ; one state consumed
+0044   27E00000  cmp r7, r4               cmp     r7, r4
+0045   82000004  jz dec_held              jz      dec_held
+0046   07380000  mov r4, r7               mov     r4, r7
+0047   05C00000  movi r7, 0x0000          movi    r7, 0
+0048   80000003  jmp dec_bit              jmp     dec_bit
+; --- dec_held = 0x049
+0049   07380000  mov r4, r7               mov     r4, r7
+004A   05C00001  movi r7, 0x0001          movi    r7, 1
+; --- dec_bit = 0x04B
+004B   29400006  cmpi r5, 0x0006          cmpi    r5, 6
+004C   84000003  jnz dec_data             jnz     dec_data
+004D   05400000  movi r5, 0x0000          movi    r5, 0
+004E   80000018  jmp dec_next             jmp     dec_next
+; --- dec_data = 0x04F
+004F   29C00000  cmpi r7, 0x0000          cmpi    r7, 0
+0050   82000003  jz dec_zero_run          jz      dec_zero_run
+0051   0B400001  addi r5, 0x0001          addi    r5, 1
+0052   80000002  jmp dec_acc              jmp     dec_acc
+; --- dec_zero_run = 0x053
+0053   05400000  movi r5, 0x0000          movi    r5, 0
+; --- dec_acc = 0x054
+0054   21800001  shr r6, 1                shr     r6, 1
+0055   29C00000  cmpi r7, 0x0000          cmpi    r7, 0
+0056   82000002  jz dec_no_high           jz      dec_no_high
+0057   17800080  ori r6, 0x0080           ori     r6, 0x0080
+; --- dec_no_high = 0x058
+0058   0AC00100  addi r3, 0x0100          addi    r3, 0x0100       ; one more bit in the accumulator
+0059   07D80000  mov r7, r3               mov     r7, r3
+005A   21C00008  shr r7, 8                shr     r7, 8
+005B   29C00008  cmpi r7, 0x0008          cmpi    r7, 8
+005C   8400000A  jnz dec_next             jnz     dec_next
+005D   07D80000  mov r7, r3               mov     r7, r3           ; ---- one complete byte ----
+005E   13C000FF  andi r7, 0x00FF          andi    r7, 0x00FF
+005F   0BC0000D  addi r7, 0x000D          addi    r7, BYTE_BASE
+0060   67F00000  sti r6, r7               sti     r6, r7
+0061   05800000  movi r6, 0x0000          movi    r6, 0
+0062   07D80000  mov r7, r3               mov     r7, r3
+0063   13C000FF  andi r7, 0x00FF          andi    r7, 0x00FF
+0064   0BC00001  addi r7, 0x0001          addi    r7, 1
+0065   06F80000  mov r3, r7               mov     r3, r7
+; --- dec_next = 0x066
+0066   28800000  cmpi r2, 0x0000          cmpi    r2, 0
+0067   8400FFD9  jnz dec_loop             jnz     dec_loop
+0068   0A000001  addi r0, 0x0001          addi    r0, 1
+0069   2800000D  cmpi r0, 0x000D          cmpi    r0, 13
+006A   82000004  jz dec_done              jz      dec_done
+006B   64400000  ldi r1, r0               ldi     r1, r0
+006C   04800008  movi r2, 0x0008          movi    r2, 8
+006D   8000FFD3  jmp dec_loop             jmp     dec_loop
+; --- dec_done = 0x06E
+006E   06580000  mov r1, r3               mov     r1, r3
+006F   124000FF  andi r1, 0x00FF          andi    r1, 0x00FF
+0070   0400001E  movi r0, 0x001E          movi    r0, 30
+0071   66080000  sti r1, r0               sti     r1, r0           ; DMEM[30] = payload/field byte count
+0072   0400000D  movi r0, 0x000D          movi    r0, 13
+0073   65800000  ldi r6, r0               ldi     r6, r0           ; PID
+0074   04000019  movi r0, 0x0019          movi    r0, 25
+0075   66300000  sti r6, r0               sti     r6, r0
+0076   06700000  mov r1, r6               mov     r1, r6
+0077   1240000F  andi r1, 0x000F          andi    r1, 0x000F
+0078   0480000F  movi r2, 0x000F          movi    r2, 0x000F
+0079   18500000  xor r1, r2               xor     r1, r2           ; ~nibble
+007A   1E400004  shl r1, 4                shl     r1, 4
+007B   06B00000  mov r2, r6               mov     r2, r6
+007C   128000F0  andi r2, 0x00F0          andi    r2, 0x00F0
+007D   04C00001  movi r3, 0x0001          movi    r3, 1
+007E   26880000  cmp r2, r1               cmp     r2, r1
+007F   82000002  jz pid_ok1               jz      pid_ok1
+0080   04C00000  movi r3, 0x0000          movi    r3, 0
+; --- pid_ok1 = 0x081
+0081   06700000  mov r1, r6               mov     r1, r6
+0082   1240000F  andi r1, 0x000F          andi    r1, 0x000F
+0083   28400003  cmpi r1, 0x0003          cmpi    r1, 3            ; DATA0 / DATA1
+0084   82000034  jz data_path             jz      data_path
+0085   28400002  cmpi r1, 0x0002          cmpi    r1, 2            ; ACK handshake
+0086   8200005A  jz ack_path              jz      ack_path
+; --- token_path = 0x087
+0087   0400000E  movi r0, 0x000E          movi    r0, 14
+0088   64C00000  ldi r3, r0               ldi     r3, r0           ; byte 1
+0089   0400000F  movi r0, 0x000F          movi    r0, 15
+008A   65000000  ldi r4, r0               ldi     r4, r0           ; byte 2
+008B   07580000  mov r5, r3               mov     r5, r3
+008C   1340007F  andi r5, 0x007F          andi    r5, 0x007F       ; ADDR (7 bits)
+008D   07980000  mov r6, r3               mov     r6, r3
+008E   21800007  shr r6, 7                shr     r6, 7
+008F   06600000  mov r1, r4               mov     r1, r4
+0090   12400007  andi r1, 0x0007          andi    r1, 0x0007
+0091   1E400001  shl r1, 1                shl     r1, 1
+0092   15880000  or r6, r1                or      r6, r1           ; ENDP (4 bits)
+0093   06600000  mov r1, r4               mov     r1, r4
+0094   20400003  shr r1, 3                shr     r1, 3            ; received CRC-5 (5 bits)
+0095   06B00000  mov r2, r6               mov     r2, r6
+0096   1E800007  shl r2, 7                shl     r2, 7
+0097   14A80000  or r2, r5                or      r2, r5           ; 11-bit ADDR+ENDP, LSB first
+0098   05C0001F  movi r7, 0x001F          movi    r7, 0x001F       ; CRC-5/USB
+0099   0400000B  movi r0, 0x000B          movi    r0, 11
+; --- crc5_loop = 0x09A
+009A   06D00000  mov r3, r2               mov     r3, r2
+009B   12C00001  andi r3, 0x0001          andi    r3, 1
+009C   20800001  shr r2, 1                shr     r2, 1
+009D   07380000  mov r4, r7               mov     r4, r7
+009E   13000001  andi r4, 0x0001          andi    r4, 1
+009F   19180000  xor r4, r3               xor     r4, r3
+00A0   21C00001  shr r7, 1                shr     r7, 1
+00A1   29000000  cmpi r4, 0x0000          cmpi    r4, 0
+00A2   82000003  jz crc5_nopoly           jz      crc5_nopoly
+00A3   05000014  movi r4, 0x0014          movi    r4, 0x0014
+00A4   19E00000  xor r7, r4               xor     r7, r4
+; --- crc5_nopoly = 0x0A5
+00A5   0E000001  subi r0, 0x0001          subi    r0, 1
+00A6   8400FFF4  jnz crc5_loop            jnz     crc5_loop
+00A7   0500001F  movi r4, 0x001F          movi    r4, 0x001F
+00A8   19E00000  xor r7, r4               xor     r7, r4           ; final XOR-0x1F (CRC-5/USB)
+00A9   04C00001  movi r3, 0x0001          movi    r3, 1
+00AA   27C80000  cmp r7, r1               cmp     r7, r1
+00AB   82000002  jz tok_crc_ok            jz      tok_crc_ok
+00AC   04C00000  movi r3, 0x0000          movi    r3, 0
+; --- tok_crc_ok = 0x0AD
+00AD   04000018  movi r0, 0x0018          movi    r0, 24
+00AE   04400001  movi r1, 0x0001          movi    r1, 1
+00AF   66080000  sti r1, r0               sti     r1, r0           ; status = token
+00B0   0400001A  movi r0, 0x001A          movi    r0, 26
+00B1   06700000  mov r1, r6               mov     r1, r6
+00B2   1E400007  shl r1, 7                shl     r1, 7
+00B3   14680000  or r1, r5                or      r1, r5
+00B4   66080000  sti r1, r0               sti     r1, r0           ; addr|endp<<7
+00B5   0400001B  movi r0, 0x001B          movi    r0, 27
+00B6   66180000  sti r3, r0               sti     r3, r0           ; crc_ok
+00B7   8000002D  jmp finish               jmp     finish
+; --- data_path = 0x0B8
+00B8   04000018  movi r0, 0x0018          movi    r0, 24
+00B9   04400002  movi r1, 0x0002          movi    r1, 2
+00BA   66080000  sti r1, r0               sti     r1, r0           ; status = data
+00BB   0400001E  movi r0, 0x001E          movi    r0, 30
+00BC   04400008  movi r1, 0x0008          movi    r1, 8
+00BD   66080000  sti r1, r0               sti     r1, r0           ; fixed 8-byte payload (SETUP data stage)
+00BE   0500FFFF  movi r4, 0xFFFF          movi    r4, 0xFFFF
+00BF   0580000E  movi r6, 0x000E          movi    r6, 14
+00C0   04000008  movi r0, 0x0008          movi    r0, 8
+; --- data_byte = 0x0C1
+00C1   64700000  ldi r1, r6               ldi     r1, r6
+00C2   0B800001  addi r6, 0x0001          addi    r6, 1
+00C3   19080000  xor r4, r1               xor     r4, r1
+00C4   04800008  movi r2, 0x0008          movi    r2, 8
+; --- data_bit = 0x0C5
+00C5   06600000  mov r1, r4               mov     r1, r4
+00C6   12400001  andi r1, 0x0001          andi    r1, 1
+00C7   82000005  jz data_shift            jz      data_shift
+00C8   21000001  shr r4, 1                shr     r4, 1
+00C9   0440A001  movi r1, 0xA001          movi    r1, 0xA001
+00CA   19080000  xor r4, r1               xor     r4, r1
+00CB   80000002  jmp data_next            jmp     data_next
+; --- data_shift = 0x0CC
+00CC   21000001  shr r4, 1                shr     r4, 1
+; --- data_next = 0x0CD
+00CD   0E800001  subi r2, 0x0001          subi    r2, 1
+00CE   8400FFF7  jnz data_bit             jnz     data_bit
+00CF   0E000001  subi r0, 0x0001          subi    r0, 1
+00D0   8400FFF1  jnz data_byte            jnz     data_byte
+00D1   0440FFFF  movi r1, 0xFFFF          movi    r1, 0xFFFF
+00D2   19080000  xor r4, r1               xor     r4, r1
+00D3   04000016  movi r0, 0x0016          movi    r0, 22
+00D4   64400000  ldi r1, r0               ldi     r1, r0
+00D5   04000017  movi r0, 0x0017          movi    r0, 23
+00D6   64800000  ldi r2, r0               ldi     r2, r0
+00D7   1E800008  shl r2, 8                shl     r2, 8
+00D8   14500000  or r1, r2                or      r1, r2
+00D9   04C00001  movi r3, 0x0001          movi    r3, 1
+00DA   27080000  cmp r4, r1               cmp     r4, r1
+00DB   82000002  jz data_crc_ok           jz      data_crc_ok
+00DC   04C00000  movi r3, 0x0000          movi    r3, 0
+; --- data_crc_ok = 0x0DD
+00DD   0400001B  movi r0, 0x001B          movi    r0, 27
+00DE   66180000  sti r3, r0               sti     r3, r0
+00DF   80000005  jmp finish               jmp     finish
+; --- ack_path = 0x0E0
+00E0   04000018  movi r0, 0x0018          movi    r0, 24
+00E1   04400003  movi r1, 0x0003          movi    r1, 3
+00E2   66080000  sti r1, r0               sti     r1, r0
+00E3   80000001  jmp finish               jmp     finish
+; --- finish = 0x0E4
+00E4   04000000  movi r0, 0x0000          movi    r0, 0            ; sample-word address
+00E5   64400000  ldi r1, r0               ldi     r1, r0
+00E6   04800008  movi r2, 0x0008          movi    r2, 8            ; samples left in word
+00E7   04C00000  movi r3, 0x0000          movi    r3, 0            ; sample index k
+00E8   05000003  movi r4, 0x0003          movi    r4, 3            ; previous state (sentinel SE1)
+00E9   0580FFFF  movi r6, 0xFFFF          movi    r6, 0xFFFF       ; EOP pair start (0xFFFF = not found)
+; --- eop_scan = 0x0EA
+00EA   07480000  mov r5, r1               mov     r5, r1
+00EB   13400003  andi r5, 0x0003          andi    r5, 3            ; state[k]
+00EC   20400002  shr r1, 2                shr     r1, 2
+00ED   0E800001  subi r2, 0x0001          subi    r2, 1
+00EE   29000000  cmpi r4, 0x0000          cmpi    r4, 0            ; previous state SE0?
+00EF   84000006  jnz eop_next             jnz     eop_next
+00F0   29400000  cmpi r5, 0x0000          cmpi    r5, 0            ; current state SE0?
+00F1   84000004  jnz eop_next             jnz     eop_next
+00F2   07980000  mov r6, r3               mov     r6, r3
+00F3   0F800001  subi r6, 0x0001          subi    r6, 1            ; pair start = k-1
+00F4   80000011  jmp eop_found            jmp     eop_found
+; --- eop_next = 0x0F5
+00F5   07280000  mov r4, r5               mov     r4, r5
+00F6   0AC00001  addi r3, 0x0001          addi    r3, 1
+00F7   28800000  cmpi r2, 0x0000          cmpi    r2, 0
+00F8   8400FFF2  jnz eop_scan             jnz     eop_scan
+00F9   0A000001  addi r0, 0x0001          addi    r0, 1
+00FA   2800000D  cmpi r0, 0x000D          cmpi    r0, 13
+00FB   82000004  jz eop_notfound          jz      eop_notfound
+00FC   64400000  ldi r1, r0               ldi     r1, r0
+00FD   04800008  movi r2, 0x0008          movi    r2, 8
+00FE   8000FFEC  jmp eop_scan             jmp     eop_scan
+; --- eop_notfound = 0x0FF
+00FF   0400001C  movi r0, 0x001C          movi    r0, 28
+0100   04C00000  movi r3, 0x0000          movi    r3, 0
+0101   66180000  sti r3, r0               sti     r3, r0           ; eop_ok = 0
+0102   0400001F  movi r0, 0x001F          movi    r0, 31
+0103   66300000  sti r6, r0               sti     r6, r0           ; DMEM[31] = 0xFFFF
+0104   80000022  jmp publish              jmp     publish
+; --- eop_found = 0x105
+0105   0400001F  movi r0, 0x001F          movi    r0, 31
+0106   66300000  sti r6, r0               sti     r6, r0           ; DMEM[31] = EOP cell-1 sample index
+0107   0400001C  movi r0, 0x001C          movi    r0, 28
+0108   04C00001  movi r3, 0x0001          movi    r3, 1
+0109   66180000  sti r3, r0               sti     r3, r0           ; eop_ok = 1 until proven otherwise
+010A   05C00002  movi r7, 0x0002          movi    r7, 2            ; j = 2, 3
+; --- eop_chk = 0x10B
+010B   06F00000  mov r3, r6               mov     r3, r6
+010C   08F80000  add r3, r7               add     r3, r7           ; k = pair_start + j
+010D   07180000  mov r4, r3               mov     r4, r3
+010E   21000003  shr r4, 3                shr     r4, 3
+010F   65600000  ldi r5, r4               ldi     r5, r4           ; sample word
+0110   07180000  mov r4, r3               mov     r4, r3
+0111   13000007  andi r4, 0x0007          andi    r4, 7
+0112   1F000001  shl r4, 1                shl     r4, 1            ; shift = (k&7)*2
+; --- eop_shift = 0x113
+0113   29000000  cmpi r4, 0x0000          cmpi    r4, 0
+0114   82000004  jz eop_shift_done        jz      eop_shift_done
+0115   21400001  shr r5, 1                shr     r5, 1
+0116   0F000001  subi r4, 0x0001          subi    r4, 1
+0117   8000FFFC  jmp eop_shift            jmp     eop_shift
+; --- eop_shift_done = 0x118
+0118   13400003  andi r5, 0x0003          andi    r5, 3            ; state[k]
+0119   04C00002  movi r3, 0x0002          movi    r3, 2
+011A   05000001  movi r4, 0x0001          movi    r4, 1
+011B   27580000  cmp r5, r3               cmp     r5, r3
+011C   82000002  jz eop_ok2               jz      eop_ok2
+011D   05000000  movi r4, 0x0000          movi    r4, 0
+; --- eop_ok2 = 0x11E
+011E   29000000  cmpi r4, 0x0000          cmpi    r4, 0
+011F   84000004  jnz eop_chk_next         jnz     eop_chk_next
+0120   0400001C  movi r0, 0x001C          movi    r0, 28
+0121   04C00000  movi r3, 0x0000          movi    r3, 0
+0122   66180000  sti r3, r0               sti     r3, r0           ; eop_ok = 0
+; --- eop_chk_next = 0x123
+0123   0BC00001  addi r7, 0x0001          addi    r7, 1
+0124   29C00004  cmpi r7, 0x0004          cmpi    r7, 4
+0125   8400FFE6  jnz eop_chk              jnz     eop_chk
+; --- publish = 0x126
+0126   04000018  movi r0, 0x0018          movi    r0, 24
+0127   64400000  ldi r1, r0               ldi     r1, r0
+0128   70400000  push r1                  push    r1
+0129   04000019  movi r0, 0x0019          movi    r0, 25
+012A   64400000  ldi r1, r0               ldi     r1, r0
+012B   70400000  push r1                  push    r1
+012C   0400001A  movi r0, 0x001A          movi    r0, 26
+012D   64400000  ldi r1, r0               ldi     r1, r0
+012E   70400000  push r1                  push    r1
+012F   0400001B  movi r0, 0x001B          movi    r0, 27
+0130   64400000  ldi r1, r0               ldi     r1, r0
+0131   70400000  push r1                  push    r1
+0132   0400001C  movi r0, 0x001C          movi    r0, 28
+0133   64400000  ldi r1, r0               ldi     r1, r0
+0134   70400000  push r1                  push    r1
+0135   04400018  movi r1, 0x0018          movi    r1, 24
+0136   64080000  ldi r0, r1               ldi     r0, r1
+0137   28000002  cmpi r0, 0x0002          cmpi    r0, 2
+0138   8400002C  jnz BIT_DIV              jnz     no_response
+0139   0440001B  movi r1, 0x001B          movi    r1, 27
+013A   64080000  ldi r0, r1               ldi     r0, r1
+013B   28000001  cmpi r0, 0x0001          cmpi    r0, 1
+013C   84000028  jnz BIT_DIV              jnz     no_response
+013D   3C000003  dset 0x03                dset    TMASK            ; drive the differential pair
+013E   04000001  movi r0, 0x0001          movi    r0, 1            ; line state K
+013F   04400007  movi r1, 0x0007          movi    r1, 7
+; --- ack_sync = 0x140
+0140   07400000  mov r5, r0               mov     r5, r0
+0141   41400000  emit r5                  emit    r5               ; one cell per 22.25-cycle period
+0142   1A000003  xori r0, 0x0003          xori     r0, 3            ; K <-> J toggle (NRZI data 0)
+0143   0E400001  subi r1, 0x0001          subi    r1, 1
+0144   8400FFFC  jnz ack_sync             jnz     ack_sync
+0145   1A000003  xori r0, 0x0003          xori     r0, 3
+0146   07400000  mov r5, r0               mov     r5, r0
+0147   41400000  emit r5                  emit    r5               ; 8th SYNC cell is data 1 (hold)
+0148   044000D2  movi r1, 0x00D2          movi    r1, 0x00D2
+0149   04800008  movi r2, 0x0008          movi    r2, 8
+014A   04C00000  movi r3, 0x0000          movi    r3, 0            ; consecutive-ones counter
+; --- ack_bit = 0x14B
+014B   28C00006  cmpi r3, 0x0006          cmpi    r3, 6
+014C   84000005  jnz ack_nostuff          jnz     ack_nostuff
+014D   1A000003  xori r0, 0x0003          xori     r0, 3            ; stuffed 0: toggle
+014E   07400000  mov r5, r0               mov     r5, r0
+014F   41400000  emit r5                  emit    r5
+0150   04C00000  movi r3, 0x0000          movi    r3, 0
+; --- ack_nostuff = 0x151
+0151   07080000  mov r4, r1               mov     r4, r1
+0152   13000001  andi r4, 0x0001          andi    r4, 1
+0153   20400001  shr r1, 1                shr     r1, 1
+0154   29000000  cmpi r4, 0x0000          cmpi    r4, 0
+0155   84000004  jnz ack_one              jnz     ack_one
+0156   1A000003  xori r0, 0x0003          xori     r0, 3            ; data 0: toggle
+0157   04C00000  movi r3, 0x0000          movi    r3, 0
+0158   80000002  jmp ack_emit             jmp     ack_emit
+; --- ack_one = 0x159
+0159   0AC00001  addi r3, 0x0001          addi    r3, 1
+; --- ack_emit = 0x15A
+015A   07400000  mov r5, r0               mov     r5, r0
+015B   41400000  emit r5                  emit    r5
+015C   0E800001  subi r2, 0x0001          subi    r2, 1
+015D   8400FFEE  jnz ack_bit              jnz     ack_bit
+015E   04000000  movi r0, 0x0000          movi    r0, 0
+015F   07400000  mov r5, r0               mov     r5, r0
+0160   41400000  emit r5                  emit    r5
+0161   41400000  emit r5                  emit    r5
+0162   540006F4  waitd 0x06F4             waitd   0x06F4           ; 111.25 cycles
+0163   3E000003  dclr 0x03                dclr    TMASK            ; release the pair back to the host
+; --- no_response = 0x164
+0164   8000FE9F  jmp TMASK                jmp     main
