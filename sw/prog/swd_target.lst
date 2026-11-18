@@ -1,0 +1,238 @@
+; LOOM listing — sw/examples/swd_target.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000000  setm 0x0000              setm    0
+0001   34000003  clr 0x0003               clr     0x0003          ; both lines low, SWDIO released
+0002   3E000002  dclr 0x02                dclr    SWDIO
+0003   04000000  movi r0, 0x0000          movi    r0, 0
+0004   62000008  st 0x08, r0              st      8, r0          ; DP SELECT
+0005   62000009  st 0x09, r0              st      9, r0
+0006   6200000A  st 0x0A, r0              st      10, r0         ; DP RDBUFF
+0007   6200000B  st 0x0B, r0              st      11, r0
+0008   6200000E  st 0x0E, r0              st      14, r0         ; AP TAR
+0009   6200000F  st 0x0F, r0              st      15, r0
+000A   62000010  st 0x10, r0              st      16, r0         ; AP DRW
+000B   62000011  st 0x11, r0              st      17, r0
+; --- main = 0x00C
+; --- wait_start = 0x00C
+000C   56000100  waitp 0x0100             waitp   CLK_LO
+000D   56000101  waitp 0x0101             waitp   CLK_HI
+000E   38400000  in r1                    in      r1
+000F   12400002  andi r1, 0x0002          andi    r1, SWDIO
+0010   8200FFFC  jz main                  jz      wait_start
+0011   04400001  movi r1, 0x0001          movi    r1, 1           ; reversed packet accumulator: start first
+0012   05000007  movi r4, 0x0007          movi    r4, 7
+; --- req_loop = 0x013
+0013   56000100  waitp 0x0100             waitp   CLK_LO          ; falling: probe sets the next request bit
+0014   56000101  waitp 0x0101             waitp   CLK_HI          ; rising: sample it
+0015   38000000  in r0                    in      r0
+0016   12000002  andi r0, 0x0002          andi    r0, SWDIO
+0017   20000001  shr r0, 1                shr     r0, 1           ; SWDIO bit -> 0/1
+0018   1E400001  shl r1, 1                shl     r1, 1
+0019   14400000  or r1, r0                or      r1, r0
+001A   0F000001  subi r4, 0x0001          subi    r4, 1
+001B   8400FFF8  jnz req_loop             jnz     req_loop
+001C   06080000  mov r0, r1               mov     r0, r1
+001D   20000006  shr r0, 6                shr     r0, 6
+001E   12000001  andi r0, 0x0001          andi    r0, 1           ; r0 = APnDP
+001F   07480000  mov r5, r1               mov     r5, r1
+0020   21400005  shr r5, 5                shr     r5, 5
+0021   13400001  andi r5, 0x0001          andi    r5, 1           ; r5 = RnW
+0022   07880000  mov r6, r1               mov     r6, r1
+0023   21800004  shr r6, 4                shr     r6, 4
+0024   13800001  andi r6, 0x0001          andi    r6, 1           ; r6 = A2
+0025   07080000  mov r4, r1               mov     r4, r1
+0026   21000003  shr r4, 3                shr     r4, 3
+0027   13000001  andi r4, 0x0001          andi    r4, 1           ; A3
+0028   1F000001  shl r4, 1                shl     r4, 1
+0029   15A00000  or r6, r4                or      r6, r4          ; r6 = A[3:2] word address
+002A   07080000  mov r4, r1               mov     r4, r1
+002B   13000003  andi r4, 0x0003          andi    r4, 3
+002C   29000001  cmpi r4, 0x0001          cmpi    r4, 1
+002D   84000012  jnz req_bad              jnz     req_bad
+002E   07080000  mov r4, r1               mov     r4, r1
+002F   21000003  shr r4, 3                shr     r4, 3
+0030   1300000F  andi r4, 0x000F          andi    r4, 0x0F
+0031   07E00000  mov r7, r4               mov     r7, r4
+0032   21C00002  shr r7, 2                shr     r7, 2
+0033   19380000  xor r4, r7               xor     r4, r7
+0034   07E00000  mov r7, r4               mov     r7, r4
+0035   21C00001  shr r7, 1                shr     r7, 1
+0036   19380000  xor r4, r7               xor     r4, r7
+0037   13000001  andi r4, 0x0001          andi    r4, 1           ; computed parity
+0038   07C80000  mov r7, r1               mov     r7, r1
+0039   21C00002  shr r7, 2                shr     r7, 2
+003A   13C00001  andi r7, 0x0001          andi    r7, 1           ; received parity
+003B   27380000  cmp r4, r7               cmp     r4, r7
+003C   84000003  jnz req_bad              jnz     req_bad
+003D   04400000  movi r1, 0x0000          movi    r1, 0           ; r1 = fault flag = 0
+003E   80000036  jmp ack                  jmp     ack
+; --- req_bad = 0x03F
+003F   04400001  movi r1, 0x0001          movi    r1, 1
+0040   80000034  jmp ack                  jmp     ack
+; --- dispatch = 0x041
+0041   29400000  cmpi r5, 0x0000          cmpi    r5, 0
+0042   82000022  jz wr_dispatch           jz      wr_dispatch
+0043   28000000  cmpi r0, 0x0000          cmpi    r0, 0
+0044   84000013  jnz rd_ap                jnz     rd_ap
+0045   29800000  cmpi r6, 0x0000          cmpi    r6, 0
+0046   82000008  jz rd_idcode             jz      rd_idcode
+0047   29800001  cmpi r6, 0x0001          cmpi    r6, 1
+0048   82000009  jz rd_ctrl               jz      rd_ctrl
+0049   29800003  cmpi r6, 0x0003          cmpi    r6, 3
+004A   8200000A  jz rd_rdbuff             jz      rd_rdbuff
+004B   04800000  movi r2, 0x0000          movi    r2, 0
+004C   04C00000  movi r3, 0x0000          movi    r3, 0
+004D   80000032  jmp ack2                 jmp     ack2
+; --- rd_idcode = 0x04E
+004E   04801477  movi r2, 0x1477          movi    r2, ID_L
+004F   04C00BB1  movi r3, 0x0BB1          movi    r3, ID_H
+0050   8000002F  jmp ack2                 jmp     ack2
+; --- rd_ctrl = 0x051
+0051   04800000  movi r2, 0x0000          movi    r2, 0
+0052   04C0F000  movi r3, 0xF000          movi    r3, CTRL_H
+0053   8000002C  jmp ack2                 jmp     ack2
+; --- rd_rdbuff = 0x054
+0054   6080000A  ld r2, 0x0A              ld      r2, 10
+0055   60C0000B  ld r3, 0x0B              ld      r3, 11
+0056   80000029  jmp ack2                 jmp     ack2
+; --- rd_ap = 0x057
+0057   29800001  cmpi r6, 0x0001          cmpi    r6, 1
+0058   82000006  jz rd_tar                jz      rd_tar
+0059   29800003  cmpi r6, 0x0003          cmpi    r6, 3
+005A   82000007  jz rd_drw                jz      rd_drw
+005B   04800000  movi r2, 0x0000          movi    r2, 0
+005C   04C00000  movi r3, 0x0000          movi    r3, 0
+005D   80000022  jmp ack2                 jmp     ack2
+; --- rd_tar = 0x05E
+005E   6080000E  ld r2, 0x0E              ld      r2, 14
+005F   60C0000F  ld r3, 0x0F              ld      r3, 15
+0060   8000001F  jmp ack2                 jmp     ack2
+; --- rd_drw = 0x061
+0061   60800010  ld r2, 0x10              ld      r2, 16
+0062   60C00011  ld r3, 0x11              ld      r3, 17
+0063   8000001C  jmp ack2                 jmp     ack2
+; --- wr_dispatch = 0x064
+0064   28000000  cmpi r0, 0x0000          cmpi    r0, 0
+0065   84000005  jnz wr_ap                jnz     wr_ap
+0066   29800002  cmpi r6, 0x0002          cmpi    r6, 2
+0067   84000007  jnz wr_ignore            jnz     wr_ignore
+0068   05C00008  movi r7, 0x0008          movi    r7, 8          ; DP SELECT
+0069   80000016  jmp ack2                 jmp     ack2
+; --- wr_ap = 0x06A
+006A   29800001  cmpi r6, 0x0001          cmpi    r6, 1
+006B   82000005  jz wr_tar                jz      wr_tar
+006C   29800003  cmpi r6, 0x0003          cmpi    r6, 3
+006D   82000005  jz wr_drw                jz      wr_drw
+; --- wr_ignore = 0x06E
+006E   05C00000  movi r7, 0x0000          movi    r7, 0
+006F   80000010  jmp ack2                 jmp     ack2
+; --- wr_tar = 0x070
+0070   05C0000E  movi r7, 0x000E          movi    r7, 14
+0071   8000000E  jmp ack2                 jmp     ack2
+; --- wr_drw = 0x072
+0072   05C00010  movi r7, 0x0010          movi    r7, 16
+0073   8000000C  jmp ack2                 jmp     ack2
+; --- ack = 0x074
+0074   56000100  waitp 0x0100             waitp   CLK_LO          ; F8 (host releases SWDIO)
+0075   56000101  waitp 0x0101             waitp   CLK_HI          ; R9: turnaround clock
+0076   56000100  waitp 0x0100             waitp   CLK_LO          ; F9: drive ACK bit 0
+0077   28400000  cmpi r1, 0x0000          cmpi    r1, 0
+0078   8400000C  jnz ack_fault            jnz     ack_fault
+0079   3E000002  dclr 0x02                dclr    SWDIO           ; OK bit0 = 1 -> release
+007A   56000101  waitp 0x0101             waitp   CLK_HI          ; R10: probe samples ACK0
+007B   56000100  waitp 0x0100             waitp   CLK_LO          ; F10
+007C   34000002  clr 0x0002               clr     SWDIO
+007D   3C000002  dset 0x02                dset    SWDIO           ; OK bit1 = 0 -> drive low
+007E   8000FFC3  jmp dispatch             jmp     dispatch        ; data preload / store pointer, before ACK2
+; --- ack2 = 0x07F
+007F   56000101  waitp 0x0101             waitp   CLK_HI          ; R11
+0080   56000100  waitp 0x0100             waitp   CLK_LO          ; F11: OK bit2 = 0 (still driven low)
+0081   29400000  cmpi r5, 0x0000          cmpi    r5, 0
+0082   82000028  jz wr_data               jz      wr_data
+0083   8000000A  jmp rd_data              jmp     rd_data
+; --- ack_fault = 0x084
+0084   34000002  clr 0x0002               clr     SWDIO
+0085   3C000002  dset 0x02                dset    SWDIO           ; FAULT bit0 = 0 -> drive low
+0086   56000101  waitp 0x0101             waitp   CLK_HI
+0087   56000100  waitp 0x0100             waitp   CLK_LO          ; FAULT bit1 = 0 (still low)
+0088   56000101  waitp 0x0101             waitp   CLK_HI
+0089   56000100  waitp 0x0100             waitp   CLK_LO          ; F11: FAULT bit2 = 1 -> release
+008A   3E000002  dclr 0x02                dclr    SWDIO
+008B   56000101  waitp 0x0101             waitp   CLK_HI          ; R12: probe samples the FAULT ACK
+008C   8000FF80  jmp main                 jmp     main
+; --- rd_data = 0x08D
+008D   05000020  movi r4, 0x0020          movi    r4, 32
+008E   05400000  movi r5, 0x0000          movi    r5, 0           ; parity accumulator
+; --- rd_loop = 0x08F
+008F   56000101  waitp 0x0101             waitp   CLK_HI          ; R(12+k): probe samples the previous bit
+0090   56000100  waitp 0x0100             waitp   CLK_LO          ; F(12+k): drive bit k
+0091   06100000  mov r0, r2               mov     r0, r2
+0092   12000001  andi r0, 0x0001          andi    r0, 1
+0093   19400000  xor r5, r0               xor     r5, r0
+0094   1E000001  shl r0, 1                shl     r0, 1           ; -> SWDIO pin (P[1])
+0095   2A000010  csrw pout, r0            csrw    POUT, r0
+0096   06580000  mov r1, r3               mov     r1, r3          ; 32-bit shift right r2:r3
+0097   12400001  andi r1, 0x0001          andi    r1, 1
+0098   1E40000F  shl r1, 15               shl     r1, 15
+0099   20800001  shr r2, 1                shr     r2, 1
+009A   14880000  or r2, r1                or      r2, r1
+009B   20C00001  shr r3, 1                shr     r3, 1
+009C   0F000001  subi r4, 0x0001          subi    r4, 1
+009D   8400FFF2  jnz rd_loop              jnz     rd_loop
+009E   56000101  waitp 0x0101             waitp   CLK_HI          ; R44
+009F   56000100  waitp 0x0100             waitp   CLK_LO          ; F44: parity bit
+00A0   06280000  mov r0, r5               mov     r0, r5
+00A1   12000001  andi r0, 0x0001          andi    r0, 1
+00A2   1E000001  shl r0, 1                shl     r0, 1
+00A3   2A000010  csrw pout, r0            csrw    POUT, r0
+00A4   56000101  waitp 0x0101             waitp   CLK_HI          ; R45: probe samples parity
+00A5   56000100  waitp 0x0100             waitp   CLK_LO          ; F45: release for the turnaround clock
+00A6   3E000002  dclr 0x02                dclr    SWDIO
+00A7   56000101  waitp 0x0101             waitp   CLK_HI          ; R46: the turnaround clock itself
+00A8   56000100  waitp 0x0100             waitp   CLK_LO          ; F46: probe drives idle again
+00A9   8000FF63  jmp main                 jmp     main
+; --- wr_data = 0x0AA
+00AA   56000101  waitp 0x0101             waitp   CLK_HI          ; R12: probe samples ACK2
+00AB   56000100  waitp 0x0100             waitp   CLK_LO          ; F12: release SWDIO, probe drives data bit 0
+00AC   3E000002  dclr 0x02                dclr    SWDIO
+00AD   04800000  movi r2, 0x0000          movi    r2, 0
+00AE   04C00000  movi r3, 0x0000          movi    r3, 0
+00AF   05000020  movi r4, 0x0020          movi    r4, 32
+00B0   05400000  movi r5, 0x0000          movi    r5, 0           ; parity accumulator
+; --- wr_loop = 0x0B1
+00B1   56000101  waitp 0x0101             waitp   CLK_HI          ; R(13+k): sample data bit k
+00B2   38000000  in r0                    in      r0
+00B3   12000002  andi r0, 0x0002          andi    r0, SWDIO
+00B4   20000001  shr r0, 1                shr     r0, 1
+00B5   19400000  xor r5, r0               xor     r5, r0
+00B6   06580000  mov r1, r3               mov     r1, r3          ; 32-bit shift left-in at bit 31
+00B7   12400001  andi r1, 0x0001          andi    r1, 1
+00B8   1E40000F  shl r1, 15               shl     r1, 15
+00B9   20800001  shr r2, 1                shr     r2, 1
+00BA   14880000  or r2, r1                or      r2, r1
+00BB   20C00001  shr r3, 1                shr     r3, 1
+00BC   06400000  mov r1, r0               mov     r1, r0
+00BD   1E40000F  shl r1, 15               shl     r1, 15
+00BE   14C80000  or r3, r1                or      r3, r1
+00BF   56000100  waitp 0x0100             waitp   CLK_LO          ; F(13+k): probe sets the next data bit
+00C0   0F000001  subi r4, 0x0001          subi    r4, 1
+00C1   8400FFF0  jnz wr_loop              jnz     wr_loop
+00C2   56000101  waitp 0x0101             waitp   CLK_HI          ; R45: parity bit
+00C3   38000000  in r0                    in      r0
+00C4   12000002  andi r0, 0x0002          andi    r0, SWDIO
+00C5   20000001  shr r0, 1                shr     r0, 1
+00C6   27400000  cmp r5, r0               cmp     r5, r0          ; even parity: XOR(data) == parity bit
+00C7   8400000A  jnz wr_drop              jnz     wr_drop
+00C8   29C00000  cmpi r7, 0x0000          cmpi    r7, 0
+00C9   82000008  jz wr_drop               jz      wr_done
+00CA   67D00000  sti r2, r7               sti     r2, r7          ; store the 32-bit value into the AP/DP word
+00CB   0BC00001  addi r7, 0x0001          addi    r7, 1
+00CC   67D80000  sti r3, r7               sti     r3, r7
+00CD   0440000A  movi r1, 0x000A          movi    r1, 10          ; mirror the last AP write into DP RDBUFF
+00CE   66500000  sti r2, r1               sti     r2, r1
+00CF   0A400001  addi r1, 0x0001          addi    r1, 1
+00D0   66580000  sti r3, r1               sti     r3, r1
+; --- wr_drop = 0x0D1
+; --- wr_done = 0x0D1
+00D1   8000FF3B  jmp main                 jmp     main

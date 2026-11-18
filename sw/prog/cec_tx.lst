@@ -1,0 +1,107 @@
+; LOOM listing — sw/examples/cec_tx.asm
+; addr   word      disassembly               source
+; --- start = 0x000
+0000   4A000000  setm 0x0000              setm    0
+0001   34000001  clr 0x0001               clr     CEC_PIN         ; open-drain value is always 0 (driven low)
+0002   3E000001  dclr 0x01                dclr    CEC_PIN         ; bus idle: released, external pull-up = high
+0003   3C000001  dset 0x01                dset    CEC_PIN
+0004   0480001E  movi r2, 0x001E          movi    r2, 30
+; --- st_lo = 0x005
+0005   5400FA00  waitd 0xFA00             waitd   CHUNK
+0006   0E800001  subi r2, 0x0001          subi    r2, 1
+0007   8400FFFE  jnz st_lo                jnz     st_lo
+0008   5400D050  waitd 0xD050             waitd   REM_START_LOW
+0009   3E000001  dclr 0x01                dclr    CEC_PIN
+000A   04800006  movi r2, 0x0006          movi    r2, 6
+; --- st_hi = 0x00B
+000B   5400FA00  waitd 0xFA00             waitd   CHUNK
+000C   0E800001  subi r2, 0x0001          subi    r2, 1
+000D   8400FFFE  jnz st_hi                jnz     st_hi
+000E   5400A6B0  waitd 0xA6B0             waitd   REM_START_HIGH
+000F   05000040  movi r4, 0x0040          movi    r4, HEADER
+0010   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0011   04400024  movi r1, 0x0024          movi    r1, sub_byte - . + 1
+0012   08780000  add r1, r7               add     r1, r7
+0013   0BC00005  addi r7, 0x0005          addi    r7, 5
+0014   2A080008  csrw tpc, r1             csrw    TPC, r1
+0015   04000000  movi r0, 0x0000          movi    r0, 0           ; header EOM = 0 (more blocks follow)
+0016   2D800008  csrr r6, tpc             csrr    r6, TPC
+0017   0440002A  movi r1, 0x002A          movi    r1, sub_bit - . + 1
+0018   08700000  add r1, r6               add     r1, r6
+0019   0B800005  addi r6, 0x0005          addi    r6, 5
+001A   2A080008  csrw tpc, r1             csrw    TPC, r1
+001B   04000001  movi r0, 0x0001          movi    r0, 1           ; header ACK slot: NACK (recessive)
+001C   2D800008  csrr r6, tpc             csrr    r6, TPC
+001D   04400024  movi r1, 0x0024          movi    r1, sub_bit - . + 1
+001E   08700000  add r1, r6               add     r1, r6
+001F   0B800005  addi r6, 0x0005          addi    r6, 5
+0020   2A080008  csrw tpc, r1             csrw    TPC, r1
+0021   05000004  movi r4, 0x0004          movi    r4, OPCODE
+0022   2DC00008  csrr r7, tpc             csrr    r7, TPC
+0023   04400012  movi r1, 0x0012          movi    r1, sub_byte - . + 1
+0024   08780000  add r1, r7               add     r1, r7
+0025   0BC00005  addi r7, 0x0005          addi    r7, 5
+0026   2A080008  csrw tpc, r1             csrw    TPC, r1
+0027   04000001  movi r0, 0x0001          movi    r0, 1           ; opcode EOM = 1 (last block)
+0028   2D800008  csrr r6, tpc             csrr    r6, TPC
+0029   04400018  movi r1, 0x0018          movi    r1, sub_bit - . + 1
+002A   08700000  add r1, r6               add     r1, r6
+002B   0B800005  addi r6, 0x0005          addi    r6, 5
+002C   2A080008  csrw tpc, r1             csrw    TPC, r1
+002D   04000001  movi r0, 0x0001          movi    r0, 1           ; opcode ACK slot: NACK
+002E   2D800008  csrr r6, tpc             csrr    r6, TPC
+002F   04400012  movi r1, 0x0012          movi    r1, sub_bit - . + 1
+0030   08700000  add r1, r6               add     r1, r6
+0031   0B800005  addi r6, 0x0005          addi    r6, 5
+0032   2A080008  csrw tpc, r1             csrw    TPC, r1
+0033   02000000  halt                     halt
+; --- sub_byte = 0x034
+0034   05400008  movi r5, 0x0008          movi    r5, 8
+; --- sb_loop = 0x035
+0035   06200000  mov r0, r4               mov     r0, r4
+0036   12000001  andi r0, 0x0001          andi    r0, 1
+0037   2D800008  csrr r6, tpc             csrr    r6, TPC
+0038   04400009  movi r1, 0x0009          movi    r1, sub_bit - . + 1
+0039   08700000  add r1, r6               add     r1, r6
+003A   0B800005  addi r6, 0x0005          addi    r6, 5
+003B   2A080008  csrw tpc, r1             csrw    TPC, r1
+003C   21000001  shr r4, 1                shr     r4, 1
+003D   0F400001  subi r5, 0x0001          subi    r5, 1
+003E   8400FFF7  jnz sb_loop              jnz     sb_loop
+003F   2A380008  csrw tpc, r7             csrw    TPC, r7
+; --- sub_bit = 0x040
+0040   3C000001  dset 0x01                dset    CEC_PIN         ; pull the bus low
+0041   28000000  cmpi r0, 0x0000          cmpi    r0, 0
+0042   82000006  jz sb0_low               jz      sb0_low
+0043   04800005  movi r2, 0x0005          movi    r2, 5           ; logical 1: 0.6 ms low
+; --- sb1_l = 0x044
+0044   5400FA00  waitd 0xFA00             waitd   CHUNK
+0045   0E800001  subi r2, 0x0001          subi    r2, 1
+0046   8400FFFE  jnz sb1_l                jnz     sb1_l
+0047   80000006  jmp sb_high              jmp     sb_high
+; --- sb0_low = 0x048
+0048   0480000C  movi r2, 0x000C          movi    r2, 12          ; logical 0: 1.5 ms low
+; --- sb0_l = 0x049
+0049   5400FA00  waitd 0xFA00             waitd   CHUNK
+004A   0E800001  subi r2, 0x0001          subi    r2, 1
+004B   8400FFFE  jnz sb0_l                jnz     sb0_l
+004C   54007D00  waitd 0x7D00             waitd   REM_SHORT
+; --- sb_high = 0x04D
+004D   3E000001  dclr 0x01                dclr    CEC_PIN         ; release: external pull-up raises the bus
+004E   28000000  cmpi r0, 0x0000          cmpi    r0, 0
+004F   82000006  jz CLOCK_HZ              jz      sb0_high
+0050   0480000F  movi r2, 0x000F          movi    r2, 15          ; logical 1: 1.8 ms high
+; --- sb1_h = 0x051
+0051   5400FA00  waitd 0xFA00             waitd   CHUNK
+0052   0E800001  subi r2, 0x0001          subi    r2, 1
+0053   8400FFFE  jnz sb1_h                jnz     sb1_h
+0054   80000006  jmp sb_done              jmp     sb_done
+; --- sb0_high = 0x055
+0055   04800007  movi r2, 0x0007          movi    r2, 7           ; logical 0: 0.9 ms high
+; --- sb0_h = 0x056
+0056   5400FA00  waitd 0xFA00             waitd   CHUNK
+0057   0E800001  subi r2, 0x0001          subi    r2, 1
+0058   8400FFFE  jnz sb0_h                jnz     sb0_h
+0059   54007D00  waitd 0x7D00             waitd   REM_SHORT
+; --- sb_done = 0x05A
+005A   2A300008  csrw tpc, r6             csrw    TPC, r6

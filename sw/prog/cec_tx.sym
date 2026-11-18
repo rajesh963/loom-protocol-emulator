@@ -1,0 +1,23 @@
+; LOOM symbol table
+start                    = 0x0000  ; label
+CEC_PIN                  = 0x0001  ; equ
+OPCODE                   = 0x0004  ; equ
+st_lo                    = 0x0005  ; label
+st_hi                    = 0x000B  ; label
+sub_byte                 = 0x0034  ; label
+sb_loop                  = 0x0035  ; label
+HEADER                   = 0x0040  ; equ
+sub_bit                  = 0x0040  ; label
+sb1_l                    = 0x0044  ; label
+sb0_low                  = 0x0048  ; label
+sb0_l                    = 0x0049  ; label
+sb_high                  = 0x004D  ; label
+sb1_h                    = 0x0051  ; label
+sb0_high                 = 0x0055  ; label
+sb0_h                    = 0x0056  ; label
+sb_done                  = 0x005A  ; label
+REM_SHORT                = 0x7D00  ; equ
+REM_START_HIGH           = 0xA6B0  ; equ
+REM_START_LOW            = 0xD050  ; equ
+CHUNK                    = 0xFA00  ; equ
+CLOCK_HZ                 = 0x1FCA055  ; equ

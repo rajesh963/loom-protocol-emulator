@@ -1,11 +1,13 @@
 {
   "generated_by": "sw/prog/build_examples.py",
+  "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
   "clock_hz": 33333333,
   "pmem_words": 1024,
   "ff_fallback_words": 128,
   "target": "tt_um_rajesh963_loom",
   "programs": {
     "can_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/can_tx.asm",
       "image": "sw/prog/can_tx.hex",
       "words": 79,
@@ -14,7 +16,18 @@
       "symbols": 19,
       "base": null
     },
+    "cec_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
+      "source": "sw/examples/cec_tx.asm",
+      "image": "sw/prog/cec_tx.hex",
+      "words": 91,
+      "relocatable": true,
+      "relocs": 11,
+      "symbols": 22,
+      "base": null
+    },
     "dmx_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/dmx_tx.asm",
       "image": "sw/prog/dmx_tx.hex",
       "words": 35,
@@ -24,6 +37,7 @@
       "base": null
     },
     "eth_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/eth_tx.asm",
       "image": "sw/prog/eth_tx.hex",
       "words": 97,
@@ -43,6 +57,7 @@
       },
       "fifo": "4-byte job -> RXFIFO, read byte -> TXFIFO",
       "notes": "open-drain, 100 kHz, clock-stretch tolerant",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/i2c_master.asm",
       "image": "sw/prog/i2c_master.hex",
       "words": 125,
@@ -62,6 +77,7 @@
       },
       "fifo": "none",
       "notes": "register file = DMEM[0..7], addr 0x50",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/i2c_target.asm",
       "image": "sw/prog/i2c_target.hex",
       "words": 121,
@@ -71,6 +87,7 @@
       "base": null
     },
     "ir_nec_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/ir_nec_tx.asm",
       "image": "sw/prog/ir_nec_tx.hex",
       "words": 54,
@@ -80,6 +97,7 @@
       "base": null
     },
     "jtag_tap": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/jtag_tap.asm",
       "image": "sw/prog/jtag_tap.hex",
       "words": 115,
@@ -89,6 +107,7 @@
       "base": null
     },
     "midi_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/midi_tx.asm",
       "image": "sw/prog/midi_tx.hex",
       "words": 16,
@@ -107,6 +126,7 @@
       },
       "fifo": "none",
       "notes": "DS18B20-style, +25.0 C scratchpad in DMEM[0..8]",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/onewire.asm",
       "image": "sw/prog/onewire.hex",
       "words": 91,
@@ -126,6 +146,7 @@
       },
       "fifo": "one scancode per RXFIFO byte",
       "notes": "11-bit device->host frames, ~14.3 kHz clock",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/ps2_target.asm",
       "image": "sw/prog/ps2_target.hex",
       "words": 58,
@@ -147,6 +168,7 @@
       },
       "fifo": "host->RXFIFO byte, MISO byte -> TXFIFO",
       "notes": "mode 0, QUARTER_CYCLES=4 -> ~32 cyc/bit (~1.03 MHz @ 33.33 MHz)",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/spi_master.asm",
       "image": "sw/prog/spi_master.hex",
       "words": 49,
@@ -168,12 +190,23 @@
       },
       "fifo": "one byte per CS frame -> TXFIFO",
       "notes": "mode 0 target, MISO = previous MOSI + 1",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/spi_slave.asm",
       "image": "sw/prog/spi_slave.hex",
       "words": 31,
       "relocatable": true,
       "relocs": 4,
       "symbols": 13,
+      "base": null
+    },
+    "swd_target": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
+      "source": "sw/examples/swd_target.asm",
+      "image": "sw/prog/swd_target.hex",
+      "words": 210,
+      "relocatable": true,
+      "relocs": 39,
+      "symbols": 33,
       "base": null
     },
     "uart_loopback": {
@@ -187,6 +220,7 @@
       },
       "fifo": "echo also PUSHed to TXFIFO",
       "notes": "half-duplex echo, needs inter-byte gap",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/uart_loopback.asm",
       "image": "sw/prog/uart_loopback.hex",
       "words": 41,
@@ -205,6 +239,7 @@
       },
       "fifo": "RXFIFO->host (decoded bytes)",
       "notes": "8N1 RX, relative WAITD mid-bit sampling",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/uart_rx.asm",
       "image": "sw/prog/uart_rx.hex",
       "words": 32,
@@ -223,6 +258,7 @@
       },
       "fifo": "host->RXFIFO, one doorbell per burst",
       "notes": "8N1 TX, BAUD_DIV 0x1216 (289.375 cyc/bit @ 33.33 MHz)",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/uart_tx.asm",
       "image": "sw/prog/uart_tx.hex",
       "words": 34,
@@ -232,6 +268,7 @@
       "base": 0
     },
     "usb_ls_rx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/usb_ls_rx.asm",
       "image": "sw/prog/usb_ls_rx.hex",
       "words": 357,
@@ -241,6 +278,7 @@
       "base": null
     },
     "usb_ls_tx": {
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/usb_ls_tx.asm",
       "image": "sw/prog/usb_ls_tx.hex",
       "words": 96,
@@ -259,6 +297,7 @@
       },
       "fifo": "3 bytes (G,R,B) per LED -> RXFIFO",
       "notes": "800 kHz, T0H 13.3 / T1H 26.7 cycles, 50 us latch @ 33.33 MHz",
+      "tool_version": "sha256:77710965daadd29d453442337fbd6a2068dfd495372a4048af0684ddbd7cecc7",
       "source": "sw/examples/ws2812.asm",
       "image": "sw/prog/ws2812.hex",
       "words": 47,

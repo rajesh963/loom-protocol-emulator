@@ -18,6 +18,12 @@ loaded at any PMEM word address and run by setting the thread PC to that base.
 `manifest.json` fixes the demo placement (one program per thread) and carries
 the pin map / doorbell / DMEM requirements so host code does not hard-code them.
 
+Manifest provenance: `generated_by` is this tool, `clock_hz` the shipped design
+point, and `tool_version` a deterministic SHA-256 over the tool path plus the
+assembler (`sw/loom_asm.py`) and ISA table (`sw/isa.py`) sources.  It contains no
+timestamps, so rebuilding the same tree reproduces the manifest byte for byte
+and a changed `tool_version` means the images may need a refresh.
+
 The FF-fallback build has only 128 PMEM words, so each image is checked against
 that limit; the full four-thread demo needs the 1024-word (SRAM) build.
 """
@@ -25,6 +31,7 @@ that limit; the full four-thread demo needs the 1024-word (SRAM) build.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import pathlib
 import sys
@@ -49,6 +56,28 @@ DEMO_BASE = {
     "spi_master": 0x100,
     "i2c_master": 0x180,
 }
+
+#: files whose contents define the image encoding (relative to REPO)
+TOOL_VERSION_FILES = ("sw/loom_asm.py", "sw/isa.py")
+#: this tool, recorded verbatim in the version hash as its repo-relative path
+TOOL_PATH = "sw/prog/build_examples.py"
+
+
+def tool_version() -> str:
+    """Deterministic version of the image-building toolchain.
+
+    SHA-256 over the tool path and the assembler/ISA sources (no timestamps, no
+    absolute paths), so it is stable across machines and checkouts.
+    """
+    h = hashlib.sha256()
+    h.update(TOOL_PATH.encode() + b"\0")
+    for rel in TOOL_VERSION_FILES:
+        data = (REPO / rel).read_bytes()
+        h.update(rel.encode() + b"\0")
+        h.update(len(data).to_bytes(8, "little"))
+        h.update(data + b"\0")
+    return "sha256:" + h.hexdigest()
+
 
 #: per-program metadata that host code needs (pins are instruction pin indices)
 META = {
@@ -89,8 +118,10 @@ META = {
 
 def build(out_dir: pathlib.Path, *, quiet: bool = False) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
+    tool_ver = tool_version()
     manifest: dict = {
         "generated_by": "sw/prog/build_examples.py",
+        "tool_version": tool_ver,
         "clock_hz": 33_333_333,
         "pmem_words": 1024,
         "ff_fallback_words": FF_FALLBACK_WORDS,
@@ -131,6 +162,7 @@ def build(out_dir: pathlib.Path, *, quiet: bool = False) -> dict:
             result.symbols_text(), encoding="utf-8")
         meta = dict(META.get(name, {}))
         meta.update(dict(
+            tool_version=tool_ver,
             source=f"sw/examples/{src.name}",
             image=f"sw/prog/{name}.hex",
             words=len(words),
@@ -160,9 +192,11 @@ def main(argv: list[str] | None = None) -> int:
         with tempfile.TemporaryDirectory() as td:
             manifest = build(pathlib.Path(td), quiet=args.quiet)
         print(f"BUILD_CHECK: PASS ({len(manifest['programs'])} programs)")
+        print(f"TOOL_VERSION: {manifest['tool_version']}")
         return 0
     manifest = build(PROG, quiet=args.quiet)
     print(f"BUILD: {len(manifest['programs'])} programs -> {PROG}")
+    print(f"TOOL_VERSION: {manifest['tool_version']}")
     return 0
 
 
