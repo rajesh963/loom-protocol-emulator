@@ -62,6 +62,8 @@ from host import can as can_host                            # noqa: E402
 from host import dmx as dmx_host                            # noqa: E402
 from host import midi as midi_host                          # noqa: E402
 from host import ir_nec as ir_host                          # noqa: E402
+from host import swd as swd_host                            # noqa: E402
+from host import cec as cec_host                            # noqa: E402
 
 EXAMPLES = HERE
 CLOCK_HZ = 33_333_333                    # shipped design point (30 ns)
@@ -648,6 +650,46 @@ def test_ir_nec_tx() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Protocol set 3: SWD target + HDMI-CEC initiator
+# ---------------------------------------------------------------------------
+def test_swd_target() -> None:
+    """SWD target: DP/AP register subset, parity, turnaround, FAULT, clock ceiling."""
+    tx = swd_host.demo_transactions()
+    ctx = swd_host.load_example(tx, half=40)
+    ctx["transactions"] = tx
+    swd_host.run_example(ctx)
+    check("swd_target: size fits the SRAM-1024 build (210 words; NOT FF-128)",
+          len(ctx["prog"].words) <= 1024,
+          f"{len(ctx['prog'].words)} words -> SRAM build only like usb_ls_rx")
+    swd_host.check_decoded(ctx["probe"], ctx, check)
+    # measured SWCLK ceiling from the probe-clock sweep: half period 24 cycles
+    # (694 kHz) works, 20 cycles (833 kHz) does not
+    tx_id = [swd_host.SwdTransaction("read", ap=False, addr=0,
+                                     expect=swd_host.IDCODE)]
+    good = swd_host.load_example(tx_id, half=24)
+    swd_host.run_example(good)
+    bad = swd_host.load_example(tx_id, half=20)
+    swd_host.run_example(bad)
+    good_ok = bool(good["probe"].results and good["probe"].results[0].ok)
+    bad_ok = bool(bad["probe"].results and bad["probe"].results[0].ok)
+    check("swd_target: measured SWCLK ceiling (694 kHz ok, >833 kHz fails)",
+          good_ok and not bad_ok,
+          f"half=24 cyc (694 kHz) -> {'ok' if good_ok else 'FAIL'}; "
+          f"half=20 cyc (833 kHz) -> {'ok' if bad_ok else 'fails'}")
+
+
+def test_cec_tx() -> None:
+    """HDMI-CEC initiator: START bit, header/opcode blocks, EOM/ACK, 2.4 ms bit."""
+    enc = cec_host.encode_reference()
+    ctx = cec_host.load_example()
+    cec_host.run_example(ctx)
+    check("cec_tx: size < 128 words (FF fallback)",
+          len(ctx["prog"].words) < FF_FALLBACK_WORDS,
+          f"{len(ctx['prog'].words)} words")
+    cec_host.check_decoded(ctx["far"], enc, check)
+
+
+# ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
 def main(argv: list[str] | None = None) -> int:
@@ -660,6 +702,7 @@ def main(argv: list[str] | None = None) -> int:
         test_i2c_master, test_i2c_target, test_ws2812, test_ps2, test_onewire,
         test_usb_ls_tx, test_usb_ls_rx, test_eth_tx, test_all_four_threads,
         test_jtag_tap, test_can_tx, test_dmx_tx, test_midi_tx, test_ir_nec_tx,
+        test_swd_target, test_cec_tx,
     ]
     print("LOOM example-model self-test")
     print(f"  examples: {EXAMPLES}")

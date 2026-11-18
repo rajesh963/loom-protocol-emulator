@@ -21,7 +21,7 @@ sw/examples/*.asm        firmware sources (this README describes each one)
 sw/prog/build_examples.py builds sw/prog/*.hex|.lst|.sym + manifest.json
 sw/examples/model_selftest.py  proves every example byte-exact on the golden model
 sw/protocols.py         UartBus / SpiBus / I2cBus — far-end models + host helpers
-host/{jtag,can,dmx,midi,ir_nec}.py  independent far-end decoders (protocol set 2)
+host/{jtag,can,dmx,midi,ir_nec,swd,cec}.py  independent far-end decoders (sets 2-3)
 host/demos/demo_all.py  four protocols running at once, decoded transcript + waves
 ```
 
@@ -30,7 +30,7 @@ host/demos/demo_all.py  four protocols running at once, decoded transcript + wav
 ```bash
 cd chipchallenge/loom
 ../.venv/bin/python sw/prog/build_examples.py        # assemble all examples
-../.venv/bin/python sw/examples/model_selftest.py -v # 161 checks, golden model
+../.venv/bin/python sw/examples/model_selftest.py -v # 186 checks, golden model
 ../.venv/bin/python host/demos/demo_all.py           # end-to-end demo
 ```
 
@@ -78,6 +78,8 @@ protocols share one 1-instruction/cycle datapath.
 | `dmx_tx.asm` | — | DMX=P[10]=uo[2] | 35 | model-verified | 250.04 kbaud (133.3125 cyc/bit), 512-slot universe |
 | `midi_tx.asm` | — | MIDI TX=P[10]=uo[2] | 16 | model-verified | 31250.6 baud (1066.6875 cyc/bit), 8N1 |
 | `ir_nec_tx.asm` | — | IR=P[10]=uo[2] | 54 | model-verified | 38.00 kHz carrier (438.625-cyc half), 9/4.5 ms lead, 32 bits |
+| `swd_target.asm` (stretch) | — | SWCLK=P[0]=uio[0] in, SWDIO=P[1]=uio[1] bidir | 210 | model-verified (SRAM-1024 only) | SWD **target**: SWCLK ≤ 694 kHz measured; IDCODE/CTRL-STAT/TAR/DRW, parity+turnaround+FAULT |
+| `cec_tx.asm` (stretch) | — | CEC=P[0]=uio[0] (open-drain) | 91 | model-verified | HDMI-CEC initiator: 21 bit cells / 52.5 ms; START 3.7/0.8 ms, data bit 2.4 ms |
 
 Pin convention: `P[15:10]` = `uo_out[7:2]`, `P[15:11]` = `ui_in[7:3]` readable,
 `P[7:0]` = the bidirectional open-drain `uio` pins (DIR=1 pulls low, DIR=0
@@ -387,14 +389,15 @@ the RTL suite and not silicon-proven).
   work, not claimed. What *is* demonstrated is the judged axis: line coding, bit
   stuffing, protocol framing and CRC are done by the chip in firmware.
 
-## Protocol set 2 — JTAG, CAN 2.0A, DMX512, MIDI, NEC IR
+## Protocol set 2/3 — JTAG, CAN 2.0A, DMX512, MIDI, NEC IR, SWD target, HDMI-CEC
 
-Five more pin-level protocol programs, each with an **independent host
+Seven more pin-level protocol programs, each with an **independent host
 decoder** in `host/` that rebuilds the protocol from the pin trace only (the
 firmware's captured/ACK bytes are cross-checked where the program reports
-them). All five fit the 128-word FF fallback build (16–115 words). Each decoder
+them). Five fit the 128-word FF fallback build (16–115 words); `swd_target.asm`
+(210 words) needs the 1024-word SRAM build, like `usb_ls_rx.asm`. Each decoder
 also runs standalone, with a synthetic-trace self-check plus the golden-model
-frame, as `python3 -m host.{jtag,can,dmx,midi,ir_nec}`.
+frame, as `python3 -m host.{jtag,can,dmx,midi,ir_nec,swd,cec}`.
 
 ### JTAG TAP controller — bit-banged (`jtag_tap.asm`, `host/jtag.py`)
 
@@ -492,6 +495,62 @@ frame, as `python3 -m host.{jtag,can,dmx,midi,ir_nec}`.
   <= 0.63 cycles, bit marks 18860..18861 cycles = 562.4 us. The frame itself
   is 2.27 Mcycles = 68 ms (the CPU feeds the queue and is idle > 99 % of it).
 
+### SWD target — ADIv5 DP+AP subset (`swd_target.asm`, `host/swd.py`)
+
+The chip emulates the **target** side of ARM Serial Wire Debug (the far end of
+a debug probe), not the probe. This is the second program above the FF-128
+fallback: **210 words, SRAM-1024 build only**.
+
+* **Pins**: `SWCLK = P[0] = uio[0]` input (probe-driven clock, DIR bit 0 stays
+  0); `SWDIO = P[1] = uio[1]` bidirectional open-drain-style — `DIR` bit 1 = 1
+  drives the POUT level (only 0 is ever driven), `DIR` = 0 releases the line to
+  the probe. A real board needs the standard SWDIO pull-up (external part).
+* **Protocol**: 8-bit request (start, APnDP, RnW, A2, A3, even parity, stop,
+  park) sampled on rising SWCLK edges, one-clock turnaround, 3-bit ACK
+  (OK=0b001, FAULT=0b100) driven on falling edges, 32-bit data + even parity in
+  both directions. Register subset: DP IDCODE (`0x0BB11477`), DP CTRL/STAT
+  (`0xF0000000`), DP SELECT, DP RDBUFF (= last AP write), AP TAR, AP DRW. Bad
+  request parity/stop/park -> FAULT (no data phase); a write with bad data
+  parity is dropped (ACK is still OK, no store).
+* **Evidence** (`model_selftest.py`): 11 probe transactions all correct —
+  IDCODE, CTRL/STAT, DP SELECT write, AP TAR write `0x10000000`, AP DRW write
+  `0xDEADBEEF`, DP RDBUFF readback `0xDEADBEEF`, AP DRW read `0xDEADBEEF`,
+  AP TAR read `0x10000000`, a corrupted-data-parity DRW write is dropped (DRW
+  unchanged), and a corrupted-request-parity read returns FAULT. Turnaround
+  release is checked on every transaction.
+* **Measured SWCLK ceiling**: clean at probe half period 24 cycles ->
+  **694 kHz**; fails at 20 cycles -> 833 kHz. Cause: the ~35-instruction
+  request decode (field extraction + FAULT flag) must complete between the last
+  request-bit rising edge and the first ACK drive edge (2 SWCLK half-periods),
+  so above ~700 kHz the target misses the ACK edge. A real probe normally runs
+  1–24 MHz, so this is a deliberately small debug port — the honest boundary.
+* **Boundary**: DP/AP register subset only; no WAIT/retry, no SWD-to-JTAG
+  switching, no AP banking/multi-drop/dormant state, no core or memory behind
+  DRW.
+
+### HDMI-CEC initiator (`cec_tx.asm`, `host/cec.py`)
+
+* **Pins**: `CEC = P[0] = uio[0]` open-drain (DIR = 1 pulls the bus low,
+  DIR = 0 releases it to the external pull-up; a real board adds the standard
+  CEC pull-up and the HDMI connector).
+* **Frame (initiator-only)**: START bit 3.7 ms low + 0.8 ms high; header block
+  `0x40` = initiator 0x4 (Playback 1) -> destination 0x0 (TV), EOM=0; opcode
+  block `0x04` (Image View On), EOM=1. Each block = 8 data bits LSB first +
+  EOM + ACK (10 bits); data bit 0 = 1.5 ms low + 0.9 ms high, data bit 1 =
+  0.6 ms low + 1.8 ms high. Both ACK slots are left NACK (logical 1) — no
+  follower is modelled.
+* **Timing**: every phase is generated by 12.4 `waitd` chunks (4000-cycle
+  chunks + one remainder), so the wire is exact to the cycle. 21 bit cells
+  total, ~52.5 ms; `python -m host.cec` measures the START low/high phases and
+  the 2.4 ms data-bit period.
+* **Evidence** (`model_selftest.py`): START low 123395 cycles = 3.699 ms, high
+  26695 cycles = 0.801 ms; header 0x4 -> 0x0; opcode 0x04; EOM bits [0, 1];
+  ACK bits [1, 1] (NACK); data bit period 80055 cycles = 2.4015 ms
+  (nominal 2.4 ms, 416.7 bit/s), max phase residual 65 cycles. 91 words, fits
+  the FF-128 fallback.
+* **Boundary**: initiator only, one header + one opcode block; no operand
+  blocks, no follower/ACK-pull-down arbitration (single-device bus demo).
+
 ## Host helpers (`sw/protocols.py`)
 
 `UartBus`, `SpiBus`, `I2cBus`, `Ws2812`, `Ps2Host`, `OneWireMaster` are both
@@ -535,7 +594,7 @@ computed from `CLOCK_HZ`), and the 12.4 fixed-point period register limit
 `sw/examples/model_selftest.py` and `host/demos/*` take their clock from
 `CLOCK_HZ` (and the manifest); the far-end helpers derive every microsecond
 constant from `world.clock_hz`, so a future change is a one-line edit plus
-re-running the 161 checks and the RTL protocol suite.
+re-running the 186 checks and the RTL protocol suite.
 
 ## Known limits / next steps
 
