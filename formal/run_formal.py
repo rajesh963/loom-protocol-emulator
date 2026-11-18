@@ -64,7 +64,7 @@ PROOFS = [
     # cycle (never late/early), edge events fire iff the pin condition holds,
     # enqueue due times are exact (incl. 12.4 PFRAC carry / behind clamp), and
     # thread 0's fired value reaches pins_out in the same cycle.
-    ("sched", "h_sched", 16, ["loom_core.v"]),   # instrumented copy
+    ("sched", "h_sched", 32, ["loom_core.v"]),   # instrumented copy
 ]
 
 

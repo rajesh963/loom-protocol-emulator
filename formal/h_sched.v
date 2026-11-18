@@ -49,8 +49,8 @@
 module h_sched(input wire clk);
 
   reg [4:0] rst_cnt = 0;
-  wire rst_n = (rst_cnt == 5'd6);
-  always @(posedge clk) if (rst_cnt != 5'd6) rst_cnt <= rst_cnt + 5'd1;
+  wire rst_n = (rst_cnt == 5'd2);
+  always @(posedge clk) if (rst_cnt != 5'd2) rst_cnt <= rst_cnt + 5'd1;
 
   // Scheduler-exercise instruction stream: one thread runs EMIT / EMITD /
   // EMITA / EMITE in rotation so BMC actually reaches enqueue/fire states
@@ -381,8 +381,8 @@ module h_sched(input wire clk);
       | (host_csrw_en && (host_csrw_addr == `CSR_POUT))
       | wave_active;
   wire [15:0] tm0 = dbg_tmask[0*16 +: 16];
-  wire [15:0] fv0 = dbg_fire_v[0*16 +: 16];
-  wire [15:0] p6_expected = ((dbg_pout & ~tm0) | (fv0 & tm0)) & 16'hFCFF;
+  wire [15:0] fv_p6 = dbg_fire_v[0*16 +: 16];
+  wire [15:0] p6_expected = ((dbg_pout & ~tm0) | (fv_p6 & tm0)) & 16'hFCFF;
   always @(posedge clk) if (post_reset) begin
     if (!wave_active)
       assert (pins_out == dbg_npout);
@@ -392,6 +392,7 @@ module h_sched(input wire clk);
 
   // ---- non-vacuity covers (reached => the invariants saw real activity) ----
   always @(posedge clk) if (post_reset) begin
+    cover (post_reset);
     cover (dbg_do_issue);
     cover (dbg_do_issue && !dbg_stall_issue && dbg_ev_enq_t);
     cover (dbg_do_issue && !dbg_stall_issue && dbg_ev_enq_edge);

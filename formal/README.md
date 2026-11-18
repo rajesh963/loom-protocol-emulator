@@ -52,18 +52,22 @@ Sanity: the harness mechanism was validated against a deliberately false toy
 assertion (smtbmc reports `Status: FAILED`).
 
 **Non-vacuity status of `h_sched` (important, do not overclaim):** the harness
-carries `cover` statements for an issued instruction, an accepted timed/edge
-enqueue, a fired event and a due-cycle head.  At the committed bound (k=16) the
-deterministic scheduler-exercise stream does **not yet reach an issuing state**
-from the forced host RUN, so those covers are unreached and a deliberately
-one-cycle-late mutation of the fire comparison is **not** detected by BMC.  The
-proof therefore currently establishes the cycle-local invariants over the
-explored state space (and the exact due-time formulas P5 are checked whenever an
-enqueue is reached), but the "accepted event fires exactly on time" antecedent
-is **not demonstrated reachable within k** — treat this as a conditional
-scheduler-exactness result, not yet an unconditional "no edge is ever late"
-proof.  Follow-up: fix the harness stimulus / increase k so the covers hit and
-the mutation is detected, then raise the claim accordingly.
+drives thread 0 with a deterministic EMIT/EMITD/EMITA/EMITE stream after a short
+reset and carries `cover` statements for an issued instruction, an accepted
+timed/edge enqueue, a fired event and a due-cycle head.  At the committed bound
+(k=16) BMC **reaches** the reset state (step 7), an issued instruction (step 13),
+an accepted timed enqueue (step 13) and an accepted edge enqueue (step 15) —
+these are the `Reached cover` lines from `yosys-smtbmc -c`.  So **P5 (exact
+enqueue due-time formulas, incl. the 12.4 PFRAC carry and the emita/emitd/emit
+clamps) is genuinely exercised on the RTL**.  The *fired event* and *due-cycle
+head* covers are still **not reached** at k=16, and a deliberately
+one-cycle-late mutation of the fire comparison is **not detected** — so P1–P4
+remain unexercised and the "accepted event fires exactly on time" antecedent is
+**not yet demonstrated reachable within k**.  Treat this as a **conditional**
+scheduler result (P5 meaningful, P1–P4 pending), not an unconditional "no edge
+is ever late" proof.  Follow-up: reach the fire/due covers (larger k is
+impractically slow for z3 on this harness; a firmware-like stimulus with a short
+lookahead is the better route), then re-check the mutation and raise the claim.
 
 Known limitation carried from before: `h_core.v` still uses a handful of
 hierarchical references (`tmr`, `t_en`, `pin_op`, `stall_issue`, `do_issue`,
