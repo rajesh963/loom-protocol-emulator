@@ -383,7 +383,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 | **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
 | **`precheck`** | **PASSED 10/10** |
 | **`gl_test`** | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s) on `7d2fb2f`, no errors; skips are the four RTL-backdoor tests. First run was `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` that is **not synthesised**, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract (DMEM has no reset). Evidence: `results.xml` + job log; **no GL FST** (`WAVES=1` not enabled) |
-| formal (3 bounded proof groups) | **3/3 PASS** (`fifo_queue_bounds` k=8, `core_reset_event` k=6, `host_cmd_order` k=6) |
+| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**) |
 | `test` / `docs` CI workflows | **green** |
 
 Honest footnote: the metrics list 292 max-fanout / 80 max-slew / 27 max-cap flags — TT/PDK *default
@@ -403,7 +403,7 @@ on every push:
 | timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
-| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6 (`yosys write_smt2` + `yosys-smtbmc -s z3`) | **3/3 PASS** |
+| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **scheduler exactness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`) | **4/4 PASS** |
 
 Gate-level simulation and the LibreLane sign-off rows are still TBD — they need the hardened netlist,
 and this write-up does not estimate them.
@@ -509,6 +509,26 @@ The honest summary: LOOM does framing, CRC, line coding and bit-exact timing in 
 to ~2 Mbit/s *and* says exactly where the wall is. Both walls are revision-B hardware (a serializer,
 a hardware LS-RX FSM), not tuning.
 
+### What we can prove — bounded scheduler exactness *(v2 post-freeze)*
+
+The scheduler's central promise is now **proved, not just tested**: `formal/h_sched.v` does bounded
+model checking (bound **k = 16**) from a generated reset under arbitrary external stimulus and shows
+that an **accepted** timed event fires exactly in the cycle where `TMR` equals its recorded due time —
+never late, never early — that an accepted edge event fires iff the masked pin condition holds, that
+the due time recorded at enqueue is exact (periodic `emit` including the 12.4 `PFRAC` carry, absolute
+`emita`, relative `emitd`), and that the fired value reaches `pins_out` in that same cycle when it is
+the only pin cause. It is proved about the shipped RTL: yosys cannot reach submodule internals, so the
+harness compiles a generated copy of `rtl/loom_core.v` with **read-only observation ports appended**
+(logic identical — only `assign dbg_*` lines added).
+
+The scope is stated as carefully as the claim: the proof assumes firmware enqueues before the due
+cycle with lookahead `< 0x8000` (late enqueue is recovered as overdue by design — **no liveness
+guarantee** is claimed for that path), a non-full queue (a full queue stalls; nothing is dropped), and
+it bounds the same-cycle `pins_out` property to the case where the event is the sole pin cause. It is
+**bounded**, not an unbounded induction. Compared with the public entry that has a whole-program
+no-late-edge theorem, ours is narrower — k = 16 and about accepted events — but it is the exact
+property this architecture relies on, proved against the RTL that was fabricated.
+
 And an honest comparison on the axes the competition cares about:
 
 | | RP2040 PIO | TI PRU | LOOM |
@@ -548,7 +568,7 @@ in this table is a silicon measurement, ours or anyone's.**
 | [OliverKlug/sophos-protocol-emulator](https://github.com/OliverKlug/sophos-protocol-emulator) | 6×4 | one state machine, 32×16 IMEM, 32-slot capture | UART, SPI, I²C, JTAG, USB-LS TX | flow metrics published (**11.6 k stdcells, 22.2 %, 40 MHz**) |
 | [goutamyadav/Chip-jane-street "Chameleo"](https://github.com/goutamyadav/Chip-jane-street) | — | Hardcaml-generated RTL, OCaml golden ISA + simulator, PIO-like core array | — | model-based generation (host-language golden model) |
 | [WilliamZhang20/protocol-emulator](https://github.com/WilliamZhang20/protocol-emulator) | — | SRAM bytecode engine, 8×16 register file + ALU, two action lanes (shifters, timers, CRC, LFSR), dispatcher | UART, SPI, I²C, JTAG | RTL |
-| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | **17 programs / 12 protocol families**: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (RTL) + RX decode/ACK (v2, model), Ethernet frame TX (RTL), JTAG TAP (v2), CAN 2.0A TX (v2), DMX512 TX (v2), MIDI TX (v2); true 10BASE-T and wire-speed USB RX ACK documented as measured ceilings | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 3 formal proofs, gate-level 60/4, GDS + precheck 10/10** |
+| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | **17 programs / 12 protocol families**: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (RTL) + RX decode/ACK (v2, model), Ethernet frame TX (RTL), JTAG TAP (v2), CAN 2.0A TX (v2), DMX512 TX (v2), MIDI TX (v2); true 10BASE-T and wire-speed USB RX ACK documented as measured ceilings | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 4 formal proofs (incl. bounded scheduler exactness k=16), gate-level 60/4, GDS + precheck 10/10** |
 
 Evidence-level legend: *model* = golden/reference model or host-language simulation; *RTL* = RTL
 simulation test suite; *formal* = formal proofs or equivalence checks; *gate* = gate-level simulation;

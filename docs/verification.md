@@ -140,11 +140,58 @@ reader can distinguish "one cycle late" from "wrong bit" instantly.
 
 ## 5. L4 — formal properties
 
-Bounded model checking with `yosys write_smt2` + `yosys-smtbmc -s z3`. **As landed: three bounded
-proof groups, 3/3 PASS** — `fifo_queue_bounds` (k = 8), `core_reset_event` (k = 6) and
-`host_cmd_order` (k = 6). The table below is the full property *set* those groups are drawn from;
-properties not inside a proof group are exercised by the simulation suites named in §2–§4, and are
-kept here as the documented intent for anyone extending the formal harness.
+Bounded model checking with `yosys write_smt2` + `yosys-smtbmc -s z3`. **As landed: four bounded
+proof groups, 4/4 PASS** — `fifo` / `fifo_queue_bounds` (k = 8), `core` / `core_reset_event` (k = 6),
+`host` / `host_cmd_order` (k = 6), and *(v2 post-freeze)* **`sched` / scheduler exactness (k = 16)**.
+The table below is the full property *set* the groups are drawn from; properties not inside a proof
+group are exercised by the simulation suites named in §2–§4, and are kept here as the documented
+intent for anyone extending the formal harness.
+
+### 5.1 The scheduler-exactness proof — `formal/h_sched.v` *(v2 post-freeze addition)*
+
+The architecture's central promise is that an accepted event fires on its exact cycle. That is now
+**proved, not just tested**, for a bounded run: `formal/h_sched.v` does BMC from a generated reset
+under arbitrary external stimulus (`imem_data`, `dmem_rdata`, `pins_in` are `(* anyseq *)`) and observes
+the scheduler directly through read-only `dbg_*` ports. Because yosys does not resolve hierarchical
+references into submodule internals, the harness compiles a **generated copy of `rtl/loom_core.v` with
+observation ports appended** (`formal/build/loom_core_probe.v`, produced by `run_formal.py`); **the
+logic is identical — only `assign dbg_* = …` statements are added**, so the proof is about the shipped
+RTL, not a model of it.
+
+**Claim (bound k = 16):** *"An accepted timed event fires exactly in the cycle where `TMR` equals its
+recorded due time — never one cycle late, never one cycle early — and an accepted edge-triggered event
+fires exactly in the cycle where the pin condition holds; the due time recorded at enqueue is exact
+(periodic `emit` including the 12.4 `PFRAC` carry, absolute `emita`, relative `emitd`); the fired value
+reaches `pins_out` in that same cycle when it is the only pin cause."*
+
+Checked every post-reset cycle (cycle-local invariants, hence valid for every program/stimulus the
+solver explores within the bound):
+
+| Inv. | Property |
+|---|---|
+| P1 | head timed event with `head_tgt == TMR` ⇒ `fire` this cycle (due ⇒ fire) |
+| P2 | head timed event with lookahead in `(0, 0x8000)` ⇒ no fire this cycle (future ⇒ no fire) |
+| P3 | head edge event fires **iff** masked `pins_in == TECOND` |
+| P4 | `fire` ⇒ the fired value is exactly the head event's value |
+| P5 | accepted `emit`/`emita`/`emitd` records exactly the documented due time (incl. `PFRAC` carry / behind-schedule clamp) |
+| P6 | when thread 0's event is the only pin cause, `pins_out == merge(pout, fire_v[0], tmask[0])` and equals `npout` in the fire cycle |
+
+**Assumptions, and what is deliberately *not* proved** (this is a bounded proof, and the honest scope
+matters):
+
+* **Accepted-event precondition.** Firmware must enqueue a timed event *before* its due cycle, with
+  lookahead `< 0x8000`. A late enqueue is recovered as "overdue" by design; P1/P2 cover the due and
+  future cycles, not the recovery path — **no liveness guarantee** is claimed for events enqueued after
+  their due cycle.
+* **Queue capacity.** A full queue stalls the emitting instruction (no event is dropped); the enqueue
+  properties' antecedent excludes `stall_issue`.
+* **Same-cycle `pins_out`** (P6) holds only when the event is the sole pin cause — competing writers
+  (instruction pin op, CSR `POUT`, host `POUT`, wave player, another thread's fire) are excluded from
+  *that* antecedent; P1–P5 hold under all stimulus.
+* **Bounded depth k = 16.** Cycle-local invariants prove each cycle's behaviour inside the bound; an
+  unbounded induction is future work. Firmware timing (enqueuing early enough) remains the software
+  contract, not a hardware theorem.
+
 
 | # | Property | Why it matters |
 |---|---|---|
@@ -245,7 +292,7 @@ meta-test.
 | Ethernet frame TX | **1/1 PASS** | `test/test_eth.py` drives `eth_tx.asm` on the RTL and decodes the `uio[0]` trace with `host/eth.py`: two host-preloaded frames, **64 bytes exact**, preamble/SFD lock, **FCS `0xF57743B9`** (firmware-computed; preloaded FCS zeroed) and **`0x696CF29E`** (Python reference), cells **8.000 cycles**, bits **16.00 cycles → 2.0833 Mbit/s**, **max edge residual 0.00 cycle**, frame window exactly **9216 cycles**. TXD is quiet ≥1536 cycles after each frame; measured frame-edge gaps **8508 / 8625 cycles** because the CRC-32 is recomputed after the gap |
 | USB-LS RX pin path | **1/1 PASS** | `test/test_usb_ls_rx.py` with **no on-chip RX firmware**: chip high-Z after reset (`PDIR = 0`), testbench drives a real differential LS waveform on D+ = `uio[0]` / D− = `uio[1]` through the open-drain pad model, RTL `pins_in` sampled and decoded by the reference device receiver — **0 pad-path mismatches**; SETUP token + 8-byte DATA0 `GET_DESCRIPTOR` at nominal and **±0.25 % host drift** (recovered 22.2528 / 22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the reference RX algorithm only — not enumeration and not a firmware RX path** |
 | USB low-speed TX | **2/2 PASS** | `usb_ls_tx.asm` single-ended D+ device-mode transmitter: NRZI, 8-bit SYNC, DATA0 PID, 4-byte payload, USB CRC16, bit stuffing after six ones, EOP; decoded by an independent golden-model decoder and on the FF+Loom memory builds (`test_usb_ls.py`) |
-| formal | **3/3 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**) |
+| formal | **4/4 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**), **scheduler exactness (k=16, `h_sched.v`)** |
 | **total** | **64 PASS / 0 FAIL / 0 SKIP (RTL)** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ≈271 s per configuration, frozen at `7d2fb2f` (also 64/64 from a clean clone). **Gate level on the same SHA: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s; four skips are RTL-backdoor-dependent) |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
