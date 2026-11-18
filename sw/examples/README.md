@@ -234,9 +234,10 @@ four-program demo needs the 1024-word SRAM build.
 
 ## USB 1.1 low-speed device RX + ACK — stretch (`usb_ls_rx.asm`)
 
-Device-side receive path for the USB LS stretch goal. **Verified on the golden
-model: RX decode + ACK response.** Enumeration is *not* implemented in this
-pass — the honest boundary is stated below.
+Device-side receive path for the USB LS stretch goal.
+**Rung status: (1) RX decode ✅ (golden-model verified), (2) ACK response ✅ but
+functional-only (measured latency far outside the USB window), (3) enumeration
+state machine ❌ not implemented — documented boundary below.**
 
 * **Pins**: D+ = `P[0] = uio[0]`, D− = `P[1] = uio[1]`; line-state value
   `K=1, J=2 (idle), SE0=0`. The pair is high-Z (DIR=0) while receiving and both
@@ -256,10 +257,28 @@ pass — the honest boundary is stated below.
   sample 96. Decodes at **nominal, +0.25 % and −0.25 % host clock drift**.
 * **ACK response**: after a valid DATA0 the firmware drives the pair with
   SYNC + PID `0xD2` + EOP (18 cells at 22.25 cycles; the host-side reference
-  decoder reads `ack pid=0xD2, EOP ok, 22.255 cyc/bit`). Honest caveat: the ACK
-  arrives **~4400 cycles (~198 bit times) after the host EOP** because sampling
-  and untimed post-processing are not pipelined; USB LS allows 7.5 bit times,
-  so this is a functional model demo, not a real-host-timing-compliant device.
+  decoder reads `ack pid=0xD2, EOP ok, 22.255 cyc/bit`).
+* **Measured ACK-latency ceiling** (golden model, PC-breakpoint breakdown, the
+  DATA0 packet above; 22.25 cycles/bit, USB LS ACK window = 7.5 bit times =
+  167 cycles):
+  | segment | cycles | bit times |
+  |---|---|---|
+  | sampler (per bit) | 16 instr + WAITD 7.25 = **22.25** | 1.0 |
+  | host EOP → sample window end (fixed 104 samples) | 198 | 8.9 |
+  | NRZI + unstuff + byte assembly (96 states) | 2505 | 112.6 |
+  | PID + CRC-16 over 8 bytes | 564 | 25.3 |
+  | EOP double-SE0 scan (104 states) | 1155 | 51.9 |
+  | publish + ACK setup/emit | 23 | 1.0 |
+  | **total EOP → first ACK cell** | **4445** | **199.8** |
+  This is an **architectural ceiling, not a tuning problem**: decoding after
+  capture costs hundreds of cycles, and wire-speed ACK would require inline
+  per-bit decode = sampler 16 + NRZI/unstuff/accumulate ~10 + CRC-16 ~8
+  instructions/bit = ~34 > 22.25 at IPC 1 (≈1.5× over; two threads share the
+  single IPC, so they cannot help). Even an idealised 8-instruction sampler
+  gives ~26 > 22.25 (≈17 % over). **Revision-B option (not built):** a small
+  hardware LS receiver FSM (edge detect + DPLL bit sampler + NRZI/stuff/
+  CRC-16 + EOP + byte FIFO/interrupt) would let firmware ACK in a few bit
+  times; firmware-only wire-speed LS RX is not feasible on this core.
 * **DMEM map (32/32 words used)**: `[0..12]` 104 sampled states (2 bits each),
   `[13]` PID / `[14..21]` payload or token fields, `[22..23]` received CRC-16,
   `[24]` status, `[25]` pid, `[26]` addr|endp<<7, `[27]` crc_ok, `[28]` eop_ok,

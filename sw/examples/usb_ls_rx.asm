@@ -22,10 +22,38 @@
 ; sampled."
 ;
 ; RESPONSE LATENCY (honest): the ACK is symbol-correct (SYNC + PID 0xD2 + EOP,
-; 18 cells at 22.25 cycles) but arrives ~4400 cycles (~198 bit times) after the
-; host EOP because sampling (104 bits, 2314 cycles) and untimed post-processing
-; are not pipelined.  USB LS allows 7.5 bit times, so this is a *functional
-; protocol demo on the model*, not a real-host-timing-compliant device.
+; 18 cells at 22.25 cycles) but arrives far outside the USB response window
+; because sampling (104-bit fixed window, 2314 cycles) and untimed
+; post-processing are not pipelined.  USB LS allows 7.5 bit times (167 cycles).
+;
+; CEILING QUANTIFICATION (measured on the golden model with PC breakpoints,
+; DATA0 8-byte packet, EOP at sample 96; 22.25 cycles/bit):
+;   sampler per bit ............ 16 instructions + WAITD 7.25 = 22.25 cyc
+;                                (72 % of the bit budget; zero issue slack)
+;   host EOP -> sample end ..... 198 cyc  ( 8.9 bit times; fixed 104-sample
+;                                window covers 8 bits past EOP)
+;   NRZI+unstuff+bytes (96 st) . 2505 cyc (112.6 bit times)
+;   PID + CRC-16 over 8 bytes .. 564 cyc  ( 25.3 bit times)
+;   EOP double-SE0 scan (104 st) 1155 cyc ( 51.9 bit times)
+;   publish + ACK setup/emit ... 23 cyc
+;   ----------------------------------------------------------------
+;   total ACK latency .......... 4445 cyc (199.8 bit times) vs 167 (7.5 bits)
+;
+; WHY THIS IS AN ARCHITECTURAL CEILING, not a tuning problem:
+;   * The packet is decoded *after* capture, so even a perfectly optimised
+;     post-processing pass costs hundreds of cycles (>=4.5 bit times) -- you
+;     cannot validate CRC-16 and start the ACK within 7.5 bit times.
+;   * Wire-speed ACK requires decoding DURING reception.  Per bit that needs
+;     the sampler (16 instr) PLUS inline NRZI+unstuff+accumulate (~10 instr)
+;     PLUS CRC-16 (~8 instr/bit) = ~34 instructions/bit > 22.25, i.e. ~1.5x
+;     over IPC, and two threads cannot help (they share the single IPC).
+;   * Even with an idealised 8-instruction sampler the total is ~26 > 22.25
+;     (~17 % over), so an inline single-thread LS RX is not achievable.
+;   => Revision-B option (NOT built here): a small hardware LS receiver FSM
+;      (edge detect + DPLL bit sampler + NRZI/stuff/CRC-16 + EOP, byte FIFO /
+;      interrupt to firmware) would let the firmware ACK within a few bit
+;      times.  Firmware-only wire-speed LS RX is not physically feasible on
+;      this core; this document is the measured proof.
 ;
 ; PIN MAPPING (device mode: both lines are inputs while receiving)
 ;   D+  P[0] = uio[0]     D-  P[1] = uio[1]
