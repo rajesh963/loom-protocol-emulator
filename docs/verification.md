@@ -263,6 +263,7 @@ labelled that way everywhere:
 | `jtag_tap` (115 words, fits FF build) | IDCODE scan in IR `0x2`, Capture-IR status, TCK mean 959 kHz | `host/jtag.py` (TAP state machine) | RTL test; multi-device chains; boundary scan |
 | `can_tx` (79 words, fits FF build) | **499.85 kbit/s** (−0.03 %), CRC-15 + dynamic stuffing, ACK-slot polling | `host/can.py` (`CanWireDecoder`, CRC-15 check value `0x059E`) | RTL test; CAN FD; error-frame handling |
 | `dmx_tx` (37 words, fits FF build) | **250.03 kbaud** (+0.015 %), BREAK/MAB + 512-slot frame in 22.7 ms | `host/dmx.py` (UART 8N2 receiver + frame decoder) | RTL test; multi-universe; RDM |
+| `midi_tx` (37 words, fits FF build) | **31250.6 baud** (+0.002 %), back-to-back 8N1 frames, message assembly | `host/midi.py` (UART receiver + MIDI message decoder incl. running status) | RTL test; multi-byte system-exclusive streams |
 
 ### 9.2 The two I²C gates that closed late
 

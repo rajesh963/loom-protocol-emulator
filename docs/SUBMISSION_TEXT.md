@@ -15,7 +15,7 @@ the chip is fabricated.
 
 ## What is demonstrated
 
-Sixteen firmware programs covering eleven protocol families — all run on the same RTL
+Seventeen firmware programs covering twelve protocol families — all run on the same RTL
 and ISA with no per-protocol hardware:
 
 | Protocol | Roles | Measured at 33.33 MHz |
@@ -28,7 +28,7 @@ and ISA with no per-protocol hardware:
 | WS2812 | driver | 800 kHz |
 | USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); single-ended D+ TX prototype, not silicon-tested |
 | USB 1.1 low-speed | device RX decode + ACK (v2, post-freeze) | 1.4981–1.4982 Mbit/s — **golden-model verified** (SETUP CRC-5 `0x02`, DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`, ±0.25 % host drift); ACK is **functional-only at 199.8 bit times** (measured architectural ceiling vs 7.5 allowed); enumeration not implemented |
-| JTAG / CAN 2.0A / DMX512 | TAP controller / frame TX / lighting frame (v2, post-freeze) | **model-verified** with independent decoders: JTAG TCK mean 959 kHz (IDCODE/IR scans), CAN **499.85 kbit/s (−0.03 %)** with CRC-15 + dynamic stuffing, DMX512 **250.03 kbaud (+0.015 %)** 512-slot frame in 22.7 ms; RTL tests pending |
+| JTAG / CAN / DMX512 / MIDI | TAP controller / frame / lighting / MIDI TX (v2, post-freeze) | **model-verified** with independent decoders: JTAG TCK mean 959 kHz, CAN **499.85 kbit/s (−0.03 %)** with CRC-15 + dynamic stuffing, DMX512 **250.03 kbaud (+0.015 %)** 512-slot frame in 22.7 ms, MIDI **31250.6 baud (+0.002 %)**; RTL tests pending |
 | Ethernet (802.3 framing) | frame TX (stretch) | **2.0833 Mbit/s**, Manchester + firmware CRC-32; 64-byte minimum frame **RTL-verified** (two frames, independent decoder, FCS ok) |
 
 SPI and I2C are demonstrated in **both controller and target roles**; four threads can run
