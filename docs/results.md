@@ -165,7 +165,7 @@ shows nested per-thread internals with `specRef` links into the docs, and is Sil
 | `gds` GitHub Action | **PASSED** — attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations at both routing stages | Actions run |
 | `precheck` | **PASSED 10/10** | Actions run |
 | `gl_test` (gate-level suite) | ✅ **PASSED — `TESTS=64 PASS=60 FAIL=0 SKIP=4`**, run `44068106013` on `7d2fb2f`, 2 740 s, no errors (four skips are RTL-backdoor-dependent) | Actions run `44068106013` |
-| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, v2 post-freeze; harness commit `53097eb`) | `formal/results.txt` + `formal/formal_final.log` |
+| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, v2 post-freeze; harness commit `d3d27f9`) | `formal/results.txt` + `formal/formal_final.log` |
 | `docs` action | **PASS** | Actions run |
 | `test` action | **PASS** — reproduces 64/64 on every push | Actions run |
 

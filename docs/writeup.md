@@ -388,7 +388,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 | **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
 | **`precheck`** | **PASSED 10/10** |
 | **`gl_test`** | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s) on `7d2fb2f`, no errors; skips are the four RTL-backdoor tests. First run was `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` that is **not synthesised**, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract (DMEM has no reset). Evidence: `results.xml` + job log; **no GL FST** (`WAVES=1` not enabled) |
-| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, harness `53097eb`) |
+| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, harness `d3d27f9`) |
 | `test` / `docs` CI workflows | **green** |
 
 Honest footnote: the metrics list 292 max-fanout / 80 max-slew / 27 max-cap flags — TT/PDK *default
@@ -408,7 +408,7 @@ on every push:
 | timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
-| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **scheduler exactness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`; sched harness committed `53097eb`) | **4/4 PASS** |
+| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **scheduler exactness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`; sched harness committed `d3d27f9`) | **4/4 PASS** |
 
 Gate-level simulation and the LibreLane sign-off rows are still TBD — they need the hardened netlist,
 and this write-up does not estimate them.
@@ -532,7 +532,7 @@ the due time recorded at enqueue is exact (periodic `emit` including the 12.4 `P
 `emita`, relative `emitd`), and that the fired value reaches `pins_out` in that same cycle when it is
 the only pin cause. It is proved about the shipped RTL: yosys cannot reach submodule internals, so the
 harness compiles a generated copy of `rtl/loom_core.v` with **read-only observation ports appended**
-(logic identical — only `assign dbg_*` lines added). It is committed in **`53097eb`** (`formal/h_sched.v`,
+(logic identical — only `assign dbg_*` lines added). It is committed in **`d3d27f9`** (`formal/h_sched.v`,
 `h_probe.v`, `run_formal.py`, `results.txt`). It was a **v2 addition to the shipped RTL** — the tape-out
 netlist, GDS and precheck claims are unaffected.
 

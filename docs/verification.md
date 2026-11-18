@@ -155,10 +155,10 @@ intent for anyone extending the formal harness.
 ### 5.1 The scheduler-exactness proof — `formal/h_sched.v` *(v2 post-freeze addition)*
 
 The architecture's central promise is that an accepted event fires on its exact cycle. That is now
-**proved, not just tested**, for a bounded run: `formal/h_sched.v` *(committed in **`53097eb`**, alongside
-`formal/run_formal.py` and the recorded result in `formal/results.txt`; the generated wrapper
-`formal/build/loom_core_probe.v` and other `formal/build/` artefacts are not committed)* does BMC from a
-generated reset
+**proved, not just tested**, for a bounded run: `formal/h_sched.v` *(committed in **`d3d27f9`** with
+`formal/run_formal.py`; `formal/results.txt` records `fifo k=8 · core k=6 · host k=6 · sched k=16`; the
+generated wrapper `formal/build/loom_core_probe.v` and the rest of `formal/build/` are gitignored and
+not committed)* does BMC from a generated reset
 under arbitrary external stimulus (`imem_data`, `dmem_rdata`, `pins_in` are `(* anyseq *)`) and observes
 the scheduler directly through read-only `dbg_*` ports. Because yosys does not resolve hierarchical
 references into submodule internals, the harness compiles a **generated copy of `rtl/loom_core.v` with
@@ -301,7 +301,7 @@ meta-test.
 | Ethernet frame TX | **1/1 PASS** | `test/test_eth.py` drives `eth_tx.asm` on the RTL and decodes the `uio[0]` trace with `host/eth.py`: two host-preloaded frames, **64 bytes exact**, preamble/SFD lock, **FCS `0xF57743B9`** (firmware-computed; preloaded FCS zeroed) and **`0x696CF29E`** (Python reference), cells **8.000 cycles**, bits **16.00 cycles → 2.0833 Mbit/s**, **max edge residual 0.00 cycle**, frame window exactly **9216 cycles**. TXD is quiet ≥1536 cycles after each frame; measured frame-edge gaps **8508 / 8625 cycles** because the CRC-32 is recomputed after the gap |
 | USB-LS RX pin path | **1/1 PASS** | `test/test_usb_ls_rx.py` with **no on-chip RX firmware**: chip high-Z after reset (`PDIR = 0`), testbench drives a real differential LS waveform on D+ = `uio[0]` / D− = `uio[1]` through the open-drain pad model, RTL `pins_in` sampled and decoded by the reference device receiver — **0 pad-path mismatches**; SETUP token + 8-byte DATA0 `GET_DESCRIPTOR` at nominal and **±0.25 % host drift** (recovered 22.2528 / 22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the reference RX algorithm only — not enumeration and not a firmware RX path** |
 | USB low-speed TX | **2/2 PASS** | `usb_ls_tx.asm` single-ended D+ device-mode transmitter: NRZI, 8-bit SYNC, DATA0 PID, 4-byte payload, USB CRC16, bit stuffing after six ones, EOP; decoded by an independent golden-model decoder and on the FF+Loom memory builds (`test_usb_ls.py`) |
-| formal | **4/4 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**), **scheduler exactness (k=16, `h_sched.v`, harness commit `53097eb`)** |
+| formal | **4/4 PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**), **scheduler exactness (k=16, `h_sched.v`, harness commit `d3d27f9`)** |
 | **total** | **64 PASS / 0 FAIL / 0 SKIP (RTL)** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ≈271 s per configuration, frozen at `7d2fb2f` (also 64/64 from a clean clone). **Gate level on the same SHA: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s; four skips are RTL-backdoor-dependent) |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
