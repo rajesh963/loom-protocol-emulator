@@ -165,7 +165,7 @@ shows nested per-thread internals with `specRef` links into the docs, and is Sil
 | `gds` GitHub Action | **PASSED** — attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations at both routing stages | Actions run |
 | `precheck` | **PASSED 10/10** | Actions run |
 | `gl_test` (gate-level suite) | ✅ **PASSED — `TESTS=64 PASS=60 FAIL=0 SKIP=4`**, run `44068106013` on `7d2fb2f`, 2 740 s, no errors (four skips are RTL-backdoor-dependent) | Actions run `44068106013` |
-| formal (3 proofs + 1 invariant harness) | **PASS at bounds** (`fifo` k=8, `core` k=6, `host` k=6; **(v2) bounded scheduler-invariant harness k=16**, commits `d3d27f9`/`90da823`) — the `sched` result is conditional: covers unreached at k=16, +1-cycle-late mutation undetected ([`verification.md`](verification.md) §5.1) | `formal/results.txt` + `formal/formal_final.log` |
+| formal (3 proofs + 1 conditional invariant harness) | **PASS at bounds** (`fifo` k=8, `core` k=6, `host` k=6; **(v2) conditional bounded scheduler-invariant harness k=16**, commits `83a9352`/`f15933e`) — P5 enqueue due-time invariants exercised on the RTL; fired-event/head covers unreached and +1-cycle-late mutation undetected ⇒ P1–P4 unexercised, claim conditional ([`verification.md`](verification.md) §5.1) | `formal/results.txt` + `formal/formal_final.log` |
 | `docs` action | **PASS** | Actions run |
 | `test` action | **PASS** — reproduces 64/64 on every push | Actions run |
 
@@ -193,7 +193,7 @@ pin-path test and the Ethernet frame TX test. Frozen at `7d2fb2f`; a clean clone
 | protocol VIPs | **9/9 PASS** | UART TX/RX/back-to-back decoder, SPI modes 0–3, SPI target, I²C 100 kHz/400 kHz/target, clock stretching |
 | USB-LS TX / RX pin path | **2/2 + 1/1 PASS** | TX packet decoded independently; RX proves the differential pad path + reference decoder (0 mismatches, ±0.25 % drift) — not enumeration, no on-chip RX firmware |
 | Ethernet frame TX | **1/1 PASS** | two host-preloaded frames, FCS `0xF57743B9`/`0x696CF29E`, cells 8.000 cycles, 2.0833 Mbit/s, 0.00-cycle edge residual |
-| formal | **3 proofs + 1 invariant harness PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core k=6, host k=6, plus **(v2) bounded scheduler-invariant harness k=16 (conditional — reachability follow-up)** |
+| formal | **3 proofs + 1 conditional invariant harness PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue k=8, core k=6, host k=6, plus **(v2) conditional bounded scheduler-invariant harness k=16** (P5 exercised; P1–P4 not; late-cycle mutation undetected) |
 | gate-level | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s, no errors) on `7d2fb2f`, module breakdown host 19 / isa 22 / timing 7+1 skip / cosim 3+3 skips / protocols 9 / usb_ls 2 / eth 1 / usb_ls_rx 1. Skips = the four RTL-backdoor tests. | First run was `57/60`; one root cause: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only `initial`** that is not synthesised, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed (`7d2fb2f`) by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract. Evidence: `results.xml` artifact + job log; **no GL FST is produced** (`WAVES=1` not enabled in CI). |
 | coverage | **PASS (meta-test gate)** | every opcode/CSR exercised; numeric cross-coverage report is reporting-only |
 
@@ -240,7 +240,7 @@ writing (Nov 2026). **No row is a silicon measurement.**
 | sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
 | Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
 | protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
-| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 3 bounded proofs + 1 bounded scheduler-invariant harness (k=16; reachability follow-up) · GL 60/4 · GDS+precheck 10/10** + 20 firmware programs / 15 families *(as of `5ed0d87`)* (8 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 3 bounded proofs + 1 conditional bounded scheduler-invariant harness (k=16) · GL 60/4 · GDS+precheck 10/10** + 20 firmware programs / 15 families *(as of `5ed0d87`)* (8 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
 
 LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
 cross-thread pin merge) and methodological (spec-derived golden model + state-level differential

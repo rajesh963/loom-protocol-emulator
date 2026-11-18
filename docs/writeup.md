@@ -394,7 +394,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 | **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
 | **`precheck`** | **PASSED 10/10** |
 | **`gl_test`** | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s) on `7d2fb2f`, no errors; skips are the four RTL-backdoor tests. First run was `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` that is **not synthesised**, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract (DMEM has no reset). Evidence: `results.xml` + job log; **no GL FST** (`WAVES=1` not enabled) |
-| formal (3 proofs + 1 invariant harness) | **PASS at bounds** — `fifo` k=8, `core` k=6, `host` k=6, plus **(v2) bounded scheduler-invariant harness k=16** (`d3d27f9`/`90da823`); the `sched` result is conditional (covers unreached, a +1-cycle-late mutation undetected) — see §9 and [`verification.md`](verification.md) §5.1 |
+| formal (3 proofs + 1 conditional invariant harness) | **PASS at bounds** — `fifo` k=8, `core` k=6, `host` k=6, plus **(v2) conditional bounded scheduler-invariant harness k=16** (`83a9352`, runner aligned `f15933e`): harness bug (duplicate `fv0`) fixed, P5 enqueue due-time invariants exercised on the RTL, but fired-event/head reachability and +1-cycle-late mutation detection are open, so P1–P4 are unexercised — see §9 and [`verification.md`](verification.md) §5.1 |
 | `test` / `docs` CI workflows | **green** |
 
 Honest footnote: the metrics list 292 max-fanout / 80 max-slew / 27 max-cap flags — TT/PDK *default
@@ -414,7 +414,7 @@ on every push:
 | timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
-| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **(v2) bounded scheduler-invariant harness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`; commits `d3d27f9`/`90da823`) | **PASS at bounds; `sched` conditional** (covers unreached, late-cycle mutation undetected) |
+| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **(v2) conditional bounded scheduler-invariant harness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`; commits `83a9352`/`f15933e`) | **PASS at bounds; `sched` conditional** (P5 exercised, P1–P4 not; late-cycle mutation undetected) |
 
 Gate-level simulation and the LibreLane sign-off rows are still TBD — they need the hardened netlist,
 and this write-up does not estimate them.
@@ -528,34 +528,30 @@ The honest summary: LOOM does framing, CRC, line coding and bit-exact timing in 
 to ~2 Mbit/s *and* says exactly where the wall is. Both walls are revision-B hardware (a serializer,
 a hardware LS-RX FSM), not tuning.
 
-### What the formal layer shows — a bounded scheduler invariant *(v2 post-freeze)*
+### What the formal layer shows — a bounded, conditional scheduler invariant *(v2 post-freeze)*
 
 The scheduler's central promise is that an accepted event fires on its exact cycle. The v2 harness
-`formal/h_sched.v` takes a step toward that: it does bounded model checking (bound **k = 16**) from a
-generated reset under arbitrary external stimulus and checks cycle-local invariants — due ⇒ fire,
-future ⇒ no fire, edge event iff pin condition, fired value exact, enqueue due-time formulas exact
-(periodic `emit` including the 12.4 `PFRAC` carry, absolute `emita`, relative `emitd`), and same-cycle
-`pins_out` application when the event is the sole pin cause. It is proved about the shipped RTL:
-yosys cannot reach submodule internals, so the harness compiles a generated copy of
-`rtl/loom_core.v` with **read-only observation ports appended** (logic identical — only
-`assign dbg_*` lines added; commits `d3d27f9`/`90da823`, `formal/build/` gitignored). It is a **v2
-addition to the shipped RTL** — the tape-out netlist, GDS and precheck claims are unaffected.
+`formal/h_sched.v` gets partway there: it is a **bounded scheduler-invariant harness at k = 16**
+(commits `83a9352` for the harness fix + cover evidence, `f15933e` for the runner alignment; original
+harness `d3d27f9`), and along the way it caught a real **harness bug — a duplicate `fv0` net with two
+drivers in one scope, i.e. undefined yosys behaviour — which was found and fixed**. It drives a
+deterministic EMIT/EMITD/EMITA/EMITE stimulus from a forced host `RUN` and observes the scheduler
+through read-only `dbg_*` ports on a generated copy of `rtl/loom_core.v` (logic identical — only
+`assign dbg_*` lines added; `formal/build/` gitignored). It is a **v2 addition to the shipped RTL** — the
+tape-out netlist, GDS and precheck claims are unaffected.
 
-**The honest limit, stated as plainly as the claim.** This is **not yet** an unconditional
-"no edge is ever late" theorem. The harness's non-vacuity `cover` statements — an issued instruction,
-an accepted enqueue, a fired event, a due-cycle head — are **unreached at k = 16**, because the
-deterministic exercise stream does not yet reach an issuing state from the forced host `RUN`; a
-deliberately **one-cycle-late mutation of the fire comparison is therefore not detected**. So the
-result is a *conditional* scheduler-invariant experiment: the invariants hold over the explored state
-space (and the due-time formulas are checked whenever an enqueue is reached), but the "accepted event"
-antecedent is not demonstrated reachable within the bound. Follow-up: constrain the stimulus / raise k
-until the covers hit and the mutation is caught, then raise the claim. `h_core` also carries a
-pre-existing limitation (six hierarchical references treated as undriven wires, so those assertions are
-weaker than the table suggests; `h_fifo`/`h_host` are clean).
+**What the covers actually reach:** reset state (step 7), an issued instruction (step 13), an accepted
+**timed** enqueue (step 13) and an accepted **edge** enqueue (step 15) ⇒ **P5, the exact enqueue
+due-time formulas including the 12.4 `PFRAC` carry/clamp for `emit`/`emita`/`emitd`, is genuinely
+exercised on the RTL.** **What they do not reach at k = 16:** a fired event and a due-cycle head; the
+**+1-cycle-late mutation is still not detected** ⇒ **P1–P4 remain unexercised and the claim stays
+conditional — this is not an unconditional "no edge is ever late" proof.** `h_core` carries its
+pre-existing hierarchical-reference caveat; `h_fifo`/`h_host` are clean.
 
-Compared with the public entry that has a whole-program no-late-edge theorem, ours is deliberately
-presented as **work in progress**: three clean bounded proofs, plus a bounded scheduler harness whose
-reachability is the next step — not a claim that the scheduler has already been proved edge-exact.
+Compared with the public entry that has a whole-program no-late-edge theorem, ours is honestly smaller
+and presented as such: three clean bounded proofs, plus a conditional scheduler harness that has caught
+a real harness bug and now genuinely exercises the enqueue-time invariants, with reachability of the
+fire invariants as the next step.
 
 And an honest comparison on the axes the competition cares about:
 
@@ -596,7 +592,7 @@ in this table is a silicon measurement, ours or anyone's.**
 | [OliverKlug/sophos-protocol-emulator](https://github.com/OliverKlug/sophos-protocol-emulator) | 6×4 | one state machine, 32×16 IMEM, 32-slot capture | UART, SPI, I²C, JTAG, USB-LS TX | flow metrics published (**11.6 k stdcells, 22.2 %, 40 MHz**) |
 | [goutamyadav/Chip-jane-street "Chameleo"](https://github.com/goutamyadav/Chip-jane-street) | — | Hardcaml-generated RTL, OCaml golden ISA + simulator, PIO-like core array | — | model-based generation (host-language golden model) |
 | [WilliamZhang20/protocol-emulator](https://github.com/WilliamZhang20/protocol-emulator) | — | SRAM bytecode engine, 8×16 register file + ALU, two action lanes (shifters, timers, CRC, LFSR), dispatcher | UART, SPI, I²C, JTAG | RTL |
-| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | **20 programs / 15 protocol families**: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (RTL) + RX decode/ACK (v2, model), Ethernet frame TX (RTL), JTAG TAP (v2), CAN 2.0A TX (v2), DMX512 TX (v2), MIDI TX (v2), NEC-IR TX (v2), SWD target (v2), HDMI-CEC initiator (v2); true 10BASE-T and wire-speed USB RX ACK documented as measured ceilings | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 3 bounded proofs + 1 bounded scheduler-invariant harness (k=16; reachability follow-up), gate-level 60/4, GDS + precheck 10/10** |
+| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | **20 programs / 15 protocol families**: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (RTL) + RX decode/ACK (v2, model), Ethernet frame TX (RTL), JTAG TAP (v2), CAN 2.0A TX (v2), DMX512 TX (v2), MIDI TX (v2), NEC-IR TX (v2), SWD target (v2), HDMI-CEC initiator (v2); true 10BASE-T and wire-speed USB RX ACK documented as measured ceilings | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 3 bounded proofs + 1 conditional bounded scheduler-invariant harness (k=16), gate-level 60/4, GDS + precheck 10/10** |
 
 Evidence-level legend: *model* = golden/reference model or host-language simulation; *RTL* = RTL
 simulation test suite; *formal* = formal proofs or equivalence checks; *gate* = gate-level simulation;

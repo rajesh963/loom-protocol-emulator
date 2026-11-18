@@ -146,7 +146,7 @@ reader can distinguish "one cycle late" from "wrong bit" instantly.
 ## 5. L4 — formal properties
 
 Bounded model checking with `yosys write_smt2` + `yosys-smtbmc -s z3`. **As landed: 3 bounded proofs +
-1 bounded scheduler-invariant harness (k=16; reachability follow-up), all PASS at their bounds** —
+1 conditional bounded scheduler-invariant harness (k=16), all PASS at their bounds** —
 `fifo` / `fifo_queue_bounds` (k = 8), `core` / `core_reset_event` (k = 6), `host` / `host_cmd_order`
 (k = 6), and *(v2 post-freeze)* **`sched` / bounded scheduler-invariant harness (k = 16)** — see §5.1 for
 what the `sched` result does and does not establish. The table below is the full property *set* the
@@ -170,11 +170,17 @@ logic is identical — only `assign dbg_* = …` statements are added**, so the 
 RTL, not a model of it. This is a **v2 addition to the shipped RTL**: the tape-out netlist, GDS and
 precheck results are unchanged by it.
 
-**Property stated by the harness (bound k = 16, conditional on the accepted-event antecedent):** *"An accepted timed event fires exactly in the cycle where `TMR` equals its
-recorded due time — never one cycle late, never one cycle early — and an accepted edge-triggered event
-fires exactly in the cycle where the pin condition holds; the due time recorded at enqueue is exact
-(periodic `emit` including the 12.4 `PFRAC` carry, absolute `emita`, relative `emitd`); the fired value
-reaches `pins_out` in that same cycle when it is the only pin cause."*
+**What the harness checks (bound k = 16; commits `83a9352` for the bug fix + cover evidence and
+`f15933e` for the runner alignment to k=16; original harness `d3d27f9`).** Bounded
+scheduler-invariant harness at **k = 16**; a real **harness bug — a duplicate `fv0` net with two
+drivers in one scope, i.e. undefined yosys behaviour — was found and fixed**; the harness drives a
+deterministic EMIT/EMITD/EMITA/EMITE stimulus from a forced host `RUN`. **Covers reached:** reset state
+(step 7), an issued instruction (step 13), an accepted **timed** enqueue (step 13) and an accepted
+**edge** enqueue (step 15) ⇒ **P5 (exact enqueue due-time formulas including the 12.4 `PFRAC`
+carry/clamp for `emit`/`emita`/`emitd`) is genuinely exercised on the RTL**. **Covers unreached at
+k = 16:** a fired event and a due-cycle head; the **+1-cycle-late mutation is still not detected** ⇒
+**P1–P4 remain unexercised and the scheduler claim stays conditional — not an unconditional "no edge is
+ever late" proof.**
 
 Checked every post-reset cycle (cycle-local invariants, hence valid for every program/stimulus the
 solver explores within the bound):
@@ -203,17 +209,7 @@ matters):
 * **Bounded depth k = 16.** Cycle-local invariants prove each cycle's behaviour inside the bound; an
   unbounded induction is future work. Firmware timing (enqueuing early enough) remains the software
   contract, not a hardware theorem.
-* **Non-vacuity is NOT yet established.** The harness carries `cover` statements for an issued
-  instruction, an accepted timed/edge enqueue, a fired event and a due-cycle head. At the committed
-  bound the deterministic scheduler-exercise stream does **not yet reach an issuing state** from the
-  forced host `RUN`, so those covers are **unreached** and a deliberately **one-cycle-late mutation of
-  the fire comparison is not detected** by BMC. The result therefore establishes the cycle-local
-  invariants over the explored state space (and the exact due-time formulas P5 whenever an enqueue is
-  reached), but the *"accepted event fires exactly on time"* antecedent is **not demonstrated
-  reachable within k**. Follow-up: fix the harness stimulus / raise k until the covers hit and the
-  mutation is caught, then raise the claim. Recorded in `formal/README.md` and `test/README.md`
-  (matrix notes commit `90da823`).
-* **`h_core` known limitation (pre-existing).** `h_core.v` still uses six hierarchical references
+* **`h_core` known limitation (unchanged).** `h_core.v` still uses six hierarchical references
   (`tmr`, `t_en`, `pin_op`, `stall_issue`, `do_issue`, `csr_wr`) that yosys treats as undriven wires,
   so those specific `h_core` assertions are weaker than the table suggests; `h_fifo`/`h_host` are
   clean. Follow-up: move `h_core` onto the generated observation wrapper.
@@ -234,6 +230,12 @@ matters):
 ```sh
 tools/formal.sh                 # intended: yosys write_smt2 -> z3 for F1..F9 (verify owner)
 ```
+
+**Status of the scheduler claim (summary).** 3 bounded proofs (fifo k=8, core k=6,
+host k=6) + **1 conditional bounded scheduler-invariant harness (k=16)**, all PASS at
+their bounds. P5 is exercised on the RTL; P1–P4 are not, and the +1-cycle-late mutation
+is undetected — so this is **not** an unconditional no-late-edge proof
+([`formal/README.md`](../formal/README.md) carries the same caveat).
 
 ## 6. L5 — gate-level simulation
 
@@ -318,7 +320,7 @@ meta-test.
 | Ethernet frame TX | **1/1 PASS** | `test/test_eth.py` drives `eth_tx.asm` on the RTL and decodes the `uio[0]` trace with `host/eth.py`: two host-preloaded frames, **64 bytes exact**, preamble/SFD lock, **FCS `0xF57743B9`** (firmware-computed; preloaded FCS zeroed) and **`0x696CF29E`** (Python reference), cells **8.000 cycles**, bits **16.00 cycles → 2.0833 Mbit/s**, **max edge residual 0.00 cycle**, frame window exactly **9216 cycles**. TXD is quiet ≥1536 cycles after each frame; measured frame-edge gaps **8508 / 8625 cycles** because the CRC-32 is recomputed after the gap |
 | USB-LS RX pin path | **1/1 PASS** | `test/test_usb_ls_rx.py` with **no on-chip RX firmware**: chip high-Z after reset (`PDIR = 0`), testbench drives a real differential LS waveform on D+ = `uio[0]` / D− = `uio[1]` through the open-drain pad model, RTL `pins_in` sampled and decoded by the reference device receiver — **0 pad-path mismatches**; SETUP token + 8-byte DATA0 `GET_DESCRIPTOR` at nominal and **±0.25 % host drift** (recovered 22.2528 / 22.3141 / 22.1856 cycles/bit = 0.013 % / +0.288 % / −0.289 %, DPLL residual ≤ 0.83 cycle), PID/complement, CRC-5, CRC-16, SYNCH/EOP and unstuffing all ok. **This proves the pin path and the reference RX algorithm only — not enumeration and not a firmware RX path** |
 | USB low-speed TX | **2/2 PASS** | `usb_ls_tx.asm` single-ended D+ device-mode transmitter: NRZI, 8-bit SYNC, DATA0 PID, 4-byte payload, USB CRC16, bit stuffing after six ones, EOP; decoded by an independent golden-model decoder and on the FF+Loom memory builds (`test_usb_ls.py`) |
-| formal | **3 proofs + 1 invariant harness PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**), plus **(v2) a bounded scheduler-invariant harness (k=16, `h_sched.v`, commits `d3d27f9`/`90da823`) that PASSES but is conditional**: covers unreached at k=16 and a +1-cycle-late mutation is undetected, so it is not yet an unconditional no-late-edge proof (see §5.1) |
+| formal | **3 proofs + 1 conditional invariant harness PASS** | bounded proofs via `yosys write_smt2` + `yosys-smtbmc -s z3`: FIFO/queue bounds (**k=8**), core reset + event properties (**k=6**), host command→effect ordering (**k=6**), plus **(v2) a conditional bounded scheduler-invariant harness (k=16, `h_sched.v`, `83a9352`/`f15933e`)**: the duplicate-`fv0` harness bug is fixed and P5 (enqueue due-time formulas) is exercised on the RTL, but fired-event/head covers are unreached and a +1-cycle-late mutation is undetected, so P1–P4 are unexercised and the claim stays conditional (see §5.1) |
 | **total** | **64 PASS / 0 FAIL / 0 SKIP (RTL)** | 64 tests (19 host + 22 ISA + 9 protocol + 3 co-sim + 7 timing + 2 USB-TX + 1 USB-RX + 1 Ethernet), ≈271 s per configuration, frozen at `7d2fb2f` (also 64/64 from a clean clone). **Gate level on the same SHA: `TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s; four skips are RTL-backdoor-dependent) |
 
 The co-simulation row is the headline: two independent implementations (hand-written RTL and the
