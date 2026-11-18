@@ -197,6 +197,22 @@ pin-path test and the Ethernet frame TX test. Frozen at `7d2fb2f`; a clean clone
 | gate-level | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s, no errors) on `7d2fb2f`, module breakdown host 19 / isa 22 / timing 7+1 skip / cosim 3+3 skips / protocols 9 / usb_ls 2 / eth 1 / usb_ls_rx 1. Skips = the four RTL-backdoor tests. | First run was `57/60`; one root cause: `rtl/loom_mem.v` zeroes DMEM in a **simulation-only `initial`** that is not synthesised, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed (`7d2fb2f`) by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract. Evidence: `results.xml` artifact + job log; **no GL FST is produced** (`WAVES=1` not enabled in CI). |
 | coverage | **PASS (meta-test gate)** | every opcode/CSR exercised; numeric cross-coverage report is reporting-only |
 
+### 6.1 Program images — distribution and deterministic build *(v2 post-freeze addition)*
+
+The v2 protocol set ships **18 relocatable program images** (16–357 words; `midi_tx` 16 is the
+smallest, `usb_ls_rx` 357 the largest and the **only** program above the 128-word FF fallback, hence
+SRAM-1024-only). The set totals **1 478 PMEM words**, and **no program reaches 1 024 words**, so the
+four-slot `demo_all` layout (`uart_tx` @`0x000`, `uart_rx` @`0x080`, `spi_master` @`0x100`,
+`i2c_master` @`0x180`) is unchanged. Images, listings, symbol tables and `manifest.json` are generated
+deterministically by `sw/prog/build_examples.py` at the shipped **`clock_hz = 33333333`**;
+`build_examples.py --check` passes and two consecutive builds are byte-identical (listings use
+repo-relative source names, so rebuilds are machine-independent).
+
+**Provenance note:** `sw/prog/` was refreshed in v2 (`d7ed199` on `origin/master`). A manifest
+`tool_version` field is planned for the next refresh — the current manifest schema has **no version
+field** (known limitation, tracked here rather than silently implied). The counts above are *as of
+`d7ed199`*; SWD and any further v2 programs are still in flight and are not counted.
+
 ## 7. Errata and known gaps
 
 | # | Gap | Impact | Owner |
@@ -223,7 +239,7 @@ writing (Nov 2026). **No row is a silicon measurement.**
 | sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
 | Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
 | protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
-| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 18 firmware programs / 13 families (6 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 18 firmware programs / 13 families *(as of `d7ed199`; SWD in flight)* (6 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
 
 LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
 cross-thread pin merge) and methodological (spec-derived golden model + state-level differential

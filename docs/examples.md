@@ -750,9 +750,11 @@ dedicated serializer) plus a larger pattern buffer, not a bigger firmware effort
 
 ## 15. Example program status
 
-The firmware workstream now has **18 programs in `sw/examples/`** covering **13 protocol families**:
-UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet, JTAG, CAN, DMX512, MIDI and NEC-IR (SWD is
-still in progress and not counted). Eight of them are exercised by
+The firmware workstream has **18 programs in `sw/examples/`** covering **13 protocol families** *(as of
+`d7ed199`; SWD is in flight and not counted)*: UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet,
+JTAG, CAN, DMX512, MIDI and NEC-IR. The shipped images are generated deterministically into `sw/prog/`
+by `sw/prog/build_examples.py` (16–357 words, **1 478 words total**, `demo_all` layout unchanged); the
+manifest schema currently has **no `tool_version` field** — planned for the next refresh. Eight of them are exercised by
 RTL tests (`uart_tx`, `uart_rx`, `spi_master`, `spi_slave`, `i2c_master`, `i2c_target`, `usb_ls_tx`,
 `eth_tx`); the rest — including the three v2 additions below — are **golden-model verified** with
 independent decoders, and their status says so.
