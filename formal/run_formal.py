@@ -59,6 +59,7 @@ PROOFS = [
     # name,    harness,      depth, rtl sources
     ("fifo", "h_fifo", 8, ["loom_fifo.v"]),
     ("core", "h_core", 6, ["loom_core.v"]),
+    ("host", "h_host", 6, ["loom_host.v", "loom_fifo.v"]),
     # scheduler exactness: accepted timed events fire exactly on their due
     # cycle (never late/early), edge events fire iff the pin condition holds,
     # enqueue due times are exact (incl. 12.4 PFRAC carry / behind clamp), and

@@ -1,3 +1,4 @@
 fifo PASS k=8 SAT-free (PASSED)
 core PASS k=6 SAT-free (PASSED)
+host PASS k=6 SAT-free (PASSED)
 sched PASS k=16 SAT-free (PASSED)
