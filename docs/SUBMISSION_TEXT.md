@@ -15,7 +15,7 @@ the chip is fabricated.
 
 ## What is demonstrated
 
-Eighteen firmware programs covering thirteen protocol families *(as of `d7ed199`; SWD in flight)* — all run on the same RTL
+Twenty firmware programs covering fifteen protocol families *(as of `04c22f9`)* — all run on the same RTL
 and ISA with no per-protocol hardware:
 
 | Protocol | Roles | Measured at 33.33 MHz |
@@ -29,6 +29,7 @@ and ISA with no per-protocol hardware:
 | USB 1.1 low-speed | device TX (stretch) | 1.4982 Mbit/s (-0.122 %) — **RTL-verified** (2 tests, independent decoder); single-ended D+ TX prototype, not silicon-tested |
 | USB 1.1 low-speed | device RX decode + ACK (v2, post-freeze) | 1.4981–1.4982 Mbit/s — **golden-model verified** (SETUP CRC-5 `0x02`, DATA0 `GET_DESCRIPTOR` byte-exact, CRC-16 `0x94DD`, ±0.25 % host drift); ACK is **functional-only at 199.8 bit times** (measured architectural ceiling vs 7.5 allowed); enumeration not implemented |
 | JTAG / CAN / DMX512 / MIDI / NEC-IR | TAP controller / frame / lighting / MIDI / IR remote (v2, post-freeze) | **model-verified** with independent decoders: JTAG TCK mean 959 kHz, CAN **499.85 kbit/s (−0.03 %)** with CRC-15 + dynamic stuffing, DMX512 **250.03 kbaud (+0.015 %)** 512-slot frame in 22.7 ms, MIDI **31250.6 baud (+0.002 %)**, NEC-IR **38.00 kHz** scheduler-synthesised carrier, 67.5 ms/frame; RTL tests pending |
+| SWD / HDMI-CEC | debug target / CEC initiator (v2, post-freeze) | **model-verified** with independent decoders: SWD target DP/AP subset (IDCODE `0x0BB11477`, FAULT, dropped writes; **SWCLK ceiling 694 kHz**, 210 words → SRAM-1024 only), CEC initiator **416.7 bit/s** (START 3.699/0.801 ms, 21 cells = 52.5 ms); RTL tests pending |
 | Ethernet (802.3 framing) | frame TX (stretch) | **2.0833 Mbit/s**, Manchester + firmware CRC-32; 64-byte minimum frame **RTL-verified** (two frames, independent decoder, FCS ok) |
 
 SPI and I2C are demonstrated in **both controller and target roles**; four threads can run

@@ -205,6 +205,8 @@ and cleared only by `ACK_IRQ`; FIFO conditions do not raise it.
 | DMX512 transmitter (v2, post-freeze) | DMX (8N2, needs RS-485) | **250.03 kbaud** (+0.015 %) | `setp` 133.3125 cycles/bit + `emit`/cell; BREAK/MAB via `waitd`; 512 slots / 22.7 ms |
 | MIDI 1.0 transmitter (v2, post-freeze) | MIDI (8N1, needs current-loop output) | **31250.6 baud** (+0.002 %) | `setp` 1066.6875 cycles/bit + `emit`/bit; bytes from the RX FIFO |
 | NEC-IR transmitter (v2, post-freeze) | IR (carrier-gated, needs LED driver) | **38.00 kHz** (−0.01 %); 67.5 ms/frame | scheduler-synthesised carrier half-cells + pulse-distance envelope |
+| SWD target (v2, post-freeze) | SWCLK in, SWDIO bidir | SWCLK **694 kHz** clean ceiling | probe-clocked `waitp` edge waits + ADIv5 DP/AP subset; SRAM-1024 build |
+| HDMI-CEC initiator (v2, post-freeze) | CEC open-drain | **416.7 bit/s**, 52.5 ms/frame | 12.4 `waitd` phase chunks (START/header/opcode) |
 | Ethernet frame TX (stretch) | TXD on one pin, Manchester | **2.0833 Mbit/s** (4.167 Mbaud) | `setp` 8-cycle cells + firmware CRC-32; RTL-verified, 64-byte minimum frames |
 
 Ready-to-assemble sources are in `docs/examples_src/`; the walkthroughs (with timing budgets and

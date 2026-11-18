@@ -300,7 +300,7 @@ Python golden model written from the spec) agree on the exact cycle of every pin
 every architectural register for 100 random programs. A one-cycle scheduling error, a wrong priority
 resolution or a lost queue event would fail it.
 
-**v2 post-freeze firmware (not in the 64).** Three programs added after the submission freeze are
+**v2 post-freeze firmware (not in the 64).** Eight programs added after the submission freeze are
 **golden-model verified only**, each against an independent host-side protocol decoder, and are
 labelled that way everywhere:
 
@@ -312,6 +312,8 @@ labelled that way everywhere:
 | `dmx_tx` (37 words, fits FF build) | **250.03 kbaud** (+0.015 %), BREAK/MAB + 512-slot frame in 22.7 ms | `host/dmx.py` (UART 8N2 receiver + frame decoder) | RTL test; multi-universe; RDM |
 | `midi_tx` (37 words, fits FF build) | **31250.6 baud** (+0.002 %), back-to-back 8N1 frames, message assembly | `host/midi.py` (UART receiver + MIDI message decoder incl. running status) | RTL test; multi-byte system-exclusive streams |
 | `ir_nec_tx` (54 words, fits FF build) | **38.00 kHz** carrier (−0.01 %), 9 ms/4.5 ms lead, 32-bit frame in 67.5 ms | `host/ir_nec.py` (envelope + carrier decoder) | RTL test; RC5/other IR protocols |
+| `swd_target` (210 words, **SRAM-1024 only**) | DP IDCODE `0x0BB11477`, CTRL/STAT, TAR/DRW, RDBUFF, FAULT, dropped writes (11 transactions); **SWCLK 694 kHz clean**, fails 833 kHz | `host/swd.py` (probe model: requests, turnaround, ACK, parity) | RTL test; WAIT/retry; SWD-to-JTAG switching; AP banking; core behind DRW |
+| `cec_tx` (91 words, fits FF build) | START **3.699 ms low / 0.801 ms high**, 2.4015 ms data cells (**416.7 bit/s**), 21 cells = 52.5 ms; 0x4→0x0 opcode 0x04, EOM [0,1], ACK [1,1] | `host/cec.py` (bus model + frame decoder) | RTL test; multi-follower ACK; logical-address allocation |
 
 ### 9.2 The two I²C gates that closed late
 

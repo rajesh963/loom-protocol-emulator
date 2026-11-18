@@ -208,10 +208,12 @@ deterministically by `sw/prog/build_examples.py` at the shipped **`clock_hz = 33
 `build_examples.py --check` passes and two consecutive builds are byte-identical (listings use
 repo-relative source names, so rebuilds are machine-independent).
 
-**Provenance note:** `sw/prog/` was refreshed in v2 (`d7ed199` on `origin/master`). A manifest
-`tool_version` field is planned for the next refresh — the current manifest schema has **no version
-field** (known limitation, tracked here rather than silently implied). The counts above are *as of
-`d7ed199`*; SWD and any further v2 programs are still in flight and are not counted.
+**Provenance note:** `sw/prog/` was refreshed in v2 for the **18-program** set (`d7ed199`); the source
+set has since grown to **20 programs** (SWD target, 210 words; HDMI-CEC initiator, 91 words — commit
+`04c22f9`), so the image refresh is pending and the committed 18-image build still totals 1 478 words.
+A manifest `tool_version` field is planned for the next refresh — the current manifest schema has **no
+version field** (known limitation, tracked here rather than silently implied). The counts above are
+*as of `04c22f9`*.
 
 ## 7. Errata and known gaps
 
@@ -239,7 +241,7 @@ writing (Nov 2026). **No row is a silicon measurement.**
 | sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
 | Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
 | protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
-| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 18 firmware programs / 13 families *(as of `d7ed199`; SWD in flight)* (6 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 20 firmware programs / 15 families *(as of `04c22f9`)* (8 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
 
 LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
 cross-thread pin merge) and methodological (spec-derived golden model + state-level differential
@@ -260,8 +262,8 @@ target density; the hardened die dissipates **8.60 mW**.
 
 | Item | Cells | Re-harden? | Note |
 |---|---|---|---|
-| USB RX / enumeration firmware | **0** | no | algorithm + oracle already in repo (`host/usb_ls_rx.py`); code-size-bound (~150–200 instr), fits SRAM-1024 |
-| JTAG, SWD, CAN, DMX512, MIDI, IR firmware | **0** | no | same datapath, new programs; each demonstrated the same way (VIP + golden model) |
+| USB RX / enumeration firmware | **0** | no | decode/ACK implemented (`usb_ls_rx.asm`, 357 words); enumeration still code-size-bound (~150–200 instr more) |
+| JTAG, SWD, CAN, DMX512, MIDI, NEC-IR, HDMI-CEC firmware | **0** | no | **shipped in v2** on the same datapath, each with an independent host decoder — the plan is evidence, not aspiration |
 | 2-FF input synchronisers (24 pins) | ~1 k µm² | yes (v2) | closes the unsynchronised-protocol-pin limitation (architecture §10); does not change protocol timing (mid-bit sampling, ≥8 cycles margin) |
 | reset synchroniser | ~100 µm² | yes (v2) | async de-assert recovery/removal hardening |
 | capture / record-replay | 0 (RTL exists, verified) | yes (v2) | currently gated off because it aliases the DMEM port used by the wave player |
@@ -315,3 +317,11 @@ The pair is deliberate: **the same `emit`/`waitd` machinery that makes UART/I²C
 tells us, quantitatively, where a 33.33 MHz single-issue datapath stops** — and both ceilings were
 found by writing the firmware, not by guessing.
 
+### 10.3 SWD SWCLK ceiling — a probe-clocked software target
+
+| Quantity | Measured |
+|---|---|
+| clean SWCLK | **694 kHz** (24-cycle half period) |
+| failure point | **833 kHz** — the ~35-instruction request decode no longer fits between the last request bit and the first ACK edge |
+| consequence | a software SWD target has a hard clock ceiling; a hardware DP would raise it |
+| achieved instead | full DP/AP subset transactions (IDCODE `0x0BB11477`, CTRL/STAT, TAR, DRW, RDBUFF), FAULT on bad request parity, dropped writes on bad data parity — golden-model verified, 11 transactions (`examples.md` §14) |
