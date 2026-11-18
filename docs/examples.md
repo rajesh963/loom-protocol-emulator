@@ -786,14 +786,12 @@ dedicated serializer) plus a larger pattern buffer, not a bigger firmware effort
 ## 17. Example program status
 
 The firmware workstream has **20 programs in `sw/examples/`** covering **15 protocol families** *(as of
-`04c22f9`)*: UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet, JTAG, CAN, DMX512, MIDI, NEC-IR,
-SWD and HDMI-CEC. The shipped images are generated deterministically into `sw/prog/` by `sw/prog/build_examples.py`
-(the last committed refresh covers the **18-program** set at `d7ed199`: 16–357 words, **1 478 words
-total**; the source set is now 20 programs and a refresh is pending). The manifest schema currently has
-**no `tool_version` field** — planned for the next refresh. Eight of them are exercised by
-RTL tests (`uart_tx`, `uart_rx`, `spi_master`, `spi_slave`, `i2c_master`, `i2c_target`, `usb_ls_tx`,
-`eth_tx`); the rest — including the three v2 additions below — are **golden-model verified** with
-independent decoders, and their status says so.
+`5ed0d87`)*: UART, SPI, I²C, PS/2, 1-Wire, WS2812, USB-LS, Ethernet, JTAG, CAN, DMX512, MIDI, NEC-IR,
+SWD and HDMI-CEC. The shipped images are generated deterministically into `sw/prog/` by `sw/prog/build_examples.py`;
+the refresh covers all **20 programs** (16–357 words, **1 779 words total**, `demo_all` layout
+unchanged) and the manifest now carries a deterministic `tool_version` (`sha256:7771…cecc7`);
+`--check` passes and two consecutive builds are byte-identical. **Two** programs exceed the
+128-word FF fallback (`usb_ls_rx` 357, `swd_target` 210) and are SRAM-1024-only.
 
 "Sketch here, assembles" means the listing in this document is accepted verbatim by
 `sw/loom_asm.py` (and the copies in [`examples_src/`](examples_src/) are the exact files CI

@@ -165,7 +165,7 @@ shows nested per-thread internals with `specRef` links into the docs, and is Sil
 | `gds` GitHub Action | **PASSED** — attempt 8 (`d7bec7a`), ~2.5 h, DRT 0 violations at both routing stages | Actions run |
 | `precheck` | **PASSED 10/10** | Actions run |
 | `gl_test` (gate-level suite) | ✅ **PASSED — `TESTS=64 PASS=60 FAIL=0 SKIP=4`**, run `44068106013` on `7d2fb2f`, 2 740 s, no errors (four skips are RTL-backdoor-dependent) | Actions run `44068106013` |
-| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, v2 post-freeze) | `formal/` log |
+| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, v2 post-freeze; harness commit `53097eb`) | `formal/results.txt` + `formal/formal_final.log` |
 | `docs` action | **PASS** | Actions run |
 | `test` action | **PASS** — reproduces 64/64 on every push | Actions run |
 
@@ -199,21 +199,20 @@ pin-path test and the Ethernet frame TX test. Frozen at `7d2fb2f`; a clean clone
 
 ### 6.1 Program images — distribution and deterministic build *(v2 post-freeze addition)*
 
-The v2 protocol set ships **18 relocatable program images** (16–357 words; `midi_tx` 16 is the
-smallest, `usb_ls_rx` 357 the largest and the **only** program above the 128-word FF fallback, hence
-SRAM-1024-only). The set totals **1 478 PMEM words**, and **no program reaches 1 024 words**, so the
-four-slot `demo_all` layout (`uart_tx` @`0x000`, `uart_rx` @`0x080`, `spi_master` @`0x100`,
-`i2c_master` @`0x180`) is unchanged. Images, listings, symbol tables and `manifest.json` are generated
-deterministically by `sw/prog/build_examples.py` at the shipped **`clock_hz = 33333333`**;
-`build_examples.py --check` passes and two consecutive builds are byte-identical (listings use
-repo-relative source names, so rebuilds are machine-independent).
+The v2 protocol set ships **20 relocatable program images** (16–357 words; `midi_tx` 16 is the
+smallest, `usb_ls_rx` 357 the largest). **Two** programs exceed the 128-word FF fallback —
+`usb_ls_rx` (357) and `swd_target` (210) — so those two are **SRAM-1024-only**; the other 18 fit the
+fallback. The set totals **1 779 PMEM words**, and **no program reaches 1 024 words**, so the four-slot
+`demo_all` layout (`uart_tx` @`0x000`, `uart_rx` @`0x080`, `spi_master` @`0x100`, `i2c_master` @`0x180`)
+is unchanged. Images, listings, symbol tables and `manifest.json` are generated deterministically by
+`sw/prog/build_examples.py` at the shipped **`clock_hz = 33333333`**; the manifest now carries a
+deterministic `tool_version` (`sha256:7771…cecc7`), `build_examples.py --check` passes, and two
+consecutive builds are byte-identical (listings use repo-relative source names, so rebuilds are
+machine-independent).
 
-**Provenance note:** `sw/prog/` was refreshed in v2 for the **18-program** set (`d7ed199`); the source
-set has since grown to **20 programs** (SWD target, 210 words; HDMI-CEC initiator, 91 words — commit
-`04c22f9`), so the image refresh is pending and the committed 18-image build still totals 1 478 words.
-A manifest `tool_version` field is planned for the next refresh — the current manifest schema has **no
-version field** (known limitation, tracked here rather than silently implied). The counts above are
-*as of `04c22f9`*.
+**Provenance note:** `sw/prog/` was refreshed for the 20-program set in **`5ed0d87`** (images,
+listings, symbols and `manifest.json`, including the new deterministic `tool_version` field — the
+earlier "no version field" limitation is closed). The counts above are *as of `5ed0d87`*.
 
 ## 7. Errata and known gaps
 
@@ -241,7 +240,7 @@ writing (Nov 2026). **No row is a silicon measurement.**
 | sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
 | Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
 | protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
-| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 20 firmware programs / 15 families *(as of `04c22f9`)* (8 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 4 formal proofs (incl. scheduler exactness k=16) · GL 60/4 · GDS+precheck 10/10** + 20 firmware programs / 15 families *(as of `5ed0d87`)* (8 v2 programs model-verified) | *deliberately* one uniform machine: no per-protocol datapaths |
 
 LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
 cross-thread pin merge) and methodological (spec-derived golden model + state-level differential

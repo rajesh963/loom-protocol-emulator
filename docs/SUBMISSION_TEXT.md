@@ -15,7 +15,7 @@ the chip is fabricated.
 
 ## What is demonstrated
 
-Twenty firmware programs covering fifteen protocol families *(as of `04c22f9`)* — all run on the same RTL
+Twenty firmware programs covering fifteen protocol families *(as of `5ed0d87`)* — all run on the same RTL
 and ISA with no per-protocol hardware:
 
 | Protocol | Roles | Measured at 33.33 MHz |

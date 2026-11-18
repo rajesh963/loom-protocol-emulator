@@ -178,7 +178,7 @@ Full walkthroughs with verified code for each are in [`examples.md`](examples.md
 assembled versions in [`examples_src/`](examples_src/). Because pins are software-muxed, the same
 programs run on any assignment; only `TMASK`, the pin constants and the period change.
 
-**Program images (v2 post-freeze, as of `d7ed199`).** The v2 protocol set ships **18 relocatable program images** (16–357 words; `midi_tx` 16 is the smallest, `usb_ls_rx` 357 the largest and the **only** program above the 128-word FF fallback, hence SRAM-1024-only). The set totals **1 478 PMEM words**, and **no program reaches 1 024 words**, so the four-slot `demo_all` layout (`uart_tx` @`0x000`, `uart_rx` @`0x080`, `spi_master` @`0x100`, `i2c_master` @`0x180`) is unchanged. Images, listings, symbol tables and `manifest.json` are generated deterministically by `sw/prog/build_examples.py` at the shipped **`clock_hz = 33333333`**; `build_examples.py --check` passes and two consecutive builds are byte-identical (listings use repo-relative source names, so rebuilds are machine-independent).
+**Program images (v2 post-freeze, as of `5ed0d87`).** The v2 protocol set ships **20 relocatable program images** (16–357 words; `midi_tx` 16 is the smallest, `usb_ls_rx` 357 the largest). **Two** programs exceed the 128-word FF fallback — `usb_ls_rx` (357) and `swd_target` (210) — so those two are **SRAM-1024-only**; the other 18 fit the fallback. The set totals **1 779 PMEM words**, and **no program reaches 1 024 words**, so the four-slot `demo_all` layout (`uart_tx` @`0x000`, `uart_rx` @`0x080`, `spi_master` @`0x100`, `i2c_master` @`0x180`) is unchanged. Images, listings, symbol tables and `manifest.json` are generated deterministically by `sw/prog/build_examples.py` at the shipped **`clock_hz = 33333333`**; the manifest now carries a deterministic `tool_version` (`sha256:7771…cecc7`), `build_examples.py --check` passes, and two consecutive builds are byte-identical (listings use repo-relative source names, so rebuilds are machine-independent).
 
 ## 6. Verification
 
@@ -388,7 +388,7 @@ This is the first point at which *the artifact we intend to fabricate* has the f
 | **`gds` action** | **PASSED** (attempt 8, `d7bec7a`, ~2.5 h) |
 | **`precheck`** | **PASSED 10/10** |
 | **`gl_test`** | ✅ **`TESTS=64 PASS=60 FAIL=0 SKIP=4`** (2 739.85 s) on `7d2fb2f`, no errors; skips are the four RTL-backdoor tests. First run was `57/60`; the three failures were **one** root cause — `rtl/loom_mem.v` zeroes DMEM in a simulation-only `initial` that is **not synthesised**, so GL started with undefined DMEM, tests read unwritten words as X through the host bridge, X reached MISO and the cycle monitor's `int()` threw (the PMEM `halt` init was necessary but not sufficient). Fixed by `start_loom()` writing zeros to all 64 DMEM words over the host port — the firmware contract (DMEM has no reset). Evidence: `results.xml` + job log; **no GL FST** (`WAVES=1` not enabled) |
-| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**) |
+| formal (4 bounded proof groups) | **4/4 PASS** (`fifo` k=8, `core` k=6, `host` k=6, **`sched` k=16 — scheduler exactness**, harness `53097eb`) |
 | `test` / `docs` CI workflows | **green** |
 
 Honest footnote: the metrics list 292 max-fanout / 80 max-slew / 27 max-cap flags — TT/PDK *default
@@ -408,7 +408,7 @@ on every push:
 | timing — drift-free fractional stream, UART 115200 at the shipped clock, `waitu` jitter-free, `inat` exact-cycle, `emite` latency, 4 concurrent periods, queue back-pressure (`max_eq = 4`) | **7/7 PASS** |
 | differential co-sim — 100/100 random programs cycle-exact on the full `(pins_out, DIR)` trace **and** full architectural state; 12/12 pull/reactive seeds; 6/6 hand-written; 0 artefacts | **PASS** |
 | protocol VIPs — UART TX/RX, SPI modes 0–3, SPI target, I2C 100 kHz + clock stretching; I2C 400 kHz and I2C target SKIP (firmware-timing triage, 100 kHz passes) | **6/8 PASS** |
-| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **scheduler exactness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`) | **4/4 PASS** |
+| formal — FIFO/queue bounds k=8, core reset+event k=6, host command ordering k=6, **scheduler exactness k=16** (`yosys write_smt2` + `yosys-smtbmc -s z3`; sched harness committed `53097eb`) | **4/4 PASS** |
 
 Gate-level simulation and the LibreLane sign-off rows are still TBD — they need the hardened netlist,
 and this write-up does not estimate them.
@@ -532,7 +532,9 @@ the due time recorded at enqueue is exact (periodic `emit` including the 12.4 `P
 `emita`, relative `emitd`), and that the fired value reaches `pins_out` in that same cycle when it is
 the only pin cause. It is proved about the shipped RTL: yosys cannot reach submodule internals, so the
 harness compiles a generated copy of `rtl/loom_core.v` with **read-only observation ports appended**
-(logic identical — only `assign dbg_*` lines added).
+(logic identical — only `assign dbg_*` lines added). It is committed in **`53097eb`** (`formal/h_sched.v`,
+`h_probe.v`, `run_formal.py`, `results.txt`). It was a **v2 addition to the shipped RTL** — the tape-out
+netlist, GDS and precheck claims are unaffected.
 
 The scope is stated as carefully as the claim: the proof assumes firmware enqueues before the due
 cycle with lookahead `< 0x8000` (late enqueue is recovered as overdue by design — **no liveness
@@ -646,8 +648,8 @@ README:
 
 | Criterion (FAQ) | How LOOM answers it | Evidence |
 |---|---|---|
-| **Flexibility is the main thing** | no protocol hardblocks — a protocol is a program loaded over SPI after fabrication; the ISA is a timing language (events, fractional periods, absolute waits, timed sampling) and the same datapath runs **20 programs across 15 protocol families** *(as of `04c22f9`)*, including eight added after the freeze (USB-LS RX decode/ACK, JTAG TAP, CAN 2.0A TX, DMX512 TX, MIDI TX, NEC-IR TX, SWD target, HDMI-CEC initiator) | `sw/examples/`, [`examples.md`](examples.md), [`isa.md`](isa.md) |
-| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** + RX pin path, **Ethernet frame TX** (2.0833 Mbit/s), and post-freeze firmware: **USB-LS RX decode/ACK**, **JTAG TAP**, **CAN 2.0A TX**, **DMX512 TX**, **MIDI TX**, **NEC-IR TX**, **SWD target**, **HDMI-CEC initiator** (model-verified) — **20 programs, 15 protocol families, 64 RTL tests** *(as of `04c22f9`)* | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/`, `host/eth.py` |
+| **Flexibility is the main thing** | no protocol hardblocks — a protocol is a program loaded over SPI after fabrication; the ISA is a timing language (events, fractional periods, absolute waits, timed sampling) and the same datapath runs **20 programs across 15 protocol families** *(as of `5ed0d87`)*, including eight added after the freeze (USB-LS RX decode/ACK, JTAG TAP, CAN 2.0A TX, DMX512 TX, MIDI TX, NEC-IR TX, SWD target, HDMI-CEC initiator) | `sw/examples/`, [`examples.md`](examples.md), [`isa.md`](isa.md) |
+| **Which protocols are demonstrated** | UART TX/RX/loopback, SPI controller modes 0–3 + SPI target, I²C 100 kHz + 400 kHz + target, PS/2 target, 1-Wire master, WS2812, **USB-LS TX** + RX pin path, **Ethernet frame TX** (2.0833 Mbit/s), and post-freeze firmware: **USB-LS RX decode/ACK**, **JTAG TAP**, **CAN 2.0A TX**, **DMX512 TX**, **MIDI TX**, **NEC-IR TX**, **SWD target**, **HDMI-CEC initiator** (model-verified) — **20 programs, 15 protocol families, 64 RTL tests** *(as of `5ed0d87`)* | `test/test_protocols.py`, `test/test_usb_ls.py`, `sw/examples/`, `host/eth.py` |
 | **Anything unique the architecture enables** | absolute-timeline scheduling, 1-cycle timed sampling, wave player, capture/record-replay (RTL done, rev-B silicon), host toolchain — the "Beyond the obvious" table in §8 | §8 above |
 | **How it was designed and verified** | spec-derived golden model, 100/100 differential co-sim (pins **and** architectural state), 64-test cocotb suite on both memory builds (incl. USB-LS TX/RX and Ethernet), 3 bounded formal proofs, gate-level run, clean-clone reproducible | [`verification.md`](verification.md) |
 | **Write-up** | this narrative plus the flow-attempt log — every dead end, measured number and one-line fix, including the IO-pad library-hygiene bug | [`FLOW_STATUS.md`](FLOW_STATUS.md), §7 |
