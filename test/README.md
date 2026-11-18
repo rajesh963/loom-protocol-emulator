@@ -15,7 +15,7 @@ test/
   test_protocols.py      independent UART / SPI / I2C VIPs (test/vip/)
   test_usb_ls.py         USB 1.1 low-speed device TX: NRZI, bit stuffing, CRC16
   test_eth.py            Ethernet 802.3 Manchester frame TX: preamble/SFD/FCS, IPG
-  test_usb_ls_rx.py      USB LS differential-receiver readiness (pin path + decoder)
+  test_usb_ls_rx.py      USB LS device RX+ACK on RTL (model-derived pin replay) + readiness
   known_issues.py        reported deviations; gated tests flip with one flag
   vip/                   pure-Python UART, SPI (modes 0-3), I2C far-end models + waves
 formal/
@@ -200,7 +200,7 @@ SMT2 files and `formal/results.txt` are kept in `formal/build/`.
 
 ## Status (last full run, 2026-11-17, `7d2fb2f`)
 
-`make` from `test/`: **64 tests, 64 PASS, 0 FAIL, 0 SKIP, ~271 s wall** on both
+`make` from `test/`: **65 tests, 65 PASS, 0 FAIL, 0 SKIP, ~315 s wall** on both
 FF and `SRAM_SIM=1024` (measured on `7d2fb2f`; the GL DMEM-initialisation
 contract adds ~64 host writes per simulated run, so the figure is larger than
 the pre-GL-fix ~160 s and the old "< 3 min" note no longer holds — the full CI
@@ -214,7 +214,7 @@ untracked-file dependency.  All protocol tests run at the **shipped clock:
 CLOCK_PERIOD 30 ns / 33.33 MHz** (`CLK_NS=30.0`), against the `CLOCK_HZ =
 33_333_333` firmware sweep.  Both builds initialise DMEM explicitly after reset
 (see "Memory initialisation" above), which is what makes the gate-level run
-X-clean: GL expected `TESTS=64 PASS=60 FAIL=0 SKIP=4` (the four backdoor-only
+X-clean: GL expected `TESTS=65 PASS=61 FAIL=0 SKIP=4` (the four backdoor-only
 tests skip).
 
 ### USB 1.1 low-speed device TX (stretch) — `test_usb_ls.py`
@@ -256,6 +256,20 @@ the event grid), the frame window is exactly 9216 cycles, and TXD stays quiet
 for at least the 1536-cycle IPG afterwards (the firmware also spends untimed
 instructions recomputing the FCS before the next frame, so the frame-to-frame
 gap is IPG + that compute time; 1536 cycles is the asserted quiet floor).
+
+### USB LS device RX + ACK — `test_usb_ls_rx.py` (first v2 protocol RTL-verified)
+
+**`test_usb_ls_rx_model_replay` (RTL, green):** the golden model runs
+`usb_ls_rx.asm` with its own host transmitter; we record the **cycle-by-cycle
+differential D+/D- stimulus**, replay it byte-identically into the RTL with the
+same program/PC (legal idle J before RUN, host drive released while the model
+device drives for turnaround/ACK), and compare outcomes.  The RTL firmware's
+published 5-byte summary `[2, 0xC3, 0x00, 0x01, 0x01]` and its full **32-word
+DMEM image** are identical to the model's, and the RTL ACK symbol decodes
+(`pid=0xD2`, EOP ok).  ACK latency is functional-only (`~4445` cycles measured;
+USB's 7.5-bit ACK window is explicitly not claimed — see `sw/examples/README.md`).
+The pre-existing readiness test (external differential drive + reference decoder,
+0 pad mismatches) remains.
 
 ### USB LS differential-receiver readiness — `test_usb_ls_rx.py`
 

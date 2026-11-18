@@ -30,6 +30,10 @@ import cocotb
 from host import CSR, start_loom
 from vip import wave as v_wave
 
+from sw import loom_asm
+from sw.loom_model import Loom
+from sw.protocols import WireWorld
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
 CLK_NS = 30.0                 # shipped 33.33 MHz target clock
 CLOCK_HZ = 33333333
@@ -65,6 +69,8 @@ def _load_usb_rx():
 
 
 rx = _load_usb_rx()
+_loom_host = _load_attr(REPO / "host" / "loom_host.py", "loom_host")
+ModelLink = _loom_host.ModelLink
 
 
 def _state_at(transitions, k: int):
@@ -163,3 +169,124 @@ async def test_usb_ls_rx_reference_decoder(dut):
                       tag, len(dat.payload), tok.period_cycles,
                       (tok.period_cycles / 22.25 - 1) * 100,
                       tok.clock_offset * 100, resid)
+
+
+# ---------------------------------------------------------------------------
+# Real device RX + ACK on RTL, driven by a *model-derived* pin replay
+# ---------------------------------------------------------------------------
+EX = REPO / "sw" / "examples"
+REPLAY_PAYLOAD = bytes([0x80, 0x06, 0x00, 0x01, 0x00, 0x00, 0x40, 0x00])
+REPLAY_CYCLES = 26000
+REPLAY_PREROLL = 1500
+
+
+def _model_replay():
+    """Run the golden model with its own host transmitter and return the exact
+    cycle-by-cycle differential stimulus plus the model's outcome."""
+    words = loom_asm.assemble(
+        (EX / "usb_ls_rx.asm").read_text(encoding="utf-8")).words
+    loom = Loom()
+    loom.load(words, 0)
+    loom.set_pc(0, 0)
+    link = ModelLink(loom)
+    world = WireWorld(link, clock_hz=CLOCK_HZ)
+    loom.run_threads(0x1)
+    mon = rx.UsbWireMonitor(world)
+    hosttx = rx.UsbHostTransmitter(world)
+    hosttx.queue_packet(rx.encode_packet("data", pid=rx.PID_DATA0,
+                                         payload=REPLAY_PAYLOAD))
+    rec = []
+    for _ in range(REPLAY_CYCLES):
+        dir_before = loom.dir
+        world.step()
+        rec.append((world.ext16 & 0xFFFF, dir_before))
+    summary = [link.rx_pop(0) for _ in range(5)]
+    return rec, summary, list(loom.dmem), mon
+
+
+@cocotb.test()
+async def test_usb_ls_rx_model_replay(dut):
+    """Device RX + ACK on RTL with byte-identical model-derived stimulus.
+
+    The model runs `usb_ls_rx.asm` with its host transmitter and we replay its
+    exact D+/D- stimulus into the RTL (same program, same PC), releasing the
+    host drive while the model device drives (turnaround/ACK).  The RTL
+    firmware's published summary and DMEM must equal the model's, and the RTL
+    ACK symbol must decode (functional latency only - USB's 7.5-bit ACK window
+    is explicitly not claimed)."""
+    rec, m_summary, m_dmem, m_mon = _model_replay()
+    assert m_summary == [2, rx.PID_DATA0, 0, 1, 1],         f"model summary unexpected: {[hex(b) for b in m_summary]}"
+    m_dev = m_mon.decode_device()
+    assert m_dev and m_dev[0].kind == "ack" and m_dev[0].pid == rx.PID_ACK
+
+    host, mon = await start_loom(dut, clk_ns=CLK_NS, spi_half=3)
+    src = (EX / "usb_ls_rx.asm").read_text(encoding="utf-8")
+    await host.reset(cycles=8)
+    await host.load_asm(src, addr=0)
+    await host.set_pc(0, 0)
+    assert await host.read_csr(CSR["PDIR"]) == 0, "DUT must be high-Z before host drive"
+    # the bus must be at legal idle J before RUN: the tb pull-ups idle at SE1,
+    # which the firmware's D+ poll would mistake for a SYNC edge
+    host.set_ext_uio(0b10, 0b11)
+    await host.run(0x1)
+    for _ in range(REPLAY_PREROLL):           # let the firmware reach its poll
+        host.set_ext_uio(0b10, 0b11)          # idle J
+        await host._clk(1)
+
+    hw_mismatch = 0
+    for ext, dir_before in rec:
+        if (dir_before & 0b11) == 0b11:
+            host.set_ext_uio(0, 0)            # model device drives: release host
+        else:
+            host.set_ext_uio(ext, 0b11)
+        await host._clk(1)
+        if (dir_before & 0b11) != 0b11:
+            if (host.pins_in() & 0b11) != (ext & 0b11):
+                hw_mismatch += 1
+    assert hw_mismatch <= 2, (
+        f"{hw_mismatch} cycles where the RTL pins_in did not follow the replayed "
+        f"differential stimulus")
+    summary = None
+    for _ in range(400):
+        await host._clk(32)
+        fifo = await host.get_tfifo(0)
+        if ((fifo >> 4) & 0xF) >= 5:
+            summary = [await host.rx_pop(0) for _ in range(5)]
+            break
+    rtl_dmem = await host.read_dmem(32)
+    host.log.info("USB RX replay: model summary=%s, RTL summary=%s",
+                  [hex(b) for b in m_summary],
+                  [hex(b) for b in summary] if summary else None)
+    assert summary == m_summary,         f"summary mismatch: model {[hex(b) for b in m_summary]} RTL {summary}"
+    m_dmem = m_dmem[:32]                      # RTL DMEM is 32 words
+    assert rtl_dmem == m_dmem, (
+        "DMEM mismatch on identical model-derived stimulus: "
+        + ", ".join(f"[{i}] model=0x{m:04x} rtl=0x{r:04x}"
+                    for i, (m, r) in enumerate(zip(m_dmem, rtl_dmem)) if m != r))
+
+    # RTL device ACK symbol from the monitor's chip-driven levels
+    dev_tr, prev, driving = [], rx.J, False
+    for c, pins, dirs in mon.records:
+        if (dirs & 0b11) == 0b11:
+            lvl = ((pins >> 0) & 1, (pins >> 1) & 1)
+            if not driving:
+                driving, prev = True, rx.J
+            if lvl != prev:
+                dev_tr.append((c, lvl))
+                prev = lvl
+        elif driving:
+            driving, prev = False, rx.J
+    clean, started = [], False
+    for c, lvl in dev_tr:
+        if not started:
+            if lvl == rx.SE0:
+                continue
+            started = True
+        clean.append((c, lvl))
+    dec = rx.UsbDeviceDecoder(clock_hz=CLOCK_HZ)
+    dec.decode_stream(clean)
+    assert dec.packets and dec.packets[0].kind == "ack"         and dec.packets[0].pid == rx.PID_ACK and dec.packets[0].pid_ok         and dec.packets[0].eop_ok, f"RTL ACK decode: {dec.errors} {dec.packets}"
+    host.log.info("USB RX model-replay PASS: RTL summary/DMEM identical to model "
+                  "(%s), RTL ACK pid=0xD2 EOP ok, %d replay cycles, "
+                  "pins_in follow mismatches=%d",
+                  [hex(b) for b in m_summary], REPLAY_CYCLES, hw_mismatch)
