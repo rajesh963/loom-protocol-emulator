@@ -208,8 +208,13 @@ meta-test.
   Tiny Tapeout pad ring's and the board's; we only verify digital behaviour at the pin vector.
 * **The host link is verified at 10 MHz SCK at the 60 MHz design point** (≈5.5 MHz ceiling at the shipped 33.33 MHz). Above `clk/6` the synchroniser can miss edges; that
   is documented as a host requirement, not defended against.
-* **Stretch features** (capture/record-replay, USB LS, 10BASE-T) are verified only if they ship;
-  their rows stay TBD until then.
+* **No formal CDC or metastability analysis.** There is a single clock domain by construction
+  (no derived clocks); the host SPI path has 2-flop synchronisers, but the protocol pins are sampled
+  combinationally and are not synchronised — see [`architecture.md`](architecture.md) §10. Timing it
+  is firmware's job (mid-bit sampling), and the risk is stated rather than proven away.
+* **Stretch features** are claimed only as far as they are verified: USB-LS TX, the USB-LS RX pin
+  path and Ethernet frame TX are RTL-verified (§9.1); true 10BASE-T is documented as out of reach;
+  capture/record-replay is RTL-complete but **not shipped**, so it stays out of the silicon claims.
 
 ---
 
@@ -302,7 +307,24 @@ state is built to catch, and which per-module unit tests cannot see.
 | TMR wrap | exercised by the timing suite |
 | numeric cross-coverage report (%) | TBD — the meta-test is the enforcement gate; the percentage table is a reporting artefact |
 
-### 9.5 Open items at submission
+### 9.5 Clocking and asynchronous-input coverage *(v2 docs addition)*
+
+What the suite actually exercises, and what it does not:
+
+* **Single clock domain** — no CDC tests are needed between internal blocks because there are no
+  derived clocks ([`architecture.md`](architecture.md) §10). The differential co-simulator would catch
+  any split-domain behaviour as a cycle mismatch on the full pin trace, and 100/100 seeds pass.
+* **Host SPI synchronisers** — exercised by the host-link tests and the captured wire traces
+  (`host-protocol.md` §5): byte framing, CS window, and the `clk/6` limit are tested at the shipped
+  clock; the 10 MHz SCK point was verified at the old 60 MHz design point.
+* **Protocol-pin sampling** — every protocol VIP samples through the same unsynchronised pin path the
+  silicon will use, and the timing tests pin the sampling cycle exactly (`waitu`, `INAT`, `emite`).
+  Metastability is *not* covered by simulation (it cannot be); the mitigation is a v2 item.
+* **Reset** — reset completeness is a formal property, and reset is exercised in RTL, co-sim and
+  gate-level runs. Async de-assert recovery/removal across corners is not verified; it is a stated v2
+  hardening item, not a claimed guarantee.
+
+### 9.6 Open items at submission
 
 | # | Item | Classification |
 |---|---|---|

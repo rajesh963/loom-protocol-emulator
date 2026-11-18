@@ -501,7 +501,51 @@ another protocol starts on another thread, or when the host is slow. That is the
 protocol *emulator* needs, because its whole purpose is to be reprogrammed into something the
 designer did not anticipate.
 
-## 10. How AI tools were used
+## 10. How LOOM compares *(v2 docs addition — post-freeze; design unchanged)*
+
+Several public entries in this competition are open source and pre-silicon. Comparing them is useful
+for a judge, but only if it is done by **architecture family and evidence level** rather than by who
+"wins". The descriptions below are taken from each project's public README at the time of writing
+(Nov 2026) and are deliberately summary-level; links are given so the claims can be checked. **Nothing
+in this table is a silicon measurement, ours or anyone's.**
+
+| Entry | Tiles | Architecture family | Published protocol breadth | Evidence level (as published) |
+|---|---|---|---|---|
+| [parthDOOM/escapement](https://github.com/parthDOOM/escapement) | 8×4 | 4 contexts, absolute-tick scheduling | 71 firmware programs incl. UART, SPI, I²C, CAN, PS/2, WS2812, 1-Wire, JTAG, SWD, USB, 10BASE-T, CEC; capture + bus monitor | **formal no-late-edge guarantee on the netlist** + RTL |
+| [ArkaKhorchidian/tt-protocol-emulator "Polyglot"](https://github.com/ArkaKhorchidian/tt-protocol-emulator) | 6×4 | three PIO-like cores + a programmable line coder (CRC, stuffing, NRZI, Manchester) | UART, SPI, I²C; USB LS TX+RX; CAN 2.0A TX; 10BASE-T TX | RTL |
+| [josusanmartin/wirelingo](https://github.com/josusanmartin/wirelingo) | 8×4 | 3 cores at 48 MHz, three 256-word instruction SRAMs | evidence labelled per artefact: model / RTL / formal / gate / FPGA, with formal equivalence | **formal equivalence** + multi-level evidence |
+| [OliverKlug/sophos-protocol-emulator](https://github.com/OliverKlug/sophos-protocol-emulator) | 6×4 | one state machine, 32×16 IMEM, 32-slot capture | UART, SPI, I²C, JTAG, USB-LS TX | flow metrics published (**11.6 k stdcells, 22.2 %, 40 MHz**) |
+| [goutamyadav/Chip-jane-street "Chameleo"](https://github.com/goutamyadav/Chip-jane-street) | — | Hardcaml-generated RTL, OCaml golden ISA + simulator, PIO-like core array | — | model-based generation (host-language golden model) |
+| [WilliamZhang20/protocol-emulator](https://github.com/WilliamZhang20/protocol-emulator) | — | SRAM bytecode engine, 8×16 register file + ALU, two action lanes (shifters, timers, CRC, LFSR), dispatcher | UART, SPI, I²C, JTAG | RTL |
+| **LOOM (this work)** | 8×4 | **4 symmetric threads + one hardware event scheduler** with absolute, relative and edge events and 1/16-cycle fractional periods | 12 programs / 10 protocol roles: UART TX/RX/loopback, SPI modes 0–3 + target, I²C 100 k/400 k + target, PS/2, 1-Wire, WS2812, USB-LS TX (+RX pin path), Ethernet frame TX; true 10BASE-T documented out of reach | **RTL 64/64 on both memory builds, 100/100 differential co-sim of pins *and* state, 3 formal proofs, gate-level 60/4, GDS + precheck 10/10** |
+
+Evidence-level legend: *model* = golden/reference model or host-language simulation; *RTL* = RTL
+simulation test suite; *formal* = formal proofs or equivalence checks; *gate* = gate-level simulation;
+*GDS* = hardened layout with precheck; *silicon* = measured hardware. Every entry above stops at
+pre-silicon as far as its public artefacts show.
+
+**Where LOOM differs.** (1) **One uniform machine, not per-protocol lanes**: four symmetric threads
+share one issue slot and enqueue events to a *single* hardware scheduler, so a new protocol is new
+firmware, not a new datapath. (2) **Four concurrent protocols with a deterministic cross-thread pin
+merge** — the wave player and event queue make the merge deterministic by construction. (3) **An
+independent, spec-derived golden model** and 100-seed differential co-simulation that compares the full
+pin trace *and* architectural state cycle-by-cycle, which is a stronger equivalence statement than
+pin-only comparison. (4) An **interactive RTL module explorer** shipped in the repo, and a story-first
+write-up that includes the **full failed-attempt log** rather than only the winning run.
+
+**Where others lead today, honestly.** Several entries have a *broader protocol footprint*: USB
+RX/enumeration, CAN, JTAG/SWD and true 10BASE-T framing are already published firmware there, while
+LOOM has USB-LS TX (RX path verified, RX firmware not shipped), Ethernet *frame* TX, and a measured
+argument for why 10BASE-T is out of reach at 33.33 MHz. Some entries ship a **capture/bus-monitor**
+unit, and at least one has a **formal no-late-edge theorem on the netlist** that we do not have (our
+formal work covers FIFO/queue bounds, reset completeness and host command ordering).
+
+**The honest conclusion:** different architecture, comparable evidence level. LOOM's edge is the
+single-scheduler design and the verification discipline around it; the v2 plan (§13) closes the
+protocol-breadth gap in **firmware** (zero cells) and adds a scheduler-exactness proof, which is the
+formal property this architecture actually needs.
+
+## 11. How AI tools were used
 
 This project was built with an AI agent team (DeepSeek Harness) under human direction, and the
 competition asks for that to be documented rather than hidden. The workflow:
@@ -530,7 +574,7 @@ competition asks for that to be documented rather than hidden. The workflow:
   between two documents and very bad at knowing when a spec is wrong — so the human keeps ownership
   of the spec, and the agents keep ownership of the fan-out.
 
-## 11. How this submission maps to the judging criteria
+## 12. How this submission maps to the judging criteria
 
 The FAQ says there is no fixed weighting, that flexibility is the main thing, and that the write-up is
 weighed heavily. This is the short version of the mapping table that also sits at the top of the
@@ -550,7 +594,7 @@ IHP SRAM macro** (`RM_IHPSG13_1P_1024x32`) for instruction memory — both expli
 competition FAQ. Nothing above is a silicon measurement: the frequency, utilisation and verification
 numbers are from simulation and the flow, and where a flow step has not passed it is marked TBD.
 
-## 12. What is next
+## 13. What is next
 
 The repo is the deliverable: RTL, a golden model, an assembler, a host client, protocol examples,
 the verification suite, and the flow configuration. After the March 2027 shuttle returns, the first
@@ -559,3 +603,14 @@ external USB-serial adapter, (3) an I2C conversation with a real sensor, and (4)
 path if it ships. The interesting experiment is then the one no fixed-function peripheral can offer:
 load a protocol nobody designed the chip for, and see whether the event scheduler's timing holds on
 real silicon the way it does in gate-level simulation.
+
+**The v2 plan is firmware-first (post-freeze note, 2026-11).** The measured build has **35 971
+stdcell instances** (518 231 µm² of stdcells + 140 183 µm² macro = 658 414 µm² = 54.5 % of the core),
+and the binding constraint in the flow was **detailed-routing time**, not area (DRT needed 2.5 h and
+routability-driven placement at 50 % density to converge; 8.6 mW). So the next protocol breadth —
+USB RX/enumeration, JTAG, SWD, CAN, DMX512, MIDI, IR — is planned as **firmware on the existing
+machine: zero new cells, no re-harden** ([`results.md`](results.md) §9). RTL changes are reserved for
+small, high-value hardening: 2-FF input synchronisers plus a reset synchroniser (~1 k µm²), and
+possibly enabling the already-verified capture/record-replay engine (RTL exists; it is gated off
+because it aliases the DMEM port used by the wave player), followed by a scheduler-exactness proof.
+**No second GDS is promised** — it ships when it is green, not when it is written.

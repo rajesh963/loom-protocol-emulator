@@ -319,7 +319,7 @@ that silently turned `jmp` into `nop`, CSR bit diagrams wider than a 16-bit read
 of truth, never the symptom. The discipline that made the collaboration productive is the same one
 that makes the verification credible: derive documents from machine-readable sources, execute every
 example before publishing it, and never let a claim exist without an artefact. The full account is
-in [`docs/writeup.md` §10](docs/writeup.md).
+in [`docs/writeup.md` §11](docs/writeup.md).
 
 ## License
 

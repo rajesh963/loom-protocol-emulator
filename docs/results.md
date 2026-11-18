@@ -207,3 +207,49 @@ pin-path test and the Ethernet frame TX test. Frozen at `7d2fb2f`; a clean clone
 | 4 | **True 10BASE-T not achievable**: 20 Mbaud = 1.6667 cycles/cell needs ≥4 instr/cell = 80 M instr/s vs 33.33 M instr/s IPC (2.4× over); measured same-code ceiling 3.03 Mbit/s; ±15–23 ns edge quantisation vs a few-ns TX jitter budget; 1024 half-cells/frame exceed the 32-word DMEM | documented, not a defect — revision-B item. Ethernet *frame TX* at 2.0833 Mbit/s with firmware CRC-32 is RTL-verified instead (§6) | Lead |
 | 5 | **None — all four CI jobs are green.** GDS + precheck 10/10, gate-level `TESTS=64 PASS=60 FAIL=0 SKIP=4` on `7d2fb2f` (run `44068106013`) | design/verification frozen at `7d2fb2f`; submitted tree `352e473` has its own `gds` run pending (`44087988160`). **No silicon measurements exist** | Lead |
 | 6 | The 6-hour CI cap remains a hard limit: attempts 6/7 hit it (design stages are only ~15–20 min; the cap is a DRT budget). Attempt 8 converged in ~2.5 h, so the submitted build is inside it | FAQ fallback (local LibreLane + custom GDS action) not needed | Lead |
+
+## 8. How LOOM compares — summary *(v2 docs addition — post-freeze; design unchanged)*
+
+Full discussion and links: [`writeup.md`](writeup.md) §10. All compared entries are open-source,
+pre-silicon public projects; descriptions are summary-level from their public READMEs at the time of
+writing (Nov 2026). **No row is a silicon measurement.**
+
+| Entry | Tiles | Architecture family | Evidence level (as published) | Where it leads LOOM today |
+|---|---|---|---|---|
+| escapement | 8×4 | 4 contexts, absolute-tick scheduling | **formal no-late-edge guarantee on the netlist** + RTL | firmware breadth (CAN/JTAG/SWD/USB/10BASE-T), capture/bus monitor, formal exactness theorem |
+| Polyglot | 6×4 | PIO-like cores + programmable line coder | RTL | USB LS RX, CAN 2.0A, true 10BASE-T framing |
+| wirelingo | 8×4 | 3 cores @ 48 MHz, 3 × 256-word SRAM | **formal equivalence** + model/RTL/formal/gate/FPGA labelling | evidence discipline; clock rate |
+| sophos | 6×4 | one SM, 32×16 IMEM, 32-slot capture | flow metrics (11.6 k stdcells, 22.2 %, 40 MHz) | area efficiency, 40 MHz, JTAG |
+| Chameleo | — | Hardcaml-generated RTL + OCaml golden model | model-based generation | host-language golden model |
+| protocol-emulator (WilliamZhang20) | — | bytecode engine, 2 action lanes | RTL | action-lane parallelism, JTAG |
+| **LOOM** | 8×4 | 4 symmetric threads + hardware event scheduler (absolute/relative/edge events, 1/16-cycle fractional periods) | **RTL 64/64 both builds · 100/100 co-sim of pins + state · 3 formal proofs · GL 60/4 · GDS+precheck 10/10** | *deliberately* one uniform machine: no per-protocol datapaths |
+
+LOOM's differentiators are architectural (single scheduler, four symmetric threads, deterministic
+cross-thread pin merge) and methodological (spec-derived golden model + state-level differential
+co-simulation, interactive module explorer, failed-attempt log in the write-up). Where others lead —
+USB RX/enumeration firmware, CAN, JTAG/SWD, true 10BASE-T — the v2 plan closes that gap in firmware
+with zero new cells (§9).
+
+## 9. Area headroom and v2 roadmap *(v2 docs addition — post-freeze; design unchanged)*
+
+**Where the area went (measured, attempt 8):** stdcells **518 231 µm²**, SRAM macro **140 183 µm²**,
+total **658 414 µm² = 54.5 %** of the 1 208 170 µm² core; 35 971 stdcell instances; fill occupies the
+rest of the core. Tiny Tapeout guidance is roughly 1 k cells per tile (≈32 k cells for 8×4), so the
+design sits slightly **above** the guidance yet **area was not the binding constraint** — detailed
+routing time was. DRT took **2.5 h** and only converged with routability-driven placement and 50 %
+target density; the hardened die dissipates **8.60 mW**.
+
+**Therefore the v2 plan is firmware-first:**
+
+| Item | Cells | Re-harden? | Note |
+|---|---|---|---|
+| USB RX / enumeration firmware | **0** | no | algorithm + oracle already in repo (`host/usb_ls_rx.py`); code-size-bound (~150–200 instr), fits SRAM-1024 |
+| JTAG, SWD, CAN, DMX512, MIDI, IR firmware | **0** | no | same datapath, new programs; each demonstrated the same way (VIP + golden model) |
+| 2-FF input synchronisers (24 pins) | ~1 k µm² | yes (v2) | closes the unsynchronised-protocol-pin limitation (architecture §10); does not change protocol timing (mid-bit sampling, ≥8 cycles margin) |
+| reset synchroniser | ~100 µm² | yes (v2) | async de-assert recovery/removal hardening |
+| capture / record-replay | 0 (RTL exists, verified) | yes (v2) | currently gated off because it aliases the DMEM port used by the wave player |
+| scheduler-exactness formal proof | 0 | no | the property this architecture should prove next (no late edge across thread interleavings) |
+
+The design is frozen and shipped; no second GDS is promised. A v2 harden happens only if the firmware
+work shows it is worth another tape-out, and it would ship on its own green pipeline.
+

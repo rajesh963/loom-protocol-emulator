@@ -49,7 +49,7 @@ Deadline: **2027-01-18**. Shuttle: March 2027, IHP CMOS5L, 8×4 tiles.
 | 16 | Competition write-up (problem, insight, timing, results, comparison, AI usage) | [`writeup.md`](writeup.md) | docs | **done** (results tables TBD) |
 | 17 | Results: area, timing, GDS, gate-level, formal | [`results.md`](results.md) | lead + docs | **in progress** |
 | 18 | README front page: pitch, comparison, pinout, layout, quickstart, verification summary | [`README.md`](../README.md) | docs | **done** |
-| 19 | AI-tool usage described | [`writeup.md` §10](writeup.md), README | docs | **done** |
+| 19 | AI-tool usage described | [`writeup.md` §11](writeup.md), README | docs | **done** |
 | 20 | Diagrams: block, pinout, timing, event queue (SVG, < 512 KB each, < 1 MB total) | [`images/`](images/) — 48 KB total | docs | **done** |
 | 21 | Every internal link resolves | smoke test §4 | docs | TBD (re-run at submit) |
 

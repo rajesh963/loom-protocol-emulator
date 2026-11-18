@@ -394,7 +394,49 @@ protocol waveform: firmware arms its schedule after the last `RUN` bit.
 
 ---
 
-## 10. Area strategy for 8×4 tiles
+## 10. Clocking and asynchronous inputs
+
+*(v2 docs addition — post-freeze. Describes the frozen `submission-1` design; no RTL changed.)*
+
+**One clock, no derived clocks.** The design has a single clock input `clk` (33.33 MHz in
+`submission-1`), and every sequential element is `posedge clk`. There are no gated, divided or
+internally generated clocks: the SRAM macro's `A_CLK` is wired to the same `clk` in
+`rtl/loom_pmem_sram.v`, and the behavioural simulation model uses the same pin. Consequently there are
+**no internal clock-domain crossings by construction** — the core, host bridge, memory and wave player
+all advance on the same edge, and no asynchronous FIFOs are needed between them.
+
+**Host SPI is the only asynchronous interface with a synchronous protocol.** `spi_cs_n`, `spi_sck` and
+`spi_mosi` come from the board and are unrelated to `clk`. The host bridge captures each of them with a
+**2-flop synchroniser plus one history flop** — `sck_s[2:0]` (`[0]` meta, `[1]` sync, `[2]` history),
+`cs_s[2:0]`, and `mosi_s` — as documented in the `rtl/loom_host.v` header. SCK edges are detected on
+the *synchronised* signal (`sck_rise = sck_s[1] & ~sck_s[2]`), CS edges likewise, and **MOSI is sampled
+on the synchronised SCK rising edge while CS is active**. This is also where the host's `clk/6` SCK
+ceiling comes from (5.56 MHz at 33.33 MHz; 10 MHz at the old 60 MHz design point): two synchroniser
+flops plus the edge-detect flop must fit inside one half SCK period, i.e. 3 clock latencies against
+`SCK/2`.
+
+**Protocol pins are not synchronised — a stated limitation.** The 24 `ui_in`/`uio_in` pins are
+asynchronous inputs sampled *combinational* by the core; there is no input synchroniser on the protocol
+path (only the host bridge has one). Firmware chooses *when* to sample (the `INAT` instruction and the
+pin-input CSR), and the event scheduler keeps that instant exact, so the sampling cycle is
+deterministic — but a single flop can in principle go metastable if a pin edge arrives inside its
+setup/hold window. The standard mitigation is 2-FF synchronisers per input pin (~1 k µm², +2 cycles of
+input latency), planned for a v2 harden if there is one; it would not change protocol timing, because
+every demonstrated protocol samples mid-bit with ≥8 cycles of margin at the rates in §2.1. This is an
+honest limitation, not a formal guarantee.
+
+**Reset.** `rst_n` is active-low and driven by the Tiny Tapeout board. The core, memory, wave player
+and capture use **asynchronous assert *and* de-assert** (`always @(posedge clk or negedge rst_n)`), i.e.
+the async-assert half of the usual reset pattern **without a reset synchroniser**; the host bridge uses
+a **synchronous (clocked) reset** (`always @(posedge clk)` with `if (!rst_n)`), which tolerates a
+board-driven de-assert. There is no internal reset-tree synchronisation, so recovery/removal timing at
+the async-reset flops is a v2 hardening item (a small reset synchroniser, ~100 µm²). Reset completeness
+is verified as a formal property ([`verification.md`](verification.md) §5); this note is about
+de-assert margin, not about reset correctness.
+
+---
+
+## 11. Area strategy for 8×4 tiles
 
 8×4 = 32 tiles ≈ 32 × (202 × 155) µm ≈ **1.00 mm²** nominal; the core the flow lays out is
 1 208 172 µm². **Budget: ≤ ~700–750 k µm² post-synthesis mapped cell area (~60 % utilisation).**
@@ -413,7 +455,7 @@ for a local estimate of 608 415 µm² logic + 140 183 µm² macro = **748 598 µ
 512-word firmware limit), DMEM 32→16, then a smaller thread count. Measured numbers per attempt:
 [`FLOW_STATUS.md`](FLOW_STATUS.md) and [`results.md`](results.md) §3.
 
-## 11. Extensibility after fabrication
+## 12. Extensibility after fabrication
 
 Nothing user-visible is hard-wired. After the chip comes back:
 
